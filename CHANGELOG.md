@@ -16,7 +16,8 @@ follow semantic versioning after its release process is approved.
 - `SECURITY.md` with the NVIDIA PSIRT reporting process and project threat
   model; `.security-triage.yaml` exposure classifications.
 - GitHub Actions `license-check` workflow running `ci/check_licenses.py`,
-  replacing the GitLab CI configuration.
+  replacing the GitLab CI configuration, and a `pre-commit` workflow running
+  the ruff hooks.
 - `.license-info/` third-party dependency license inventory.
 
 ### Changed
