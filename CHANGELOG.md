@@ -1,7 +1,7 @@
 # Changelog
 
 All notable changes will be documented in this file. The project intends to
-follow semantic versioning after its release process is approved.
+follow semantic versioning starting with its first tagged release.
 
 ## Unreleased
 
@@ -15,9 +15,8 @@ follow semantic versioning after its release process is approved.
 - GitHub issue and pull request templates; `[project.urls]` metadata.
 - `SECURITY.md` with the NVIDIA PSIRT reporting process and project threat
   model; `.security-triage.yaml` exposure classifications.
-- GitHub Actions `license-check` workflow running `ci/check_licenses.py`,
-  replacing the GitLab CI configuration, and a `pre-commit` workflow running
-  the ruff hooks.
+- GitHub Actions `license-check` workflow running `ci/check_licenses.py` and
+  `pre-commit` workflow running the ruff hooks.
 - `.license-info/` third-party dependency license inventory.
 
 ### Changed
@@ -34,7 +33,6 @@ follow semantic versioning after its release process is approved.
 
 ### Known limitations
 
-- `uv.lock` does not match `pyproject.toml`, so there is no reproducible
-  install of the pinned environment.
-- Release approvals and publishable model assets are outstanding.
+- Checkpoint publication decisions and container-based validation remain
+  release blockers; no model assets are distributed.
 - The training recipes have not been scientifically reviewed.
