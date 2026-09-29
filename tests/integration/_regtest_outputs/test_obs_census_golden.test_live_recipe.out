@@ -1,0 +1,82 @@
+total rows: 8580146
+
+  sensor_id=atms rows=1085854
+  sensor_id=amsua rows=1325076
+  sensor_id=mhs rows=299372
+  sensor_id=iasi rows=1388575
+  sensor_id=cris rows=1781248
+  sensor_id=conv-plevel rows=2700021
+
+  sensor_id=atms Observation_Type=None rows=1085854
+  sensor_id=amsua Observation_Type=None rows=1325076
+  sensor_id=mhs Observation_Type=None rows=299372
+  sensor_id=iasi Observation_Type=None rows=1388575
+  sensor_id=cris Observation_Type=None rows=1781248
+  sensor_id=conv-plevel Observation_Type=3 rows=30410
+  sensor_id=conv-plevel Observation_Type=5 rows=30246
+  sensor_id=conv-plevel Observation_Type=42 rows=10505
+  sensor_id=conv-plevel Observation_Type=43 rows=4766
+  sensor_id=conv-plevel Observation_Type=120 rows=108453
+  sensor_id=conv-plevel Observation_Type=126 rows=1963
+  sensor_id=conv-plevel Observation_Type=130 rows=491
+  sensor_id=conv-plevel Observation_Type=131 rows=27073
+  sensor_id=conv-plevel Observation_Type=133 rows=175144
+  sensor_id=conv-plevel Observation_Type=180 rows=53320
+  sensor_id=conv-plevel Observation_Type=181 rows=99917
+  sensor_id=conv-plevel Observation_Type=183 rows=3340
+  sensor_id=conv-plevel Observation_Type=187 rows=129004
+  sensor_id=conv-plevel Observation_Type=220 rows=6095
+  sensor_id=conv-plevel Observation_Type=221 rows=660
+  sensor_id=conv-plevel Observation_Type=224 rows=122878
+  sensor_id=conv-plevel Observation_Type=230 rows=430
+  sensor_id=conv-plevel Observation_Type=231 rows=54372
+  sensor_id=conv-plevel Observation_Type=233 rows=333330
+  sensor_id=conv-plevel Observation_Type=240 rows=17300
+  sensor_id=conv-plevel Observation_Type=241 rows=34080
+  sensor_id=conv-plevel Observation_Type=242 rows=21370
+  sensor_id=conv-plevel Observation_Type=243 rows=5510
+  sensor_id=conv-plevel Observation_Type=244 rows=11898
+  sensor_id=conv-plevel Observation_Type=245 rows=103488
+  sensor_id=conv-plevel Observation_Type=246 rows=28408
+  sensor_id=conv-plevel Observation_Type=250 rows=22672
+  sensor_id=conv-plevel Observation_Type=251 rows=57356
+  sensor_id=conv-plevel Observation_Type=252 rows=27868
+  sensor_id=conv-plevel Observation_Type=253 rows=72042
+  sensor_id=conv-plevel Observation_Type=254 rows=57358
+  sensor_id=conv-plevel Observation_Type=255 rows=18092
+  sensor_id=conv-plevel Observation_Type=256 rows=21018
+  sensor_id=conv-plevel Observation_Type=260 rows=16794
+  sensor_id=conv-plevel Observation_Type=267 rows=78081
+  sensor_id=conv-plevel Observation_Type=269 rows=89590
+  sensor_id=conv-plevel Observation_Type=290 rows=475558
+  sensor_id=conv-plevel Observation_Type=750 rows=66673
+  sensor_id=conv-plevel Observation_Type=751 rows=48972
+  sensor_id=conv-plevel Observation_Type=752 rows=46124
+  sensor_id=conv-plevel Observation_Type=753 rows=48311
+  sensor_id=conv-plevel Observation_Type=754 rows=57739
+  sensor_id=conv-plevel Observation_Type=755 rows=57923
+  sensor_id=conv-plevel Observation_Type=803 rows=12221
+  sensor_id=conv-plevel Observation_Type=804 rows=11178
+
+  sensor_id=atms Platform_ID=25 rows=541398
+  sensor_id=atms Platform_ID=32 rows=544456
+  sensor_id=amsua Platform_ID=15 rows=249414
+  sensor_id=amsua Platform_ID=16 rows=283307
+  sensor_id=amsua Platform_ID=20 rows=216080
+  sensor_id=amsua Platform_ID=23 rows=286864
+  sensor_id=amsua Platform_ID=24 rows=289411
+  sensor_id=mhs Platform_ID=15 rows=99240
+  sensor_id=mhs Platform_ID=16 rows=99214
+  sensor_id=mhs Platform_ID=24 rows=100918
+  sensor_id=iasi Platform_ID=15 rows=693242
+  sensor_id=iasi Platform_ID=16 rows=695333
+  sensor_id=cris Platform_ID=25 rows=888608
+  sensor_id=cris Platform_ID=32 rows=892640
+  sensor_id=conv-plevel Platform_ID=27 rows=592739
+  sensor_id=conv-plevel Platform_ID=28 rows=108626
+  sensor_id=conv-plevel Platform_ID=29 rows=122354
+  sensor_id=conv-plevel Platform_ID=30 rows=367725
+  sensor_id=conv-plevel Platform_ID=31 rows=1508577
+
+training=False wind_obs_dropout=0.0 platform_channel_rules=0 satwnd=True
+training=True wind_obs_dropout=0.5 platform_channel_rules=2 satwnd=True

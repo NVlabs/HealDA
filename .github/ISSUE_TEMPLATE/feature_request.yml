@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Feature Request
+description: Request new or changed HealDA functionality
+title: "[FEA]: "
+labels: ["enhancement", "needs-triage"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this feature request.
+        - Please search the [open issues](https://github.com/NVlabs/HealDA/issues) first and confirm this is not a duplicate.
+        - HealDA is pre-release software and is not currently accepting external contributions; requests are still welcome and help prioritise the roadmap.
+
+  - type: dropdown
+    id: new_or_improvement
+    attributes:
+      label: Is this a new feature, an improvement, or a change to existing functionality?
+      options:
+        - New Feature
+        - Improvement
+        - Change
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area does this touch?
+      multiple: true
+      options:
+        - Training loop / CLI
+        - Model architecture
+        - Observation loaders / data contract
+        - State datasets
+        - Checkpointing
+        - Distributed execution
+        - Documentation / examples
+        - Other
+
+  - type: dropdown
+    id: criticality
+    attributes:
+      label: Priority
+      options:
+        - Critical (currently preventing usage)
+        - Medium
+        - Low (would be nice)
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Real usage examples are especially helpful. If an existing library does this, link to it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Sketch the approach. Note whether it changes a public interface (config keys, CLI flags, dataset format, checkpoint format).

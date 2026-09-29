@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a Question
+    url: https://github.com/NVlabs/HealDA/issues
+    about: Usage questions that are not a bug, feature, or documentation request.

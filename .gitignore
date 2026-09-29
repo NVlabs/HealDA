@@ -1,0 +1,34 @@
+.env
+!.env.example
+.joblib-cache
+.joblib
+__pycache__
+.*.swp
+*.nsys-rep
+logs/
+wandb/
+private/scripts/gdas_process/bufr_read_prepbufr
+*.parquet
+*.bufr_d
+.inductor_cache*
+.triton_cache*
+
+tmp/
+
+*.zarr/
+_*
+# _* would otherwise ignore new __init__.py and regtest snapshots.
+!**/__init__.py
+!**/_regtest_outputs/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+events.out.tfevents.*
+outputs/
+.venv/
+
+# agent config; skills live in private/
+.claude/
+.agents/

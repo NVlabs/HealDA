@@ -1,0 +1,5 @@
+Output shape: torch.Size([50, 1])
+Output mean: 0.20302
+Output std: 0.27080
+Output min: -0.61851
+Output max: 0.79705

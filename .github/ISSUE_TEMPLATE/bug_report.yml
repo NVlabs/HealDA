@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Bug Report
+description: File a bug report for HealDA
+title: "[BUG]: "
+labels: ["bug", "needs-triage"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report.
+        - Please search the [open issues](https://github.com/NVlabs/HealDA/issues) first and confirm this is not a duplicate.
+        - Remove credentials, private URLs, account names, and machine-specific paths from anything you paste.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: HealDA commit SHA or release tag.
+      placeholder: "example: v0.1.0 or 3a943746"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation-method
+    attributes:
+      label: Installation method
+      multiple: true
+      options:
+        - uv sync
+        - uv pip install -e .
+        - container
+        - other
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Python, PyTorch, CUDA, GPU model and driver, and number of GPUs / nodes.
+      placeholder: |
+        python -c "import sys, torch; print(sys.version, torch.__version__, torch.version.cuda)"
+        nvidia-smi --query-gpu=name,driver_version --format=csv
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the issue
+      description: What happened, what you expected, and the complete error message or traceback.
+      placeholder: XYZ occurred, I expected QRS
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: The launch command (secrets removed), the `--name` preset or `--loop.*` flags, and the relevant `.env` settings.
+      render: bash
+    validations:
+      required: true

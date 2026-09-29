@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Documentation Request
+description: Report incorrect or missing HealDA documentation
+title: "[DOC]: "
+labels: ["documentation", "needs-triage"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve the documentation.
+        - Please search the [open issues](https://github.com/NVlabs/HealDA/issues) first and confirm this is not a duplicate.
+
+  - type: dropdown
+    id: criticality
+    attributes:
+      label: Priority
+      options:
+        - Critical (currently preventing usage)
+        - Medium
+        - Low (would be nice)
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Describe the incorrect or missing documentation
+      description: Link the page or file and quote the passage where possible.
+      placeholder: "Example: README says `--name debug-single-gpu` but the preset is not listed by `healda-train --help`."
+    validations:
+      required: true
