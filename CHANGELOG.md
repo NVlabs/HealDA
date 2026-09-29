@@ -15,8 +15,8 @@ follow semantic versioning after its release process is approved.
 - GitHub issue and pull request templates; `[project.urls]` metadata.
 - `SECURITY.md` with the NVIDIA PSIRT reporting process and project threat
   model; `.security-triage.yaml` exposure classifications.
-- GitHub Actions `lint` workflow running `make lint` (ruff and SPDX header
-  check), replacing the GitLab CI configuration.
+- GitHub Actions `license-check` workflow running `ci/check_licenses.py`,
+  replacing the GitLab CI configuration.
 - `.license-info/` third-party dependency license inventory.
 
 ### Changed
