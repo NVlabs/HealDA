@@ -136,11 +136,6 @@ This project is currently not accepting contributions.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development guidance.
 
-## Security
-
-See [`SECURITY.md`](SECURITY.md) for how to report a vulnerability and for the
-project's threat model.
-
 ## Disclaimer
 
 This project will download and install additional third-party open-source

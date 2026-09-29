@@ -13,8 +13,6 @@ follow semantic versioning starting with its first tagged release.
 - Minimal training and experimental fine-tuning examples.
 - Public documentation for prepared observation inputs and release status.
 - GitHub issue and pull request templates; `[project.urls]` metadata.
-- `SECURITY.md` with the NVIDIA PSIRT reporting process and project threat
-  model; `.security-triage.yaml` exposure classifications.
 - GitHub Actions `license-check` workflow running `ci/check_licenses.py` and
   `pre-commit` workflow running the ruff hooks.
 - `.license-info/` third-party dependency license inventory.
