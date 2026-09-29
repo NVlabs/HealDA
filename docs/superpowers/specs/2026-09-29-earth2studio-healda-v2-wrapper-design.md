@@ -1,8 +1,11 @@
 # Earth2Studio wrapper for HealDA v2 (0.25° lat/lon recipe) — design
 
-Status: DRAFT v2, pending approval. Revised after three independent code reviews
-(HealDA side, Earth2Studio side, packaging). Scope agreed: approach A, observations
-limited to GPS-RO and SATWND for the first version.
+Status: APPROVED 2026-09-29 (v2, revised after three independent code reviews:
+HealDA side, Earth2Studio side, packaging). Scope: approach A, observations limited
+to GPS-RO and SATWND for the first version. Decisions: defer the `TrainingLoop`
+module refactor; resolve the `earth2grid` source clash on the Earth2Studio side with
+`override-dependencies` (HealDA item 4 — the earlier "remove it" plan rested on the
+false premise that `earth2grid` is on PyPI).
 
 ## Goal
 
@@ -78,8 +81,10 @@ data sources and receive a 0.25° global analysis as an `xr.DataArray`.
   `diffusers` and `duckdb` are new. But `earth2studio[all]` + `healda` **fails to
   resolve** because both declare a source for `earth2grid` (HealDA:
   `url = .../archive/main.tar.gz`; Earth2Studio: `git = ..., rev = 11dcf1b0`) — uv does
-  honor a git dependency's own `[tool.uv.sources]`. Removing HealDA's `earth2grid`
-  source entry makes the full `all` lock resolve cleanly (453 packages).
+  honor a git dependency's own `[tool.uv.sources]`. With HealDA's `earth2grid`
+  source entry removed the full `all` lock resolves (453 packages) — but only
+  because Earth2Studio's own source supplies `earth2grid`; HealDA standalone then
+  fails to resolve, since `earth2grid` is not on PyPI.
   HealDA's CSV package data ships in the wheel (hatchling `packages = ["src/healda"]`,
   files under `src/healda/**/normalizations/`).
 
@@ -115,11 +120,21 @@ data sources and receive a 0.25° global analysis as an `xr.DataArray`.
    `device_transform` accepts without a `target`.
 3. **`NNJAConventionalLoader(include_prepbufr: bool = True)`** threaded to
    `NNJAConvLoader` (cleanliness; not a blocker).
-4. **`pyproject.toml`: remove the `earth2grid` entry from `[tool.uv.sources]`**
-   so `healda` can be a dependency of another uv project. This is a dependency-spec
-   change and needs explicit approval; HealDA's own lock then resolves `earth2grid`
-   from PyPI (`>=2025.11.1` is on PyPI) — to be verified with `uv lock --check` after
-   the edit.
+4. **`pyproject.toml`: make HealDA's `earth2grid` source compatible with
+   Earth2Studio's.** `earth2grid` is not published on PyPI (verified: `uv lock --check`
+   with the source removed fails with "earth2grid was not found in the package
+   registry"), so the source cannot simply be dropped. Two workable options:
+   (a) HealDA pins the byte-identical git source Earth2Studio uses
+   (`git = "https://github.com/NVlabs/earth2grid.git", rev = "11dcf1b0787a7eb6a8497a3a5a5e1fdcc31232d3"`);
+   identical sources do not conflict, and a pinned rev also closes the
+   unpinned-tarball supply-chain finding — but it requires re-locking HealDA and
+   keeps the two repos in lockstep on that rev.
+   (b) Earth2Studio declares `[tool.uv] override-dependencies` for `earth2grid` with
+   its git pin, which replaces every `earth2grid` requirement in the resolution,
+   including HealDA's — HealDA unchanged; needs a dry-run to confirm uv applies
+   overrides to URL conflicts.
+   Decision (2026-09-29): option (b); fall back to (a) only if the dry-run shows uv
+   does not honor the override.
 5. **Recommended follow-up, not required for v1**: move the `TrainingLoop` dataclass
    and `get_network` out of `cli/train.py` into a plotting-free module and make
    `psutil`/`tensorboard` imports lazy, so inference does not import matplotlib and

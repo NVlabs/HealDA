@@ -13,6 +13,11 @@ follow semantic versioning after its release process is approved.
 - Minimal training and experimental fine-tuning examples.
 - Public documentation for prepared observation inputs and release status.
 - GitHub issue and pull request templates; `[project.urls]` metadata.
+- `healda.inference`: `load_analysis_model` rebuilds a trained network from a
+  checkpoint's `loop.json`, and `AnalysisModel.analyze` produces physical-space
+  analyses from in-memory GPS-RO and SATWND cycle tables. Supporting
+  `TransformV2.transform_observations`, `build_conventional_loader` with table
+  sources, and `combined.rebase_conventional`.
 
 ### Changed
 

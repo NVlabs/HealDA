@@ -351,3 +351,12 @@ class CombinedObsLoader:
 
 def _local(table: pa.Table) -> np.ndarray:
     return table[LOCAL_CHANNEL_ID.name].to_numpy(zero_copy_only=False)
+
+
+def rebase_conventional(table: pa.Table) -> pa.Table:
+    """Conv-plevel rows restated in this vocabulary, as ``CombinedObsLoader`` emits them.
+
+    For callers that run the conventional loader without a satellite loader: without
+    this the rows keep the GSI sensor id and sort into the wrong sensor bucket.
+    """
+    return _rebase(table, _local(table))

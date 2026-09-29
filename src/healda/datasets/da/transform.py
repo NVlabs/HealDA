@@ -620,6 +620,26 @@ class TransformV2:
         out["labels"] = torch.empty([len(frames), 0])
         return out
 
+    def transform_observations(self, times, frames):
+        """Observation-only ``transform``: no state, no condition.
+
+        frames: [[{obs_v2: pa.Table}]] and times: [[cftime]], both (batch, time).
+        Returns ``unified_obs`` as ``transform`` does plus the time encodings;
+        ``_device_transform_unified_obs`` finishes the observations on the device.
+        """
+        if not frames or not frames[0]:
+            raise ValueError("transform_observations needs at least one frame")
+
+        def _apply_time_func(func):
+            return torch.from_numpy(np.vectorize(func)(times))
+
+        return {
+            "unified_obs": self._process_obs(times, frames),
+            "second_of_day": _apply_time_func(_compute_second_of_day).float(),
+            "day_of_year": _apply_time_func(_compute_day_of_year).float(),
+            "timestamp": _apply_time_func(_compute_timestamp),
+        }
+
     @healda.utils.profiling.nvtx
     def device_transform(self, batch, device):
         """Transforms to the output of .transform that can occur on gpu

@@ -19,6 +19,7 @@ from healda.config.models import ObsConfig
 from healda.datasets import catalog
 from healda.datasets.catalog import _Zarr
 from healda.observations.loaders import combined
+from healda.observations.loaders.nnja_base import CycleTableSource
 from healda.observations.loaders.nnja_wide import NNJAWideLoader
 from healda.observations.loaders.ufs import UFSUnifiedLoader
 from healda.observations.system import ObsPipeline
@@ -29,6 +30,7 @@ __all__ = [
     "TASK_CONFIGS",
     "StateConfig",
     "TrainingTaskConfig",
+    "build_conventional_loader",
     "build_training_dataset",
     "collate",
     "get_sensors_for_config",
@@ -259,13 +261,45 @@ def get_sensors_for_config(config: ObsConfig):
     return sensors
 
 
-def _get_conv_loader(obs_config: ObsConfig, pipeline: ObsPipeline):
+def build_conventional_loader(
+    obs_config: ObsConfig,
+    *,
+    training: bool,
+    gpsro_table_source: CycleTableSource | None = None,
+    satwnd_table_source: CycleTableSource | None = None,
+):
+    """The conventional half of the recipe's loader, as ``build_obs_loader`` builds it.
+
+    The table sources replace the GPS-RO and SATWND parquet archives with in-memory
+    cycle tables (``healda.observations.adapters.e2s_nnja``); they need the NNJA
+    conventional path.
+    """
+    pipeline = ObsPipeline(obs_config, training=training)
+    if (gpsro_table_source or satwnd_table_source) and not pipeline.nnja_conv:
+        raise ValueError("table sources need ObsConfig.use_nnja_conv")
+    return _get_conv_loader(
+        obs_config,
+        pipeline,
+        gpsro_table_source=gpsro_table_source,
+        satwnd_table_source=satwnd_table_source,
+    )
+
+
+def _get_conv_loader(
+    obs_config: ObsConfig,
+    pipeline: ObsPipeline,
+    *,
+    gpsro_table_source: CycleTableSource | None = None,
+    satwnd_table_source: CycleTableSource | None = None,
+):
     """Conventional side of CombinedObsLoader: UFS replay or NNJA PrepBUFR+GPS-RO."""
     filters = pipeline.filters
     if pipeline.nnja_conv:
         # No UFS archive here: the conv vocabulary, its QC bounds and the NNJA
         # by-level normalization all ship with the package.
         return combined.NNJAConventionalLoader(
+            gpsro_table_source=gpsro_table_source,
+            satwnd_table_source=satwnd_table_source,
             include_satwnd=pipeline.satwnd,
             gpsro_saids=pipeline.gpsro_saids,
             surface_winds=pipeline.surface_winds,
