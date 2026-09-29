@@ -133,8 +133,10 @@ data sources and receive a 0.25° global analysis as an `xr.DataArray`.
    its git pin, which replaces every `earth2grid` requirement in the resolution,
    including HealDA's — HealDA unchanged; needs a dry-run to confirm uv applies
    overrides to URL conflicts.
-   Decision (2026-09-29): option (b); fall back to (a) only if the dry-run shows uv
-   does not honor the override.
+   Decision (2026-09-29): option (b). Verified by dry run on a scratch copy of
+   Earth2Studio `main` (`89be5bcb`) with `override-dependencies = ["earth2grid @ git+https://github.com/NVlabs/earth2grid.git@11dcf1b0..."]`,
+   a `healda` source and the `da-healda-v2` extra in `all`: `uv lock` resolves
+   453 packages, adding only `diffusers`, `duckdb`, `healda`, `regex`.
 5. **Recommended follow-up, not required for v1**: move the `TrainingLoop` dataclass
    and `get_network` out of `cli/train.py` into a plotting-free module and make
    `psutil`/`tensorboard` imports lazy, so inference does not import matplotlib and
