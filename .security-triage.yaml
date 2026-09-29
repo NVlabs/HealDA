@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Persists security-skill triage decisions and classifications across runs.
+# Safe to commit; keep checked into version control so decisions are shared.
+version: "1.0"
+project: "healda"
+last_updated: "2026-09-29T00:00:00Z"
+
+repository_exposure_classification:
+  visibility: "Public"
+  basis: "open-source project distributed on public GitHub; SECURITY.md written to public-safe detail"
+  confirmed_by: "nsobhani"
+  date: "2026-09-29"
+
+service_exposure_classification:
+  tier: "External / Regulated"
+  confidence: "medium"
+  basis: "externally distributed open-source research release (Apache-2.0); not customer-facing/commercial/regulated; handles scientific data with operator-supplied credentials; external distribution rules out the internal tiers"
+  confirmed_by: "nsobhani"
+  date: "2026-09-29"

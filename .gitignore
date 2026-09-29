@@ -7,7 +7,6 @@ __pycache__
 *.nsys-rep
 logs/
 wandb/
-private/scripts/gdas_process/bufr_read_prepbufr
 *.parquet
 *.bufr_d
 .inductor_cache*
@@ -29,6 +28,6 @@ events.out.tfevents.*
 outputs/
 .venv/
 
-# agent config; skills live in private/
+# agent config
 .claude/
 .agents/

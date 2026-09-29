@@ -7,6 +7,8 @@ model components, and distributed execution. It does not include raw-data ETL,
 prepared datasets, checkpoints, scientific benchmark claims, or an end-user
 inference application.
 
+> This code is provided for research and development purposes only.
+
 ## Install
 
 HealDA requires Python 3.11 or newer, PyTorch with CUDA support, and a compatible
@@ -125,12 +127,21 @@ stated in release notes.
 - Fine-tuning and checkpoint portability across configuration changes are not
   scientifically validated.
 - A supported Earth2Studio inference adapter is not yet available.
-- License approval, review approvals, public repository setup, checkpoint
-  publication decisions, and container-based validation remain release
-  blockers.
+- Checkpoint publication decisions and container-based validation remain
+  release blockers.
 
 ## Contributing
 
 This project is currently not accepting contributions.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development guidance.
+
+## Security
+
+See [`SECURITY.md`](SECURITY.md) for how to report a vulnerability and for the
+project's threat model.
+
+## Disclaimer
+
+This project will download and install additional third-party open-source
+software. Review the license terms of those projects before use.
