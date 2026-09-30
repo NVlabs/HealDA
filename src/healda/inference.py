@@ -195,24 +195,62 @@ class AnalysisModel:
         return physical
 
 
-def read_training_loop(checkpoint) -> TrainingLoop:
-    """The ``TrainingLoop`` a checkpoint was written by."""
+def read_training_loop(checkpoint, loop_name: str | None = None) -> TrainingLoop:
+    """The ``TrainingLoop`` a checkpoint was written by.
+
+    Read from the checkpoint's ``loop.json``; ``loop_name`` names a ``LOOPS`` preset
+    to fall back to for checkpoints written without one.
+    """
     with zipfile.ZipFile(checkpoint, "r") as archive:
-        if "loop.json" not in archive.namelist():
+        has_loop = "loop.json" in archive.namelist()
+        loop_json = archive.read("loop.json") if has_loop else None
+    if loop_json is None:
+        if loop_name is None:
             raise ValueError(
-                "checkpoint has no loop.json; analyses need the TrainingLoop the run "
-                "trained with, which healda-train writes into every checkpoint"
+                "checkpoint has no loop.json; pass loop_name (a healda-train preset) "
+                "or use a checkpoint written by healda-train"
             )
-        loop_json = archive.read("loop.json")
+        from healda.cli.train import LOOPS
+
+        return LOOPS[loop_name]
     from healda.cli.train import TrainingLoop
 
     return TrainingLoop.loads(loop_json.decode())
 
 
-def load_analysis_model(checkpoint, device="cuda") -> AnalysisModel:
+def single_process_loop(
+    loop: TrainingLoop, *, compile_dit: bool = True
+) -> TrainingLoop:
+    """The recipe as one unsharded process runs it.
+
+    ``time_parallel`` collapses to 1 and FSDP is off. The fused FiLM tokenizer kernel
+    does not survive the whole observation window on one rank, so the weight-identical
+    pure-torch tokenizer is selected. ``compile_dit`` stays on by default: eager
+    execution of the trained kernels was measured to bias the geopotential column.
+    """
+    embedder = loop.sensor_embedder_config
+    if embedder is not None:
+        embedder = dataclasses.replace(embedder, use_fused_mlp=False)
+    return dataclasses.replace(
+        loop,
+        time_parallel=1,
+        fsdp=False,
+        compile_dit=compile_dit,
+        sensor_embedder_config=embedder,
+    )
+
+
+def load_analysis_model(
+    checkpoint,
+    device="cuda",
+    *,
+    loop_name: str | None = None,
+    compile_dit: bool = True,
+) -> AnalysisModel:
     """Rebuild the trained network and its observation pipeline from a checkpoint.
 
-    ``checkpoint`` is a ``.checkpoint`` zip written by ``healda-train``. Building the
+    ``checkpoint`` is a ``.checkpoint`` zip written by ``healda-train``; ``loop_name``
+    is the preset to fall back to when it carries no ``loop.json``. Building the
     lat/lon recipe fetches ERA5 statics into the healda cache on first use.
     """
     import healda.models
@@ -220,7 +258,9 @@ def load_analysis_model(checkpoint, device="cuda") -> AnalysisModel:
     from healda.training.checkpoint import Checkpoint
 
     device = torch.device(device)
-    loop = read_training_loop(checkpoint)
+    loop = single_process_loop(
+        read_training_loop(checkpoint, loop_name), compile_dit=compile_dit
+    )
     if not loop.obs_config.use_obs:
         raise ValueError("the checkpoint's recipe does not ingest observations")
     net = loop.get_network()

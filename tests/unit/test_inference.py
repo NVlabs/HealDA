@@ -140,6 +140,30 @@ def test_to_physical_denormalizes_inverts_tcw_and_restores_the_sst_fill(masked):
     assert torch.all(physical[:, 2][..., ~ocean] == land_value)
 
 
+def test_single_process_loop_unshards_and_drops_the_fused_tokenizer():
+    from dataclasses import dataclass
+
+    from healda.inference import single_process_loop
+
+    @dataclass
+    class Embedder:
+        use_fused_mlp: bool = True
+        channel_embed_dim: int = 16
+
+    @dataclass
+    class Loop:
+        time_parallel: int = 8
+        fsdp: bool = True
+        compile_dit: bool = False
+        sensor_embedder_config: Embedder | None = None
+
+    loop = single_process_loop(Loop(sensor_embedder_config=Embedder()))
+    assert (loop.time_parallel, loop.fsdp, loop.compile_dit) == (1, False, True)
+    assert loop.sensor_embedder_config.use_fused_mlp is False
+    assert loop.sensor_embedder_config.channel_embed_dim == 16
+    assert single_process_loop(Loop(), compile_dit=False).compile_dit is False
+
+
 def test_read_training_loop_requires_loop_json(tmp_path):
     path = tmp_path / "run.checkpoint"
     with zipfile.ZipFile(path, "w") as archive:
