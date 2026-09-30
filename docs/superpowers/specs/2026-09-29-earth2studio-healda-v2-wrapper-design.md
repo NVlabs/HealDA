@@ -229,6 +229,28 @@ fetch_dataframe(NNJAObsSatwnd(u, v),               t, tol=(-45h,+3h)) ─┤
   ERA5 is finite and of the same order as the v1 example; record peak GPU memory for a
   single-GPU T=8 forward of the 5B backbone (training used `time_parallel=8`).
 
+## Prior art (found 2026-09-29, after the draft)
+
+Two earlier Earth2Studio efforts exist on github.com/negin513/earth2studio:
+
+- NVIDIA/earth2studio PR #975 (open draft since 2026-07): `HealDAv2` as a
+  self-contained port of the HPX64 recipe on `physicsnemo` `VideoHealDA` — approach B.
+- NVIDIA/earth2studio PR #1185 (closed 2026-09-28): `HealDAv2Native`, delegating to
+  `healda` internals (`LOOPS[...]`, `loop.setup()`,
+  `distributed_checkpoint.load("healda_v2.checkpoint")`) and reading the NNJA
+  archives from `.env`; golden-validated (median relative RMS 5.3e-3 over 104
+  channels). Closed pending "where this lives long-term (e2s vs healda repo)".
+
+Facts from #1185 folded into `healda.inference`: the HF package file is
+`healda_v2.checkpoint` (a zip); the whole eight-frame full-NNJA window needs ~86 GiB
+on one rank (#1185 shards over four); the fused FiLM Triton tokenizer faults on an
+unsharded window, so a single process uses the pure-torch tokenizer
+(`use_fused_mlp=False`); eager execution biases the geopotential column (+1.5 %
+Z200), so `compile_dit=True`; the golden run denies `amsua:metop-b:3/6` (not relevant
+to GPS-RO + SATWND). This design differs from #1185 in taking observations from
+Earth2Studio data sources (no `.env` archives) and in placing the model/pipeline
+construction inside the `healda` package.
+
 ## Open questions / decisions needed
 
 1. **HF package contents** (`hf://nvidia/healda-v2` returns 401 without a token; no
