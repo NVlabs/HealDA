@@ -5,8 +5,7 @@
 
 APPLIED here: report type must be in 240-260 (read from the archive, which
 resolves it at write time); SWCM 1-7; finite lat/lon/pressure/wind within the
-channel table's bounds; time within +/-3h; thinning to one row per
-(hpx5, pressure level, 2h, report type), nearest the window centre.
+channel table's bounds; thinning (see NNJASatwndLoader).
 
 NOT applied: zenith limb, qifn, expected error, type-specific pressure limits,
 convinfo iuse, or anything needing a background. See satwnd_qc for what is.
@@ -62,8 +61,6 @@ SATWND_REPORT_TYPES = frozenset(range(240, 261))
 SATWND_TYPE_MIN = min(SATWND_REPORT_TYPES)
 SATWND_TYPE_MAX = max(SATWND_REPORT_TYPES)
 ARCHIVE_HPX_LEVEL = 12
-# ~204 km, matching GSI convthin rmesh=200 km.
-DEFAULT_THIN_HPX_LEVEL = 5
 U_LOCAL_CHANNEL_ID = 6
 V_LOCAL_CHANNEL_ID = 7
 # Sat_Zenith_Angle is kept, and SIGNED: negatives are a real off-nadir angle
@@ -235,6 +232,24 @@ def pressure_to_height_m(pressure_hpa: np.ndarray) -> np.ndarray:
 class NNJASatwndLoader(NNJAArchiveLoader):
     """Read daily AMV Parquet files and emit thinned conv ``u``/``v`` rows.
 
+    THINNING. Each 3h DA window is thinned on its own. The archive assigns every
+    row to the window ``W`` whose ``(W - 3h, W]`` holds its time; a request's
+    ``obs_context_hours`` selects which windows are read. Within a window one row
+    is kept per cell of
+
+    - space: NESTED HEALPix pixel at ``thin_hpx_level``. Set from
+      ``ObsConfig.nnja_satwnd_thin_hpx_level``. The default 5 (~200 km) follows
+      GSI's 200 km AMV thinning mesh.
+    - pressure: the nearest of the model's 13 levels (``PRESSURE_LEVELS_HPA``).
+      ``pressure_bin_hpa`` replaces them with fixed-width bins.
+    - time: ``floor((t - W + 3h) / time_bin_hours)``. The default 2h follows
+      GSI's AMV ``ptime`` and splits a window into ``(W - 3h, W - 1h)`` and
+      ``[W - 1h, W]``.
+    - report type.
+
+    The kept row is the one nearest ``W``. ``pressure_bin_hpa`` and
+    ``time_bin_hours`` are constructor arguments only.
+
     VERTICAL COORDINATE. The data arrives as a PRESSURE. The producing centre's
     height-assignment algorithm (BUFR HAMD) outputs a pressure (BUFR PRLC); raw
     SATWND may carry up to 11 of them -- final, window-channel, histogram,
@@ -268,7 +283,7 @@ class NNJASatwndLoader(NNJAArchiveLoader):
         obs_context_hours: tuple[int, int] = (-3, 3),
         data_spacing: int = 3,
         normalize: bool = True,
-        thin_hpx_level: int = DEFAULT_THIN_HPX_LEVEL,
+        thin_hpx_level: int = 5,
         pressure_bin_hpa: float | None = None,
         time_bin_hours: float = 2.0,
         qc_config: satwnd_qc.SatwndQCConfig | None = None,

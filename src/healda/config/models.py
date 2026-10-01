@@ -112,6 +112,8 @@ class ObsConfig:
     nnja_surface_winds: bool = False
     # Largest PrepBUFR quality marker the conventional loader keeps; None disables the cut.
     nnja_max_quality_mark: int | None = 2
+    # HEALPix level of SATWND spatial thinning; see NNJASatwndLoader for the full key.
+    nnja_satwnd_thin_hpx_level: int = 5
 
     def __post_init__(self):
         # JSON round-trips tuples as lists; canonicalize so equality holds.

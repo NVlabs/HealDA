@@ -156,6 +156,7 @@ class ObsPipeline:
         self.max_quality_mark = obs_config.nnja_max_quality_mark
         # PrepBUFR AMVs are always dropped; this only adds the dedicated archive.
         self.satwnd = obs_config.use_nnja_satwnd
+        self.satwnd_thin_hpx_level = obs_config.nnja_satwnd_thin_hpx_level
         self.filters = ObsFilters(
             channel_ids=tuple(obs_config.drop_obs_channel_ids or ()),
             report_types=tuple(

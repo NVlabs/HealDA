@@ -34,7 +34,9 @@ COMMENT_BY_BASENAME_PREFIX = {
 
 # Files that are vendored/third-party or otherwise out of scope even though
 # they match an extension/basename above.
-EXCLUDE_PATHS: set[str] = set()
+EXCLUDE_PATHS = {
+    "private/scripts/matplotlibrc",
+}
 EXCLUDE_DIR_PARTS = {"_regtest_outputs", ".git"}
 
 SPDX_MARKER = "SPDX-License-Identifier: Apache-2.0"

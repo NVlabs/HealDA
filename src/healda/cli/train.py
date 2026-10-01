@@ -1153,14 +1153,12 @@ class TrainingLoop(loop.TrainingLoopBase):
         physical_prediction = step_out.physical_prediction
         physical_target = step_out.physical_target
         # Metrics only, so keep them off the graph.
-        physical_error = physical_prediction.detach() - physical_target.detach()
-        if self.channel_mask is not None:
-            # run_model_step returns these unmasked, so the domain mask has to reach this
-            # metric by hand or sst is scored over land.
-            physical_error = physical_error * self.channel_mask.to(
-                physical_error.device, physical_error.dtype
-            )
-        physical_mse = physical_error**2
+        error = physical_prediction.detach() - physical_target.detach()
+        # channel_mask rescales by 1/valid-fraction, so it enters error and error² once each.
+        physical_error = (
+            error if self.channel_mask is None else error * self.channel_mask
+        )
+        physical_mse = error * physical_error
 
         channels = self.batch_info.channels
         # When time_length > 1 we report metrics for the final time step only;
@@ -1220,15 +1218,9 @@ class TrainingLoop(loop.TrainingLoopBase):
             background_error = physical_target.index_select(
                 1, t_idx
             ) - physical_background.index_select(1, b_idx)
-            if self.channel_mask is not None:
-                # Skill is a ratio of the two RMSEs, so mask the background error before
-                # squaring, exactly as the prediction above. channel_mask is a rescale
-                # factor (base / valid_fraction), not 0/1, so masking the two sides at
-                # different powers biases the ratio.
-                background_error = background_error * self.channel_mask.to(
-                    background_error.device, background_error.dtype
-                ).index_select(1, t_idx)
             background_mse = background_error**2
+            if self.channel_mask is not None:
+                background_mse *= self.channel_mask.index_select(1, t_idx)
             background_rmse = training_step.last_frame_rmse_per_channel(
                 background_mse, spatial
             )
