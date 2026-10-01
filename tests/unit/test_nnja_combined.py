@@ -147,6 +147,21 @@ def test_use_nnja_satwnd_requires_use_nnja_conv():
         )
 
 
+def test_satwnd_thin_hpx_level_reaches_the_satwnd_loader():
+    from healda.datasets.da.tasks import _get_conv_loader
+    from healda.observations.system import ObsPipeline
+
+    obs = ObsConfig(
+        use_nnja_sat=True,
+        use_nnja_conv=True,
+        use_nnja_satwnd=True,
+        conv_level_channels=True,
+        nnja_satwnd_thin_hpx_level=6,
+    )
+    loader = _get_conv_loader(obs, ObsPipeline(obs, training=False))
+    assert loader._loader.satwnd.thin_hpx_level == 6
+
+
 @pytest.mark.parametrize("value", [-0.1, 1.1, np.nan])
 def test_nnja_wind_dropout_must_be_a_probability(value):
     with pytest.raises(ValueError, match="nnja_wind_dropout must be in"):

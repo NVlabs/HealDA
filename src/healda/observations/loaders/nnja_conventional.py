@@ -146,6 +146,7 @@ class NNJAConvLoader(NNJAArchiveLoader):
         drop_restricted_aircraft: bool = False,
         include_satwnd: bool = False,
         satwnd_archive_root: str = SATWND_ARCHIVE,
+        satwnd_thin_hpx_level: int = 5,
         gpsro_table_source: CycleTableSource | None = None,
         satwnd_table_source: CycleTableSource | None = None,
         wind_obs_dropout: float = 0.0,
@@ -207,6 +208,7 @@ class NNJAConvLoader(NNJAArchiveLoader):
         self.satwnd = (
             NNJASatwndLoader(
                 archive_root=satwnd_archive_root,
+                thin_hpx_level=satwnd_thin_hpx_level,
                 obs_context_hours=obs_context_hours,
                 data_spacing=data_spacing,
                 normalize=normalize,

@@ -267,6 +267,7 @@ def _get_conv_loader(obs_config: ObsConfig, pipeline: ObsPipeline):
         # by-level normalization all ship with the package.
         return combined.NNJAConventionalLoader(
             include_satwnd=pipeline.satwnd,
+            satwnd_thin_hpx_level=pipeline.satwnd_thin_hpx_level,
             gpsro_saids=pipeline.gpsro_saids,
             surface_winds=pipeline.surface_winds,
             max_quality_mark=pipeline.max_quality_mark,
