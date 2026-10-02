@@ -2,10 +2,9 @@
 
 HealDA is an experimental package for observation-conditioned, HEALPix-grid
 atmospheric data assimilation. It contains the model architecture, distributed
-training, inference, and data loaders for observations and target analysis states
-already converted to Parquet and Zarr respectively, with the observation
-filtering, thinning and normalization applied on load. It does not include
-raw-data ETL.
+training, inference, and data loaders for prepared observations (Parquet) and
+target analysis states, with the observation filtering, thinning and
+normalization applied on load. It does not include raw-data ETL.
 
 > This code is provided for research and development purposes only.
 
