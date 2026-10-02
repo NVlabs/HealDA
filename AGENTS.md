@@ -1,6 +1,7 @@
 Git:
 - never run git add -A. carefully avoid checking in binaryies and other data files
-- add "Commit message authored by AI" to all git commit messages
+- mark every AI-written commit as such: a "Co-Authored-By: Claude ..." trailer or the line
+  "Commit message authored by AI". either is enough.
 - after committing there is no need to summarize changes over again
 - before committing, run `make lint`; if it fails, run `make format`
 
