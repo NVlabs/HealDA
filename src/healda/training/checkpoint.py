@@ -121,6 +121,15 @@ class Checkpoint:
     def write_model_config(self, model_config: healda.config.models.ModelConfigV1):
         self._zip.writestr("model.json", model_config.dumps())
 
+    def write_loop_json(self, text: str):
+        self._zip.writestr("loop.json", text)
+
+    def read_loop_json(self) -> str | None:
+        """The training loop that wrote the checkpoint, serialized; None if it has none."""
+        if "loop.json" not in self._zip.namelist():
+            return None
+        return self._zip.read("loop.json").decode()
+
     def open(self, name, mode: Literal["w", "r"] = "r"):
         return self._zip.open(name, mode, force_zip64=True)
 

@@ -32,7 +32,7 @@ from healda.observations.sensors import (
 )
 from healda.config.variables import VARIABLE_CONFIGS
 from healda.datasets import static_data
-from healda.observations.packing import pack_observations_by_pixel
+from healda.observations.packing import pixel_packing
 import warnings
 
 warnings.filterwarnings(
@@ -577,10 +577,6 @@ class TransformV2:
         times: [[cftime]]
         """
         out = {}
-
-        def _apply_time_func(func):
-            return torch.from_numpy(np.vectorize(func)(times))
-
         if "obs_v2" in frames[0][0].keys():
             with healda.utils.profiling.cpu_timing_range("transform.obs"):
                 out["unified_obs"] = self._process_obs(times, frames)
@@ -592,9 +588,7 @@ class TransformV2:
                 channel_axis=2,
             )
         with healda.utils.profiling.cpu_timing_range("transform.time"):
-            out["second_of_day"] = _apply_time_func(_compute_second_of_day).float()
-            out["day_of_year"] = _apply_time_func(_compute_day_of_year).float()
-            out["timestamp"] = _apply_time_func(_compute_timestamp)
+            out.update(_time_encodings(times))
         # target is (b, t, c, x) here; device_transform permutes it to (b, c, t, x).
         b, t, _, _ = out["target"].shape
         if self.static_condition is None:
@@ -619,6 +613,20 @@ class TransformV2:
         out["condition"] = condition
         out["labels"] = torch.empty([len(frames), 0])
         return out
+
+    def transform_observations(self, times, frames):
+        """``transform`` without state or condition, for observation-only inference.
+
+        frames: [[{obs_v2: pa.Table}]] and times: [[cftime]], both (batch, time). Returns
+        ``unified_obs`` as ``transform`` does plus the time encodings;
+        ``_device_transform_unified_obs`` finishes the observations on the device.
+        ``transform`` cannot serve this caller: it always packs the state and requires a
+        static condition.
+        """
+        return {
+            "unified_obs": self._process_obs(times, frames),
+            **_time_encodings(times),
+        }
 
     @healda.utils.profiling.nvtx
     def device_transform(self, batch, device):
@@ -679,6 +687,27 @@ class TransformV2:
                 return torch.from_numpy(tensor).to(device, non_blocking=non_blocking)
 
         obs_tensors = {key: _to_device(val) for key, val in obs_tensors.items()}
+        lengths = _to_device(lengths)
+        pix = self._grid.ang2pix(
+            obs_tensors["longitude"], obs_tensors["latitude"]
+        ).int()
+
+        # Pixel-sort the raw rows before deriving float_metadata so it is built once, in
+        # order, instead of built and then reordered.
+        packing = None
+        if self.attention_prepack:
+            order, packing = pixel_packing(
+                pix,
+                lengths,
+                self.hpx_level,
+                self.pixel_order,
+                build_group_map=self.build_attention_group_map,
+            )
+            if order is not None:
+                obs_tensors = {
+                    key: _indexable(value)[order] for key, value in obs_tensors.items()
+                }
+                pix = pix[order]
 
         obs_time_ns = obs_tensors["absolute_obs_time"]
         lat_tensor = obs_tensors["latitude"]
@@ -690,7 +719,6 @@ class TransformV2:
         sol_zenith_tensor = obs_tensors["sol_zenith_angle"]
         platform_id_tensor = obs_tensors["platform_id"].int()
         obs_type_tensor = obs_tensors["observation_type"].int()
-        pix = self._grid.ang2pix(lon_tensor, lat_tensor).int()
         local_channel_id_tensor = obs_tensors["local_channel_id"].int()
         global_channel_id_tensor = obs_tensors["global_channel_id"].int()
         observation_tensor = obs_tensors["observation"]
@@ -720,24 +748,20 @@ class TransformV2:
                 sol_zenith_angle=sol_zenith_tensor,
             )
 
-        lengths = _to_device(lengths)
         if self.attention_prepack:
             # The obs-attention path attends over all sensors together and never
             # reads a sensor-local platform id, so the mapping is dead work. -1 is a
             # fail-fast sentinel: nn.Embedding raises on negative indices.
-            # TODO: carry None instead -- the sentinel array is still allocated,
-            # reordered by obs_packing and moved to device for no reader.
+            # TODO: carry None instead -- the sentinel array is allocated for no reader.
             local_platform = torch.full_like(platform_id_tensor, -1)
         else:
-            # Computed before any reordering, while lengths still describes
-            # per-sensor contiguous spans.
             local_platform = _map_platform_to_local(
                 platform=platform_id_tensor,
                 lengths=lengths,
                 lut_matrix=self._platform_lut_matrix(device),
             )
 
-        out = types.UnifiedObservation(
+        return types.UnifiedObservation(
             obs=observation_tensor,
             time=obs_time_ns,
             float_metadata=meta,
@@ -749,16 +773,24 @@ class TransformV2:
             global_platform=platform_id_tensor,
             hpx_level=self.hpx_level,
             lengths=lengths,
+            attention_packing=packing,
         )
-        # Backbone pixel cross-attention requires observations packed into
-        # per-pixel contiguous groups; the scatter/embed path does not.
-        if self.attention_prepack:
-            out = pack_observations_by_pixel(
-                out,
-                pixel_order=self.pixel_order,
-                build_group_map=self.build_attention_group_map,
-            )
-        return out
+
+
+def _indexable(tensor: torch.Tensor) -> torch.Tensor:
+    # CUDA has no uint16 gather; the id columns arrive as uint16 and are cast to int32 anyway.
+    return tensor.int() if tensor.dtype == torch.uint16 else tensor
+
+
+def _time_encodings(times) -> dict[str, torch.Tensor]:
+    def apply(func):
+        return torch.from_numpy(np.vectorize(func)(times))
+
+    return {
+        "second_of_day": apply(_compute_second_of_day).float(),
+        "day_of_year": apply(_compute_day_of_year).float(),
+        "timestamp": apply(_compute_timestamp),
+    }
 
 
 def collate(obj):

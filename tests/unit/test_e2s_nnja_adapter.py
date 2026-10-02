@@ -3,15 +3,22 @@
 
 """earth2studio NNJA frames restated as archive tables and read by the archive loaders."""
 
+import asyncio
+
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from healda.observations.adapters import e2s_nnja
+from healda.observations.loaders.nnja_conventional import NNJAConvLoader
 from healda.observations.loaders.nnja_gpsro import NNJAGpsroLoader
 from healda.observations.loaders.nnja_satwnd import NNJASatwndLoader
-from healda.observations.preprocessing import satwnd_gsi_types
+from healda.observations.loaders.nnja_wide import NNJAWideLoader
+from healda.observations.preprocessing import ir_spectral, satwnd_gsi_types
 from healda.observations.preprocessing.gpsro_pressure import derive_level_coordinates
+from healda.observations.preprocessing.sat_helpers import hpx_nest_pixels
 
 CYCLE = pd.Timestamp("2022-01-01T00")
 ELRC = 6_371_000.0
@@ -29,6 +36,7 @@ def _gps_frame(time: pd.Timestamp) -> pd.DataFrame:
         "radius_curvature": ELRC,
         "geoid_undulation": 10.0,
         "class": "GPSRO",
+        "cycle_time": CYCLE,
     }
     levels = pd.DataFrame(
         {
@@ -77,25 +85,21 @@ def test_gpsro_tables_derive_with_the_etl_function():
     )
 
 
-@pytest.mark.parametrize(
-    "offset, cycle",
-    [
-        # NCEP dumps cover [cycle - 3h, cycle + 3h).
-        (pd.Timedelta(hours=-3), CYCLE),
-        (pd.Timedelta(hours=-3, seconds=-1), CYCLE - pd.Timedelta(hours=6)),
-        (pd.Timedelta(hours=3), CYCLE + pd.Timedelta(hours=6)),
-    ],
-)
-def test_rows_are_keyed_by_the_cycle_file_that_holds_them(offset, cycle):
-    assert list(e2s_nnja.gpsro_tables(_gps_frame(CYCLE + offset))) == [cycle]
+@pytest.mark.parametrize("file_cycle", [CYCLE, CYCLE + pd.Timedelta(hours=6)])
+def test_rows_are_keyed_by_the_file_they_were_decoded_from(file_cycle):
+    # An observation at CYCLE + 3h sits at the edge of both files' windows.
+    frame = _gps_frame(CYCLE + pd.Timedelta(hours=3)).assign(cycle_time=file_cycle)
+    assert list(e2s_nnja.gpsro_tables(frame)) == [file_cycle]
 
 
 def test_tz_aware_times_key_like_naive_utc():
     frame = _gps_frame(CYCLE)
-    aware = frame.assign(
-        time=frame["time"].dt.tz_localize("UTC").dt.tz_convert("US/Pacific")
-    )
-    assert list(e2s_nnja.gpsro_tables(aware)) == [CYCLE]
+
+    def aware(column):
+        return frame[column].dt.tz_localize("UTC").dt.tz_convert("US/Pacific")
+
+    frame = frame.assign(time=aware("time"), cycle_time=aware("cycle_time"))
+    assert list(e2s_nnja.gpsro_tables(frame)) == [CYCLE]
 
 
 def test_gpsro_loader_reads_tables_like_an_archive_file():
@@ -129,6 +133,7 @@ def _wind_frame() -> pd.DataFrame:
             "satellite_za": [20.0, 30.0],
             "quality": [np.nan, np.nan],
             "class": "SATWND",
+            "cycle_time": CYCLE,
         }
     )
     u = winds.assign(observation=[5.0, -3.0], variable="u")
@@ -191,38 +196,10 @@ def test_null_subsets_stay_untyped():
     assert types.report_type.tolist() == [245, -1, -1, -1]
 
 
-def test_written_archive_reads_back_like_the_tables(tmp_path):
-    gps = e2s_nnja.gpsro_tables(_gps_frame(CYCLE - pd.Timedelta(minutes=30)))
-    winds = e2s_nnja.satwnd_tables(_wind_frame())
-    e2s_nnja.write_gpsro_archive(gps, str(tmp_path / "gpsro"))
-    e2s_nnja.write_satwnd_archive(winds, str(tmp_path / "satwnd"))
-    windows = [CYCLE, CYCLE + pd.Timedelta(hours=3)]
-
-    def gpsro(**kw):
-        loader = NNJAGpsroLoader(said_allowlist=None, normalize=False, **kw)
-        return loader._load_cycle(CYCLE, (False, True))
-
-    def satwnd(**kw):
-        return NNJASatwndLoader(normalize=False, **kw)._load_day(CYCLE, windows)
-
-    for from_tables, from_archive in (
-        (gpsro(table_source=gps), gpsro(archive_root=str(tmp_path / "gpsro"))),
-        (satwnd(table_source=winds), satwnd(archive_root=str(tmp_path / "satwnd"))),
-    ):
-        assert [w for w, _ in from_tables] == [w for w, _ in from_archive]
-        for (_, a), (_, b) in zip(from_tables, from_archive):
-            assert a.equals(b)
-
-
-def test_satwnd_rejoin_does_not_depend_on_row_order():
+def test_satwnd_rejects_v_rows_out_of_wind_order():
     frame = _wind_frame()
-    in_order = e2s_nnja.satwnd_tables(frame)[CYCLE].to_pandas()
-    shuffled = e2s_nnja.satwnd_tables(frame.iloc[[3, 0, 2, 1]])[CYCLE].to_pandas()
-    columns = ["time_utc", "wind_u_derived", "wind_v_derived", "gsi_observation_type"]
-    pd.testing.assert_frame_equal(
-        in_order[columns].sort_values("time_utc", ignore_index=True),
-        shuffled[columns].sort_values("time_utc", ignore_index=True),
-    )
+    with pytest.raises(ValueError, match="wind order"):
+        e2s_nnja.satwnd_tables(frame.iloc[[3, 0, 2, 1]])
 
 
 def test_derivation_screens_unusable_refractivity_levels_itself():
@@ -241,3 +218,215 @@ def test_derivation_screens_unusable_refractivity_levels_itself():
     raw = derive_level_coordinates(impacts, raw_heights, raw_refractivity, **kwargs)
     for name in screened:
         np.testing.assert_array_equal(raw[name], screened[name])
+
+
+def _conv_frame() -> pd.DataFrame:
+    # A radiosonde's surface and drifted 850 hPa levels and a wind report, as
+    # NNJAObsConv returns them: one row per variable, in Pa, K and kg/kg.
+    sonde = {
+        "time": CYCLE - pd.Timedelta(hours=1),
+        "report_time": CYCLE - pd.Timedelta(hours=1),
+        "station": "72403",
+        "type": 120,
+        "lat": 38.98,
+        "lon": 282.53,
+        "report_lat": 38.98,
+        "report_lon": 282.53,
+        "station_elev": 88.0,
+        "pressure_quality": 2,
+        "class": "ADPUPA",
+        "cycle_time": CYCLE,
+    }
+    surface = dict(sonde, level_cat=0, pres=100_000.0, elev=88.0, quality=2)
+    upper = dict(sonde, level_cat=1, pres=85_000.0, elev=1_500.0, quality=1)
+    drifted = dict(upper, time=CYCLE - pd.Timedelta(minutes=30), lat=39.0, lon=282.75)
+    wind = dict(sonde, time=CYCLE + pd.Timedelta(hours=1), type=220, quality=2)
+    wind.update(report_time=wind["time"], level_cat=1, pres=85_000.0, elev=1_500.0)
+    rows = [
+        dict(surface, variable="pres", observation=100_000.0),
+        dict(surface, variable="t", observation=np.float32(15.3) + 273.15),
+        dict(surface, variable="q", observation=np.float32(8_000 * 1e-6)),
+        dict(drifted, variable="t", observation=np.float32(4.1) + 273.15),
+        dict(wind, variable="u", observation=7.5),
+        dict(wind, variable="v", observation=-2.0),
+    ]
+    frame = pd.DataFrame(rows)
+    frame["observation"] = frame["observation"].astype(np.float32)
+    return frame
+
+
+def test_prepbufr_tables_restate_one_row_per_level_in_archive_units():
+    ((cycle, table),) = e2s_nnja.prepbufr_tables(_conv_frame()).items()
+    assert cycle == CYCLE
+    surface, upper, wind = table.to_pylist()
+    assert (surface["POB"], surface["PQM"]) == (1000.0, 2.0)
+    assert surface["TOB"] == np.float32(15.3)
+    assert surface["QOB"] == 8000.0
+    assert (upper["TOB"], upper["TQM"]) == (np.float32(4.1), 1.0)
+    assert upper["QOB"] is None
+    assert (wind["UOB"], wind["VOB"], wind["WQM"]) == (7.5, -2.0, 2.0)
+    assert [row["DHR"] for row in (surface, upper, wind)] == [-1.0, -1.0, 1.0]
+    assert (upper["XOB"], upper["YOB"]) == (np.float32(282.53), np.float32(38.98))
+    assert (upper["XDR"], upper["YDR"]) == (282.75, 39.0)
+    assert [row["HRDR"] for row in (surface, upper, wind)] == [-1.0, -0.5, 1.0]
+
+
+@pytest.mark.parametrize(
+    "file_cycle, dhr", [(CYCLE, 3.0), (CYCLE + pd.Timedelta(hours=6), -3.0)]
+)
+def test_prepbufr_hours_are_relative_to_the_file_cycle(file_cycle, dhr):
+    edge = CYCLE + pd.Timedelta(hours=3)
+    frame = _conv_frame().assign(time=edge, report_time=edge, cycle_time=file_cycle)
+    ((cycle, table),) = e2s_nnja.prepbufr_tables(frame).items()
+    assert cycle == file_cycle
+    assert set(table["DHR"].to_pylist()) == set(table["HRDR"].to_pylist()) == {dhr}
+
+
+def test_conv_loader_reads_prepbufr_tables_like_an_archive_file(tmp_path):
+    tables = e2s_nnja.prepbufr_tables(_conv_frame())
+    name = f"gdas.{CYCLE:%Y%m%d}.t{CYCLE:%H}z.prepbufr.nr.parquet"
+    (tmp_path / f"{CYCLE:%Y}").mkdir()
+    pq.write_table(tables[CYCLE], tmp_path / f"{CYCLE:%Y}" / name)
+
+    def load(**kw):
+        loader = NNJAConvLoader(include_gpsro=False, normalize=False, **kw)
+        return loader._load_cycle(CYCLE, (False, True))
+
+    lats = {}
+    for drift in (False, True):
+        from_tables = load(prepbufr_table_source=tables, balloon_drift=drift)
+        lats[drift] = {v for _, t in from_tables for v in t["Latitude"].to_pylist()}
+        from_archive = load(archive_root=str(tmp_path), balloon_drift=drift)
+        assert [w for w, _ in from_tables] == [CYCLE, CYCLE + pd.Timedelta(hours=3)]
+        assert [w for w, _ in from_archive] == [w for w, _ in from_tables]
+        for (_, a), (_, b) in zip(from_tables, from_archive):
+            assert a.equals(b)
+    assert lats == {False: {np.float32(38.98)}, True: {np.float32(38.98), 39.0}}
+    channels = [c for _, t in from_tables for c in t["local_channel_id"].to_pylist()]
+    # ps, q, t at the surface; t at 850 hPa; u, v.
+    assert sorted(channels) == [3, 4, 5, 5, 6, 7]
+
+
+def _sat_frame(sensor: str, channels, detector=None) -> pd.DataFrame:
+    # Three footprints of NNJAObsSat rows, footprint-major; the second lacks its
+    # first channel, as NNJAObsSat emits no row for a missing observation.
+    rows = []
+    times = [CYCLE - pd.Timedelta(hours=1), CYCLE, CYCLE + pd.Timedelta(hours=2)]
+    for footprint, time in enumerate(times):
+        for position, channel in enumerate(channels):
+            if footprint == 1 and position == 0:
+                continue
+            rows.append(
+                {
+                    "time": time,
+                    "lat": 10.0 + footprint,
+                    "lon": -20.0 + footprint,
+                    "satellite": ["n20", "npp", "n20"][footprint],
+                    "scan_position": 5 + footprint,
+                    "scan_line": 1,
+                    "sensor_index": channel,
+                    "satellite_za": 30.0,
+                    "solza": 60.0,
+                    "observation": 200.0 + position + footprint,
+                    "variable": e2s_nnja.SAT_VARIABLE.get(sensor, sensor),
+                    "cycle_time": CYCLE,
+                }
+            )
+    frame = pd.DataFrame(rows)
+    if detector is not None:
+        frame["detector"] = detector
+    return frame
+
+
+def test_sat_tables_pivot_footprints_into_channel_columns():
+    frame = _sat_frame("atms", np.arange(1, 23))
+    # Brightness temperature is not the archive's ATMS column.
+    frame = pd.concat([frame, frame.head(1).assign(variable="atms")])
+    (table,) = e2s_nnja.sat_tables(frame, "atms").values()
+    rows = table.to_pandas()
+    assert rows["platform_id"].tolist() == [225, 224, 225]
+    assert rows["field_of_view"].tolist() == [5, 6, 7]
+    assert rows["antenna_temperature__ch_00001"].isna().tolist() == [False, True, False]
+    assert rows["antenna_temperature__ch_00022"].tolist() == [221.0, 222.0, 223.0]
+    windows = pd.to_datetime(rows["da_window"]).dt.tz_localize(None).tolist()
+    assert windows == [CYCLE, CYCLE, CYCLE + pd.Timedelta(hours=3)]
+    pixels, _ = hpx_nest_pixels(rows["latitude"], rows["longitude"], 11)
+    assert rows["hpx2048_nest"].tolist() == pixels.tolist()
+
+
+def test_cris_tables_store_the_archive_code_and_detector():
+    channel = max(ir_spectral.ir_channel_preset("ir32")["cris"])
+    frame = _sat_frame("cris", sorted(ir_spectral.ir_channel_preset("ir32")["cris"]), 4)
+    (table,) = e2s_nnja.sat_tables(frame, "cris").values()
+    rows = table.to_pandas()
+    assert rows["field_of_view"].tolist() == [4, 4, 4]
+    assert rows["field_of_regard"].tolist() == [5, 6, 7]
+    field = table.schema.field(f"spectral_radiance_code__ch_{channel:05d}")
+    assert field.type == pa.int32()
+    encoding = ir_spectral.archive_value_encoding(field)
+    assert encoding == {"reference": -100000, "scale": 7}
+    radiance = ir_spectral.radiance_mw("cris", rows[field.name], **encoding)
+    kelvin = ir_spectral.brightness_temperature(
+        radiance, ir_spectral.wavenumber_cm_inverse("cris", [channel])
+    )
+    np.testing.assert_allclose(kelvin, [231.0, 232.0, 233.0], atol=0.05)
+    with pytest.raises(ValueError, match="detector"):
+        e2s_nnja.sat_tables(frame.drop(columns="detector"), "cris")
+
+
+def test_wide_loader_reads_tables_like_an_archive_file(tmp_path):
+    tables = e2s_nnja.sat_tables(_sat_frame("atms", np.arange(1, 23)), "atms")
+    # The archive layout: a day file per sensor, one row group per DA window.
+    (table,) = tables.values()
+    window = table["da_window"].to_numpy()
+    (tmp_path / "atms").mkdir()
+    path = tmp_path / "atms" / f"{CYCLE:%Y%m%d}.parquet"
+    with pq.ParquetWriter(path, table.schema) as out:
+        for value in np.unique(window):
+            out.write_table(table.filter(pa.array(window == value)))
+
+    def load(**source):
+        loader = NNJAWideLoader(["atms"], thin_nside=1, normalize=False, **source)
+        return asyncio.run(loader.sel_time(pd.DatetimeIndex([CYCLE])))["obs_v2"][0]
+
+    from_tables = load(table_source={"atms": tables})
+    assert from_tables.num_rows > 0
+    assert from_tables.equals(load(archive_root=str(tmp_path)))
+    assert load(table_source={}).num_rows == 0
+
+
+def test_analysis_tables_equal_the_per_stream_adapters():
+    gps = _gps_frame(CYCLE - pd.Timedelta(minutes=30))
+    atms = _sat_frame("atms", np.arange(1, 23))
+    pairs = [
+        (
+            e2s_nnja.analysis_tables(
+                conv=_conv_frame(), sensors=(), ir_channels="ir32"
+            ),
+            "prepbufr_tables",
+            e2s_nnja.prepbufr_tables(_conv_frame()),
+        ),
+        (
+            e2s_nnja.analysis_tables(conv=gps, sensors=(), ir_channels="ir32"),
+            "gpsro_tables",
+            e2s_nnja.gpsro_tables(gps),
+        ),
+        (
+            e2s_nnja.analysis_tables(
+                satwnd=_wind_frame(), sensors=(), ir_channels="ir32"
+            ),
+            "satwnd_tables",
+            e2s_nnja.satwnd_tables(_wind_frame()),
+        ),
+    ]
+    sat = e2s_nnja.analysis_tables(sat=atms, sensors=["atms"], ir_channels="ir32")
+    pairs.append((sat["satellite_tables"], "atms", e2s_nnja.sat_tables(atms, "atms")))
+    for tables, argument, expected in pairs:
+        got = tables[argument]
+        assert got.keys() == expected.keys() and expected
+        for cycle in expected:
+            assert got[cycle].equals(expected[cycle])
+
+
+def test_gpsro_tables_of_a_frame_without_gps_rows_are_empty():
+    assert e2s_nnja.gpsro_tables(_gps_frame(CYCLE).assign(variable="t")) == {}

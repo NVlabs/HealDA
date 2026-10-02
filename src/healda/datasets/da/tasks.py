@@ -10,7 +10,7 @@ part of the task identity; the train loop toggles them with ``use_obs`` /
 """
 
 import dataclasses
-from typing import Any
+from typing import Any, Mapping
 
 import torch
 
@@ -19,6 +19,7 @@ from healda.config.models import ObsConfig
 from healda.datasets import catalog
 from healda.datasets.catalog import _Zarr
 from healda.observations.loaders import combined
+from healda.observations.loaders.nnja_base import CycleTableSource
 from healda.observations.loaders.nnja_wide import NNJAWideLoader
 from healda.observations.loaders.ufs import UFSUnifiedLoader
 from healda.observations.system import ObsPipeline
@@ -29,6 +30,7 @@ __all__ = [
     "TASK_CONFIGS",
     "StateConfig",
     "TrainingTaskConfig",
+    "build_obs_loader",
     "build_training_dataset",
     "collate",
     "get_sensors_for_config",
@@ -259,13 +261,50 @@ def get_sensors_for_config(config: ObsConfig):
     return sensors
 
 
-def _get_conv_loader(obs_config: ObsConfig, pipeline: ObsPipeline):
+def _get_sat_loader(
+    obs_config: ObsConfig,
+    pipeline: ObsPipeline,
+    *,
+    table_source: Mapping[str, CycleTableSource] | None = None,
+) -> NNJAWideLoader:
+    sensors = satellite_sensors(obs_config)
+    return NNJAWideLoader(
+        sensors=sensors,
+        obs_context_hours=(obs_config.context_start, obs_config.context_end),
+        thin_nside=obs_config.nnja_thin_nside,
+        ir_channels=obs_config.nnja_ir_channels,
+        fov_keep_range={
+            sensor: scan_geometry.SCAN_GEOMETRY[sensor].keep for sensor in sensors
+        },
+        platform_channel_dropout=pipeline.random_drop.platform_channel,
+        dropout_scope=pipeline.random_drop.scope,
+        table_source=table_source,
+    )
+
+
+def _get_conv_loader(
+    obs_config: ObsConfig,
+    pipeline: ObsPipeline,
+    *,
+    gpsro_table_source: CycleTableSource | None = None,
+    satwnd_table_source: CycleTableSource | None = None,
+    prepbufr_table_source: CycleTableSource | None = None,
+):
     """Conventional side of CombinedObsLoader: UFS replay or NNJA PrepBUFR+GPS-RO."""
+    table_sources = (gpsro_table_source, satwnd_table_source, prepbufr_table_source)
+    if any(source is not None for source in table_sources) and not pipeline.nnja_conv:
+        raise ValueError(
+            "observation table sources are supported only for NNJA conventional "
+            "observations (ObsConfig.use_nnja_conv)"
+        )
     filters = pipeline.filters
     if pipeline.nnja_conv:
         # No UFS archive here: the conv vocabulary, its QC bounds and the NNJA
         # by-level normalization all ship with the package.
         return combined.NNJAConventionalLoader(
+            gpsro_table_source=gpsro_table_source,
+            satwnd_table_source=satwnd_table_source,
+            prepbufr_table_source=prepbufr_table_source,
             include_satwnd=pipeline.satwnd,
             satwnd_thin_hpx_level=pipeline.satwnd_thin_hpx_level,
             gpsro_saids=pipeline.gpsro_saids,
@@ -278,6 +317,7 @@ def _get_conv_loader(obs_config: ObsConfig, pipeline: ObsPipeline):
             conv_uv_in_situ_only=filters.uv_in_situ_only,
             conv_gps_level1_only=filters.gps_level1_only,
             drop_restricted_aircraft=filters.restricted_aircraft,
+            balloon_drift=filters.balloon_drift,
             drop_report_types=filters.report_types,
             conv_min_pressure_hpa=filters.non_gps_min_pressure_hpa,
             use_conv_level_stats=obs_config.use_conv_level_stats
@@ -305,38 +345,54 @@ def _get_conv_loader(obs_config: ObsConfig, pipeline: ObsPipeline):
     )
 
 
-def build_obs_loader(obs_config: ObsConfig, *, training: bool):
+def build_obs_loader(
+    obs_config: ObsConfig,
+    *,
+    training: bool,
+    satellite_table_source: Mapping[str, CycleTableSource] | None = None,
+    gpsro_table_source: CycleTableSource | None = None,
+    satwnd_table_source: CycleTableSource | None = None,
+    prepbufr_table_source: CycleTableSource | None = None,
+):
     """The observation loader for one phase. `training` has no default on purpose:
     a default is what let the latlon backend train with its dropout silently off.
 
     Dropout takes no seed: it draws from the worker's ambient numpy stream, which
     PyTorch seeds per (rank, worker) from the run seed. Each loader draws exactly once
     per sel_time, which is what keeps time-parallel ranks in lockstep.
+
+    The table sources replace the NNJA archives with in-memory cycle tables
+    (``healda.observations.adapters.e2s_nnja``); ``satellite_table_source`` is keyed by
+    sensor. A ``None`` source reads the archive on disk.
     """
     assert obs_config.innovation_type == "none"
     pipeline = ObsPipeline(obs_config, training=training)
 
     if pipeline.nnja_sat:
-        sensors = satellite_sensors(obs_config)
         return combined.CombinedObsLoader(
-            satellite=NNJAWideLoader(
-                sensors=sensors,
-                obs_context_hours=(
-                    obs_config.context_start,
-                    obs_config.context_end,
-                ),
-                thin_nside=obs_config.nnja_thin_nside,
-                ir_channels=obs_config.nnja_ir_channels,
-                fov_keep_range={
-                    sensor: scan_geometry.SCAN_GEOMETRY[sensor].keep
-                    for sensor in sensors
-                },
-                platform_channel_dropout=pipeline.random_drop.platform_channel,
-                dropout_scope=pipeline.random_drop.scope,
+            satellite=_get_sat_loader(
+                obs_config, pipeline, table_source=satellite_table_source
             ),
-            conventional=_get_conv_loader(obs_config, pipeline),
+            conventional=_get_conv_loader(
+                obs_config,
+                pipeline,
+                gpsro_table_source=gpsro_table_source,
+                satwnd_table_source=satwnd_table_source,
+                prepbufr_table_source=prepbufr_table_source,
+            ),
         )
 
+    table_sources = (
+        satellite_table_source,
+        gpsro_table_source,
+        satwnd_table_source,
+        prepbufr_table_source,
+    )
+    if any(source is not None for source in table_sources):
+        raise ValueError(
+            "observation table sources are supported only for NNJA observations "
+            "(ObsConfig.use_nnja_sat)"
+        )
     return UFSUnifiedLoader(
         config.UFS_OBS_PATH,
         sensors=get_sensors_for_config(obs_config),

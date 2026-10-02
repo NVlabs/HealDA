@@ -72,6 +72,9 @@ UV_REPORT_TYPES = frozenset({
 })
 # fmt: on
 PRESSURE_REPORT_TYPES = frozenset({120, 180, 181, 187})
+# Radiosonde mass (120) and wind (220) and pibal (221) reports: the balloons whose levels
+# carry a drifted position and time (XDR, YDR, HRDR).
+BALLOON_REPORT_TYPES = frozenset({120, 220, 221})
 # NCEP PrepBUFR types marked R (restricted commercial aircraft). Public NOMADS
 # GDAS prepbufr.nr omits them; the NNJA reanalysis dump includes them.
 # 131/231 AMDAR, 133/233 MDCRS ACARS, 134/234 TAMDAR, 135/235 Canadian AMDAR.
@@ -129,6 +132,12 @@ class ChannelStats:
     max_valid: float
 
 
+def _check_core_columns(available: set[str], origin: str) -> None:
+    missing = set(CORE_COLUMNS) - available
+    if missing:
+        raise ValueError(f"{origin}: missing required columns {sorted(missing)}")
+
+
 class NNJAConvLoader(NNJAArchiveLoader):
     """Read NNJA PrepBUFR, GPS-RO, and optional SATWND as normalized long obs."""
 
@@ -144,11 +153,13 @@ class NNJAConvLoader(NNJAArchiveLoader):
         gpsro_saids: str = "legacy",
         gpsro_archive_root: str = nnja_archive("parquet", "gpsro_v3"),
         drop_restricted_aircraft: bool = False,
+        balloon_drift: bool = False,
         include_satwnd: bool = False,
         satwnd_archive_root: str = SATWND_ARCHIVE,
         satwnd_thin_hpx_level: int = 5,
         gpsro_table_source: CycleTableSource | None = None,
         satwnd_table_source: CycleTableSource | None = None,
+        prepbufr_table_source: CycleTableSource | None = None,
         wind_obs_dropout: float = 0.0,
         surface_pressure_dropout: float = 0.0,
         dropout_scope: str = "row",
@@ -171,6 +182,8 @@ class NNJAConvLoader(NNJAArchiveLoader):
                 f'gpsro_saids must be "legacy" or "full", got {gpsro_saids!r}'
             )
         self.archive_root = archive_root
+        # Read instead of archive_root when given.
+        self.prepbufr_table_source = prepbufr_table_source
         self.obs_context_hours = obs_context_hours
         self.data_spacing = data_spacing
         self.max_quality_mark = max_quality_mark
@@ -178,6 +191,7 @@ class NNJAConvLoader(NNJAArchiveLoader):
         self.include_gpsro = include_gpsro
         self.surface_winds = surface_winds
         self.drop_restricted_aircraft = drop_restricted_aircraft
+        self.balloon_drift = balloon_drift
         self.include_satwnd = include_satwnd
         self.wind_obs_dropout = wind_obs_dropout
         self.surface_pressure_dropout = surface_pressure_dropout
@@ -266,6 +280,11 @@ class NNJAConvLoader(NNJAArchiveLoader):
         report_type = np.where(
             np.isnan(report_type_float), -1, report_type_float
         ).astype(np.int64)
+        if self.balloon_drift:
+            balloon = np.isin(report_type, tuple(BALLOON_REPORT_TYPES))
+            lon = np.where(balloon, self._numpy(table, "XDR", np.float32), lon)
+            lat = np.where(balloon, self._numpy(table, "YDR", np.float32), lat)
+            dhr = np.where(balloon, self._numpy(table, "HRDR", np.float64), dhr)
 
         half = dhr > 0 if positive_half else dhr <= 0
         base_valid = (
@@ -437,37 +456,9 @@ class NNJAConvLoader(NNJAArchiveLoader):
         wind_dropout: dict[ObsFamily, float] | None = None,
         surface_pressure_dropout: float = 0.0,
     ) -> list[tuple[pd.Timestamp, pa.Table]]:
-        path = self._path(cycle)
-        if not os.path.exists(path):
-            return []
-        parquet = pq.ParquetFile(path, pre_buffer=True)
-        available = set(parquet.schema_arrow.names)
-        missing = set(CORE_COLUMNS) - available
-        if missing:
-            raise ValueError(f"{path}: missing required columns {sorted(missing)}")
-        columns = list(CORE_COLUMNS)
-        columns += [name for name in OPTIONAL_METADATA_COLUMNS if name in available]
-        for spec in VARIABLES:
-            columns += [
-                name
-                for name in (spec.value_column, spec.quality_column)
-                if name in available
-            ]
-        columns = list(dict.fromkeys(columns))
         rng = row_generator(dropout_seed)
-
         by_half: dict[bool, list[pa.Table]] = {half: [] for half in halves}
-        dhr_index = parquet.schema_arrow.get_field_index("DHR")
-        for group in range(parquet.num_row_groups):
-            stats = parquet.metadata.row_group(group).column(dhr_index).statistics
-            candidates = []
-            if False in by_half and (stats is None or stats.min <= 0):
-                candidates.append(False)
-            if True in by_half and (stats is None or stats.max > 0):
-                candidates.append(True)
-            if not candidates:
-                continue
-            source = parquet.read_row_group(group, columns=columns)
+        for source, candidates in self._cycle_sources(cycle, list(by_half)):
             for half in candidates:
                 long = self._to_long(
                     source, cycle, half, rng, wind_dropout, surface_pressure_dropout
@@ -482,6 +473,47 @@ class NNJAConvLoader(NNJAArchiveLoader):
                 window = cycle + pd.Timedelta(hours=3 if half else 0)
                 result.append((window, pa.concat_tables(parts)))
         return result
+
+    def _cycle_sources(self, cycle: pd.Timestamp, halves: list[bool]):
+        """Yield ``(table, halves it may serve)`` for one cycle."""
+        if self.prepbufr_table_source is not None:
+            table = self.prepbufr_table_source.get(cycle)
+            if table is not None and table.num_rows:
+                _check_core_columns(
+                    set(table.column_names), f"prepbufr_table_source[{cycle}]"
+                )
+                yield table, halves
+            return
+        path = self._path(cycle)
+        if not os.path.exists(path):
+            return
+        parquet = pq.ParquetFile(path, pre_buffer=True)
+        available = set(parquet.schema_arrow.names)
+        _check_core_columns(available, path)
+        columns = list(CORE_COLUMNS)
+        columns += [name for name in OPTIONAL_METADATA_COLUMNS if name in available]
+        if self.balloon_drift:
+            columns += ["XDR", "YDR", "HRDR"]
+        for spec in VARIABLES:
+            columns += [
+                name
+                for name in (spec.value_column, spec.quality_column)
+                if name in available
+            ]
+        columns = list(dict.fromkeys(columns))
+
+        dhr_index = parquet.schema_arrow.get_field_index("DHR")
+        for group in range(parquet.num_row_groups):
+            stats = parquet.metadata.row_group(group).column(dhr_index).statistics
+            candidates = []
+            # A drifted level can leave the half its launch time is in.
+            unknown = stats is None or self.balloon_drift
+            if False in halves and (unknown or stats.min <= 0):
+                candidates.append(False)
+            if True in halves and (unknown or stats.max > 0):
+                candidates.append(True)
+            if candidates:
+                yield parquet.read_row_group(group, columns=columns), candidates
 
     async def sel_time(self, times: pd.DatetimeIndex) -> dict[str, list[pa.Table]]:
         """Return one unified observation table per requested target time."""

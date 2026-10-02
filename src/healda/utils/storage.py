@@ -57,29 +57,6 @@ def get_storage_options(remote_name, config_path=DEFAULT_PATH):
     )
 
 
-def get_duckdb_connection(profile):
-    import duckdb
-
-    opts = get_storage_options(profile)
-    con = duckdb.connect()
-    key = opts["key"]
-    secret = opts["secret"]
-    endpoint = opts["client_kwargs"]["endpoint_url"]
-    if endpoint.startswith("https://"):
-        endpoint = endpoint[len("https://") :]
-    con.execute(f"""
-    CREATE SECRET (
-        TYPE s3,
-        PROVIDER config,
-        ENDPOINT '{endpoint}',
-        KEY_ID '{key}',
-        SECRET '{secret}'
-    );
-    """)
-
-    return con
-
-
 def ensure_downloaded(url, local):
     if os.path.exists(local):
         return

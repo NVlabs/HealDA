@@ -102,7 +102,8 @@ class UnifiedObservation:
     time: (
         torch.Tensor
     )  # (n_obs,) observation timestamps (ns since epoch). Not used by the model.
-    float_metadata: torch.Tensor  # (n_obs, n_features) pre-computed float features
+    # (n_obs, n_features) pre-computed float features; None once the model has tokenized.
+    float_metadata: torch.Tensor | None
 
     # Integer metadata fields, each shaped (n_obs,).
     pix: torch.Tensor  # HEALPix pixel index in the model's expected pixel order

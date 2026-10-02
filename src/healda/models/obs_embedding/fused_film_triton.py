@@ -201,7 +201,9 @@ def _fused_film_fwd(
     COMPUTE_DTYPE: tl.constexpr,
 ):
     pid = tl.program_id(0)
-    rows = pid * BLOCK_M + tl.arange(0, BLOCK_M)
+    # int64: row addresses are scaled by the feature dim, so an int32 row index
+    # overflows past 2**31 / OUT_DIM rows -- one unsharded window clears that.
+    rows = pid.to(tl.int64) * BLOCK_M + tl.arange(0, BLOCK_M)
     rmask = rows < N
 
     MLP_OUT: tl.constexpr = 2 * OUT_DIM
@@ -484,7 +486,7 @@ def _fused_film_bwd(
     )
 
     for tile_idx in range(pid, total_tiles, num_ctas):
-        rows = tile_idx * BLOCK_M + tl.arange(0, BLOCK_M)
+        rows = tile_idx.to(tl.int64) * BLOCK_M + tl.arange(0, BLOCK_M)
         rmask = rows < N
 
         # ── Build [BM, COND_PAD] conditioning via pointer-gather ──

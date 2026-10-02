@@ -59,6 +59,9 @@ class ObsConfig:
     # Drop NCEP-restricted aircraft (AMDAR/ACARS/TAMDAR). Public GDAS omits them;
     # NNJA reanalysis PrepBUFR includes them and otherwise inflates conv volume.
     drop_restricted_aircraft: bool = False
+    # Place radiosonde levels at their drifted position and time (PrepBUFR XDR/YDR/HRDR)
+    # instead of the launch point.
+    nnja_balloon_drift: bool = False
     conv_min_pressure_hpa: float | None = None
     use_conv_level_stats: bool = False
     conv_level_channels: bool = False
@@ -114,6 +117,24 @@ class ObsConfig:
     nnja_max_quality_mark: int | None = 2
     # HEALPix level of SATWND spatial thinning; see NNJASatwndLoader for the full key.
     nnja_satwnd_thin_hpx_level: int = 5
+
+    def deny_platform_channels(self, denied) -> "ObsConfig":
+        """This config with ``(sensor, platform, channel)`` triples denied.
+
+        A denial is a drop rule at probability 1; it replaces any rule on the same key.
+        """
+        rules = {
+            (sensor, platform, channel): probability
+            for sensor, platform, channel, probability in self.nnja_platform_channel_dropout
+        }
+        for sensor, platform, channel in denied:
+            rules[(sensor, platform, int(channel))] = 1.0
+        return dataclasses.replace(
+            self,
+            nnja_platform_channel_dropout=tuple(
+                sorted(key + (probability,) for key, probability in rules.items())
+            ),
+        )
 
     def __post_init__(self):
         # JSON round-trips tuples as lists; canonicalize so equality holds.

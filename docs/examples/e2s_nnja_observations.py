@@ -20,8 +20,8 @@ from healda.observations.loaders.combined import NNJAConventionalLoader
 
 
 def main(target: pd.Timestamp) -> None:
-    # The loader's (-3, 3) h context is one NCEP cycle file, [target - 3 h, target + 3 h).
-    tolerance = (timedelta(hours=-3), timedelta(hours=3) - timedelta(seconds=1))
+    # The loader's (-3, 3) h context is one NCEP cycle file.
+    tolerance = (timedelta(hours=-3), timedelta(hours=3))
     # Refractivity rows carry what the adapter derives height and pressure from.
     gps = NNJAObsConv(time_tolerance=tolerance)(
         target.to_pydatetime(), ["gps", "gps_refractivity"]

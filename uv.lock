@@ -1147,44 +1147,13 @@ wheels = [
 [[package]]
 name = "earth2grid"
 version = "2025.11.1+torch214"
-source = { url = "https://github.com/NVlabs/earth2grid/archive/main.tar.gz" }
+source = { git = "https://github.com/NVlabs/earth2grid.git?rev=11dcf1b0787a7eb6a8497a3a5a5e1fdcc31232d3#11dcf1b0787a7eb6a8497a3a5a5e1fdcc31232d3" }
 dependencies = [
     { name = "einops" },
     { name = "numpy" },
     { name = "scipy" },
     { name = "torch" },
 ]
-sdist = { hash = "sha256:dcc454fe46869c84b1ab7b4c1ba33efc98d7ed5112daf228e5c6e7e7bf36b329" }
-
-[package.metadata]
-requires-dist = [
-    { name = "black", marker = "extra == 'test'", specifier = ">=21.5b2" },
-    { name = "bump2version", marker = "extra == 'dev'", specifier = ">=1.0.1" },
-    { name = "coverage", marker = "extra == 'test'", specifier = ">=7.0.0" },
-    { name = "einops", specifier = ">=0.7.0" },
-    { name = "flake8", marker = "extra == 'test'", specifier = ">=3.9.2" },
-    { name = "flake8-docstrings", marker = "extra == 'test'", specifier = ">=1.6.0" },
-    { name = "isort", marker = "extra == 'test'", specifier = ">=5.8.0" },
-    { name = "matplotlib", marker = "extra == 'test'" },
-    { name = "matplotlib", marker = "extra == 'viz'" },
-    { name = "mypy", marker = "extra == 'test'", specifier = ">=0.900" },
-    { name = "netcdf4", marker = "extra == 'all'", specifier = ">=1.6.5" },
-    { name = "numpy", specifier = ">=1.23.3" },
-    { name = "pip", marker = "extra == 'dev'", specifier = ">=20.3.1" },
-    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=2.12.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=6.2.4" },
-    { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=2.12.0" },
-    { name = "pytest-regtest", marker = "extra == 'test'", specifier = ">=1.5.1,<2" },
-    { name = "pyvista", marker = "extra == 'viz'", specifier = ">=0.43.2" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.5" },
-    { name = "scipy" },
-    { name = "toml", marker = "extra == 'dev'", specifier = ">=0.10.2" },
-    { name = "torch", specifier = ">=2.14,<2.15" },
-    { name = "tox", marker = "extra == 'dev'", specifier = ">=3.20.1" },
-    { name = "twine", marker = "extra == 'dev'", specifier = ">=3.3.0" },
-    { name = "virtualenv", marker = "extra == 'dev'", specifier = ">=20.2.2" },
-]
-provides-extras = ["all", "viz", "test", "dev"]
 
 [[package]]
 name = "earth2studio"
@@ -1814,7 +1783,6 @@ dependencies = [
     { name = "cartopy" },
     { name = "cftime" },
     { name = "diffusers" },
-    { name = "duckdb" },
     { name = "earth2grid" },
     { name = "einops" },
     { name = "fsspec" },
@@ -1855,6 +1823,7 @@ dev = [
     { name = "pytest-regtest" },
 ]
 private = [
+    { name = "duckdb" },
     { name = "earth2studio", extra = ["aifs2ens", "aurora", "fengwu"] },
     { name = "icechunk" },
     { name = "joblib" },
@@ -1866,8 +1835,7 @@ requires-dist = [
     { name = "cartopy", specifier = ">=0.25.0" },
     { name = "cftime", specifier = ">=1.6.5" },
     { name = "diffusers", specifier = ">=0.36.0" },
-    { name = "duckdb" },
-    { name = "earth2grid", url = "https://github.com/NVlabs/earth2grid/archive/main.tar.gz" },
+    { name = "earth2grid", git = "https://github.com/NVlabs/earth2grid.git?rev=11dcf1b0787a7eb6a8497a3a5a5e1fdcc31232d3" },
     { name = "einops" },
     { name = "fsspec" },
     { name = "h5py", specifier = ">=3.15.1" },
@@ -1902,6 +1870,7 @@ dev = [
     { name = "pytest-regtest", specifier = ">=2.1.0" },
 ]
 private = [
+    { name = "duckdb" },
     { name = "earth2studio", extras = ["aifs2ens", "aurora", "fengwu"], git = "https://github.com/NVIDIA/earth2studio.git" },
     { name = "icechunk", specifier = ">=1.1.14" },
     { name = "joblib", specifier = ">=1.5.3" },

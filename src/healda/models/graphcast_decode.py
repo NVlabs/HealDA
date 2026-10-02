@@ -175,11 +175,29 @@ class GraphCastDecoder(nn.Module):
         buffers = [("idx", idx), ("efeat", efeat), ("bidx", bidx), ("bweight", bweight)]
         for name, buf in buffers:
             self.register_buffer(name, buf, persistent=False)
+        self.call_chunk = self.one_chunk
+
+    def compile_chunks(self) -> None:
+        # One chunk is compiled, not forward: a compiled forward unrolls the chunk loop
+        # into one graph, which keeps every chunk's intermediates alive at once.
+        self.call_chunk = torch.compile(self.one_chunk, dynamic=False)
 
     def _unpack_and_lift(self, z: torch.Tensor) -> torch.Tensor:
         # Each token's `patch` output slots are its geometric children, which holds only
         # because NEST puts them at consecutive indices; __init__ enforces it.
         return self.unpack(z).reshape(z.shape[0], -1, self.h)
+
+    def one_chunk(self, v, qu, aux, idx, efeat, bidx, bweight):
+        bt, rows = aux.shape[:2]
+        vj = v[:, idx.reshape(-1)].reshape(bt, rows, self.k, self.h)
+        bu = qu[:, bidx.reshape(-1)].reshape(bt, rows, bidx.shape[-1], self.h)
+        q_dyn = (bweight.unsqueeze(0).unsqueeze(-1) * bu).sum(2)
+
+        q = self.target_norm(q_dyn + self.target(aux))
+
+        x = vj + self.lin_dst(q).unsqueeze(2) + self.lin_e(efeat)
+        m = self.ln(self.w2(F.silu(x))).sum(2)
+        return self.out(q + self.node(torch.cat([q, m], -1)))
 
     def forward(self, z: torch.Tensor, aux: torch.Tensor) -> torch.Tensor:
         """z: (bt, npix_in, in_channels); aux: (bt, nlat*nlon, aux_channels)."""
@@ -194,29 +212,18 @@ class GraphCastDecoder(nn.Module):
             else u
         )
 
-        def one_chunk(lo, hi, v, aux):
-            vj = v[:, self.idx[lo:hi].reshape(-1)].reshape(bt, hi - lo, self.k, self.h)
-
-            bidx = self.bidx[lo:hi]
-            bu = qu[:, bidx.reshape(-1)].reshape(bt, hi - lo, bidx.shape[-1], self.h)
-            q_dyn = (self.bweight[lo:hi].unsqueeze(0).unsqueeze(-1) * bu).sum(2)
-
-            q = self.target_norm(q_dyn + self.target(aux[:, lo:hi]))
-
-            x = vj + self.lin_dst(q).unsqueeze(2) + self.lin_e(self.efeat[lo:hi])
-            m = self.ln(self.w2(F.silu(x))).sum(2)
-            return self.out(q + self.node(torch.cat([q, m], -1)))
-
         pieces = []
         for lo in range(0, self.nlat * self.nlon, CHUNK):
-            hi = min(lo + CHUNK, self.nlat * self.nlon)
+            rows = slice(lo, lo + CHUNK)
+            args = (v, qu, aux[:, rows], self.idx[rows], self.efeat[rows])
+            args += (self.bidx[rows], self.bweight[rows])
             if self.remat and torch.is_grad_enabled():
                 pieces.append(
                     torch.utils.checkpoint.checkpoint(
-                        one_chunk, lo, hi, v, aux, use_reentrant=False
+                        self.call_chunk, *args, use_reentrant=False
                     )
                 )
             else:
-                pieces.append(one_chunk(lo, hi, v, aux))
+                pieces.append(self.call_chunk(*args))
         out = torch.cat(pieces, 1)
         return out.transpose(1, 2).reshape(bt, -1, self.nlat, self.nlon)

@@ -37,7 +37,10 @@ from healda.observations.loaders.nnja_base import (
 )
 
 from healda.observations.preprocessing import satwnd_kernels, satwnd_qc
-from healda.observations.loaders.archive_row_groups import window_row_groups
+from healda.observations.loaders.archive_row_groups import (
+    window_row_groups,
+    window_rows,
+)
 from healda.observations.loaders.threads import configure_arrow_pools, thread_pool
 from healda.observations.sensors import (
     CONV_CHANNELS,
@@ -656,11 +659,7 @@ class NNJASatwndLoader(NNJAArchiveLoader):
                 raise ValueError(
                     f"table_source[{window}]: missing columns {sorted(missing)}"
                 )
-            da_window = self._numpy(table, "da_window").astype("datetime64[ns]")
-            rows = da_window == np.datetime64(window.to_datetime64(), "ns")
-            long = self._to_long(
-                table.filter(pa.array(rows)), window, rng, wind_dropout
-            )
+            long = self._to_long(window_rows(table, window), window, rng, wind_dropout)
             if long.num_rows:
                 result.append((window, long))
         return result

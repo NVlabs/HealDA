@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Locate a DA window in an NNJA archive from row-group statistics, no data read.
+"""Locate a DA window in an NNJA archive: from row-group statistics on disk, no data
+read, or by ``da_window`` in an in-memory table.
 
 Every archive is written one ``da_window`` per row group. Shared rather than
 per-loader: separate copies had drifted onto different index bases (physical
@@ -12,10 +13,23 @@ from __future__ import annotations
 
 from typing import Iterator, Sequence
 
+import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 WINDOW_COLUMN = "da_window"
+
+
+def window_rows(
+    table: pa.Table, window: pd.Timestamp, columns: Sequence[str] | None = None
+) -> pa.Table:
+    """The rows of an in-memory archive table whose ``da_window`` is ``window``."""
+    stamp = np.datetime64(pd.Timestamp(window).tz_localize(None).to_datetime64(), "ns")
+    in_window = table[WINDOW_COLUMN].cast(pa.timestamp("ns")).to_numpy() == stamp
+    if columns is not None:
+        table = table.select(columns)
+    return table.filter(pa.array(in_window))
 
 
 def window_row_groups(

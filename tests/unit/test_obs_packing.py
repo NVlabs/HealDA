@@ -10,8 +10,10 @@ import torch
 from healda.observations.types import AttentionPacking, UnifiedObservation
 from healda.observations.packing import (
     pack_observations_by_pixel,
+    pixel_packing,
     sort_and_pack,
 )
+from healda.observations.preprocessing import features_v2
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
@@ -188,3 +190,45 @@ def test_pack_can_skip_triton_group_map():
     obs = _make_obs([0, 0], [1, 2], hpx_level=0, batch=1, time=1, device="cpu")
     packed = pack_observations_by_pixel(obs, build_group_map=False)
     assert packed.attention_packing.group_map is None
+
+
+@pytest.mark.parametrize("device", _DEVICES)
+def test_featurizing_sorted_rows_matches_sorting_featurized_rows(device):
+    """TransformV2 sorts raw rows before deriving float_metadata; per-row features make
+    that equal to sorting the features."""
+    g = torch.Generator().manual_seed(0)
+    n, hpx_level = 257, 1
+    pix = torch.randint(0, 12 * 4**hpx_level, (n,), generator=g)
+    window_of_obs = torch.randint(0, 4, (n,), generator=g).sort().values.tolist()
+    obs = _make_obs(
+        window_of_obs, pix.tolist(), hpx_level, batch=2, time=2, device=device
+    )
+
+    satellite = torch.rand(n, generator=g) < 0.5
+    nan = torch.tensor(float("nan"))
+    raw = {
+        "time": 1_735_776_000 * 10**9
+        + torch.randint(-(3 * 3600) * 10**9, 3 * 3600 * 10**9, (n,), generator=g),
+        "lon": torch.rand(n, generator=g) * 360,
+        "lat": torch.rand(n, generator=g) * 180 - 90,
+        "height": torch.where(satellite, nan, torch.rand(n, generator=g) * 1e4),
+        "pressure": torch.where(satellite, nan, torch.rand(n, generator=g) * 1e3),
+        "scan_angle": torch.where(satellite, torch.rand(n, generator=g) * 50, nan),
+        "sat_zenith_angle": torch.where(
+            satellite, torch.rand(n, generator=g) * 60, nan
+        ),
+        "sol_zenith_angle": torch.where(
+            satellite, torch.rand(n, generator=g) * 180, nan
+        ),
+    }
+    raw = {name: value.to(device) for name, value in raw.items()}
+    target = torch.full((n,), 1_735_776_000, dtype=torch.int64, device=device)
+
+    order, _ = pixel_packing(
+        obs.pix, obs.lengths, hpx_level, "hpxpadxy", build_group_map=False
+    )
+    sorted_first = features_v2.compute_unified_metadata(
+        target[order], **{name: value[order] for name, value in raw.items()}
+    )
+    featurized_first = features_v2.compute_unified_metadata(target, **raw)[order]
+    assert torch.equal(sorted_first, featurized_first)

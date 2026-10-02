@@ -22,6 +22,7 @@ class _Backbone(torch.nn.Module):
     def __init__(self, order):
         super().__init__()
         self.spatial_token_order = order
+        self.compile_dit = False
         self.noise_embed = None
         self.inner_dim = 32
         self.level_model = 5

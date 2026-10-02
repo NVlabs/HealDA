@@ -163,14 +163,13 @@ def resolve(
     n = len(said)
     said = np.asarray(said, dtype=np.float64)
     swcm = np.array(swcm, dtype=np.float64)
-    subset = np.array(subset, dtype=object)
-    present = pd.notna(subset)
-    subset[~present] = None  # pd.NA would poison the per-subset comparisons below
+    # Integer codes per subset name: hashing, not sorting, millions of Python strings.
+    codes, names = pd.factorize(np.asarray(subset, dtype=object), use_na_sentinel=True)
     report_type = np.full(n, -1, dtype=np.int64)
     internal = np.full(n, -1, dtype=np.int64)
     tier_index = np.full(n, -1, dtype=np.int64)
-    for name in np.unique(subset[present]):
-        rows = subset == name
+    for code, name in enumerate(names):
+        rows = codes == code
         if swcm_local is not None and not np.isfinite(swcm[rows]).any():
             swcm[rows] = np.asarray(swcm_local, dtype=np.float64)[rows]
         if name not in types:

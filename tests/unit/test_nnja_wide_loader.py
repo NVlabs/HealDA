@@ -257,7 +257,9 @@ def loader_for(archive_root: str | None = None, **overrides) -> NNJAWideLoader:
 def plan_for(
     loader: NNJAWideLoader, sensor: str = "atms", day: str = DAY
 ) -> wide.ReadPlan:
-    return loader.read_plan(sensor, day, pq.ParquetFile(loader._path(sensor, day)))
+    return loader.read_plan(
+        sensor, day, pq.ParquetFile(loader._path(sensor, day)).schema_arrow
+    )
 
 
 def read_window(

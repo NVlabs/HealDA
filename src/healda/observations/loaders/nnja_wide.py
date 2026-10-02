@@ -22,14 +22,17 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from healda.observations.loaders.archive_row_groups import window_row_groups
+from healda.observations.loaders.archive_row_groups import (
+    window_row_groups,
+    window_rows,
+)
 
 from healda.observations.loaders.threads import configure_arrow_pools, thread_pool
 from healda.observations.sensors import PLATFORM_NAME_TO_ID
@@ -47,6 +50,7 @@ from healda.observations.loaders.nnja_base import (
     GLOBAL_CHANNEL_ID,
     LOCAL_CHANNEL_ID,
     SENSOR_ID,
+    CycleTableSource,
     NNJAArchiveLoader,
     SampleDropout,
     row_generator,
@@ -494,6 +498,7 @@ class NNJAWideLoader(NNJAArchiveLoader):
         normalize: bool = True,
         platform_channel_dropout: Sequence[tuple[str, str, int, float]] = (),
         dropout_scope: str = "row",
+        table_source: Mapping[str, CycleTableSource] | None = None,
     ) -> None:
         """
         Args:
@@ -522,6 +527,9 @@ class NNJAWideLoader(NNJAArchiveLoader):
             platform_channel_dropout: Training-time rules of
                 ``(sensor, platform, raw_channel_id, probability)``. Dropout is
                 applied to model-facing rows after footprint thinning.
+            table_source: Per sensor, archive-schema tables of each cycle file
+                (`adapters.e2s_nnja.sat_tables`), read instead of `archive_root`. A sensor
+                it omits contributes no rows.
         """
         for sensor in sensors:
             if sensor not in SENSOR_VALUE_PREFIX:
@@ -547,6 +555,7 @@ class NNJAWideLoader(NNJAArchiveLoader):
         self.channel_table_path = channel_table_path
         self.sensors = tuple(sensors)
         self.archive_root = archive_root
+        self.table_source = table_source
         self.obs_context_hours = obs_context_hours
         self.data_spacing = data_spacing
         self.thin_nside = thin_nside
@@ -665,19 +674,17 @@ class NNJAWideLoader(NNJAArchiveLoader):
             np.asarray(kept_rows),
         )
 
-    def read_plan(self, sensor: str, day: str, parquet: pq.ParquetFile) -> ReadPlan:
+    def read_plan(self, sensor: str, day: str, schema: pa.Schema) -> ReadPlan:
         """Resolve the sensor's channel axis from one published file, then reuse it per sensor.
 
         Built from whichever day is read first, so it assumes a sensor's channel columns and value
         encoding hold across its whole archive. They do, on every day of the two radiance sensors,
-        where a drifting encoding would mis-scale in silence.
+        where a drifting encoding would mis-scale in silence. `schema` is the Arrow schema, which
+        carries CrIS's value encoding as field metadata; the parquet schema drops it.
         """
         cached = self._read_plans.get(sensor)
         if cached is not None:
             return cached
-        # CrIS's value encoding lives in Arrow field metadata, which the parquet schema drops.
-        # Read past the cache: schema_arrow rebuilds on access, 7 ms on the widest sensors.
-        schema = parquet.schema_arrow
         prefix = f"{SENSOR_VALUE_PREFIX[sensor]}__ch_"  # align all channels
         published = tuple(name for name in schema.names if name.startswith(prefix))
         if not published:
@@ -1164,7 +1171,10 @@ class NNJAWideLoader(NNJAArchiveLoader):
 
     def _row_group_jobs(
         self, sensor: str, windows: pd.DatetimeIndex
-    ) -> list[tuple[pq.ParquetFile, ReadPlan, pd.Timestamp, int]]:
+    ) -> list[tuple[ReadPlan, pd.Timestamp, Callable[[], pa.Table]]]:
+        """Per window: the sensor's read plan, the window, and a call reading its wide rows."""
+        if self.table_source is not None:
+            return self._table_source_jobs(sensor, windows)
         jobs = []
         for day in sorted({timestamp.strftime("%Y%m%d") for timestamp in windows}):
             path = self._path(sensor, day)
@@ -1174,10 +1184,34 @@ class NNJAWideLoader(NNJAArchiveLoader):
                 # pre_buffer coalesces projected column ranges, ~1.3x on a cold Lustre read.
                 parquet = pq.ParquetFile(path, pre_buffer=True)
             with cpu_timing_range("nnja.plan"):
-                plan = self.read_plan(sensor, day, parquet)
+                # Read past the plan cache: schema_arrow rebuilds on access, 7 ms on the
+                # widest sensors.
+                plan = self._read_plans.get(sensor)
+                if plan is None:
+                    plan = self.read_plan(sensor, day, parquet.schema_arrow)
                 window_groups = list(window_row_groups(parquet, windows, path=path))
             for window, group in window_groups:
-                jobs.append((parquet, plan, window, group))
+                read = functools.partial(
+                    parquet.read_row_group, group, columns=plan.columns
+                )
+                jobs.append((plan, window, read))
+        return jobs
+
+    def _table_source_jobs(
+        self, sensor: str, windows: pd.DatetimeIndex
+    ) -> list[tuple[ReadPlan, pd.Timestamp, Callable[[], pa.Table]]]:
+        cycle_tables = self.table_source.get(sensor)
+        if cycle_tables is None:
+            return []
+        jobs = []
+        for window in windows:
+            cycle = self._cycle_and_half(window)[0]
+            table = cycle_tables.get(cycle)
+            if table is None or not table.num_rows:
+                continue
+            plan = self.read_plan(sensor, f"table_source[{cycle}]", table.schema)
+            read = functools.partial(window_rows, table, window, plan.columns)
+            jobs.append((plan, window, read))
         return jobs
 
     def _load_sensor(
@@ -1196,16 +1230,14 @@ class NNJAWideLoader(NNJAArchiveLoader):
         jobs = self._row_group_jobs(sensor, windows)
         rng = row_generator(dropout_seed)
 
-        def fetch(parquet: pq.ParquetFile, plan: ReadPlan, group: int) -> pa.Table:
+        def fetch(read: Callable[[], pa.Table]) -> pa.Table:
             with cpu_timing_range("nnja.read"):
-                return parquet.read_row_group(group, columns=plan.columns)
+                return read()
 
         parts: list[tuple[pd.Timestamp, pa.Table]] = []
         if not self.read_ahead or len(jobs) < 2:
-            for parquet, plan, window, group in jobs:
-                long_table = self.to_long(
-                    fetch(parquet, plan, group), plan, sensor, rng, rules
-                )
+            for plan, window, read in jobs:
+                long_table = self.to_long(fetch(read), plan, sensor, rng, rules)
                 if long_table.num_rows:
                     parts.append((window, long_table))
             return parts
@@ -1217,8 +1249,8 @@ class NNJAWideLoader(NNJAArchiveLoader):
             issued = 0
 
             def submit(job):
-                parquet, plan, _window, group = job
-                return pool.submit(fetch, parquet, plan, group)
+                _plan, _window, read = job
+                return pool.submit(fetch, read)
 
             # One job to convert plus one in flight. A flag rather than a count because the
             # refill keeps the single reader saturated: only depth 0 -> 1 helps
@@ -1226,7 +1258,7 @@ class NNJAWideLoader(NNJAArchiveLoader):
                 queued.append((jobs[issued], submit(jobs[issued])))
                 issued += 1
             while queued:
-                (_parquet, plan, window, _group), pending = queued.popleft()
+                (plan, window, _read), pending = queued.popleft()
                 wide_table = pending.result()  # blocks only if the reader is behind
                 # Refill before converting, so the reader has work during to_long.
                 if issued < len(jobs):

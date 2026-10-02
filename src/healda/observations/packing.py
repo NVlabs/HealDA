@@ -2,21 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """Pack observations into per-pixel contiguous groups for backbone obs attention.
 
-This is a data-preparation step: ``TransformV2`` applies it when
-``attention_prepack=True``. Each observation carries a flat pixel index
-``flat_idx = batch_time_idx * npix + pix``. Sorting by that index groups all
-observations for a pixel contiguously, which lets the ragged pixel
-cross-attention kernel address each pixel's tokens by prefix sums
-(``cu_seqlens_k``).
+Each observation carries a flat pixel index ``flat_idx = batch_time_idx * npix + pix``.
+Sorting by that index groups a pixel's observations contiguously, which lets the ragged
+pixel cross-attention kernel address each pixel's tokens by prefix sums (``cu_seqlens_k``).
 
-For bounded integer keys a counting sort is O(N) with a single atomic-scatter pass,
-faster than argsort's multi-pass radix sort. Within-bucket order is non-deterministic
-(warp scheduling), which is fine: attention is permutation-invariant over a pixel's
-key/value tokens.
-
-This module lives in the ``datasets`` layer because packing is purely a data
-transform over ``UnifiedObservation`` and is consumed only by the dataset
-pipeline (not by any model module).
+For bounded integer keys a counting sort is O(N) with a single atomic-scatter pass, faster
+than argsort's multi-pass radix sort. Within-bucket order is nondeterministic (warp
+scheduling), which is fine: attention is permutation-invariant over a pixel's key/value
+tokens.
 """
 
 import dataclasses
@@ -86,14 +79,10 @@ def counting_sort_and_pack(flat_idx: torch.Tensor, total_pixels: int):
 def sort_and_pack(flat_idx: torch.Tensor, total_pixels: int):
     """Sort observations by flat pixel index.
 
-    Uses the Triton counting sort when available, else argsort. Returns
-    ``(sorted_order int32 permutation, counts int64 per-pixel counts)``.
-
-    ``pack_observations_by_pixel`` uses ``sorted_order`` immediately to physically
-    reorder the observation tensors so each pixel's tokens are contiguous, then
-    keeps only ``counts`` (as ``cu_seqlens_k`` prefix sums) in the packing
-    metadata. ``sorted_order`` is therefore a transient permutation and is not
-    retained downstream.
+    Uses the Triton counting sort when available (see the module docstring for why), else
+    argsort. Returns ``(sorted_order int32 permutation, counts int64 per-pixel counts)``.
+    Callers apply ``sorted_order`` once to reorder the per-observation tensors and keep only
+    ``counts``, as ``cu_seqlens_k`` prefix sums; the permutation is not retained.
     """
     if HAS_TRITON and flat_idx.is_cuda:
         return counting_sort_and_pack(flat_idx, total_pixels)
@@ -194,48 +183,70 @@ def pack_observations_by_pixel(
 ) -> "types.UnifiedObservation":
     """Sort a ``UnifiedObservation`` into per-pixel contiguous token groups.
 
-    Returns a new ``UnifiedObservation`` whose per-observation fields are
-    physically reordered by flat pixel index (``batch_time_idx * npix + pix``) so
-    each pixel's tokens are contiguous, with ``attention_packing`` describing the
-    resulting layout (``counts`` per pixel and ``cu_seqlens_k`` prefix sums over
-    the full pixel grid). The backbone pixel cross-attention consumes this packed
-    layout; the scatter/embed path does not require it.
+    Returns a new ``UnifiedObservation`` whose per-observation fields are reordered by flat
+    pixel index, with ``attention_packing`` describing the layout (``counts`` per pixel and
+    ``cu_seqlens_k`` prefix sums over the full grid) that the backbone pixel cross-attention
+    consumes; the scatter/embed path does not need it.
 
-    ``pixel_order`` is recorded on the packing rather than used here: the pixel
-    indices arrive already computed in that order, and the model checks the two
-    agree before attending.
+    ``pixel_order`` is recorded, not applied: ``pix`` already arrives in that order, and the
+    model checks the two agree before attending.
     """
     assert obs.lengths is not None, "packing requires lengths"
-    npix = 12 * 4**obs.hpx_level
-    _, batch_size, time_size = obs.lengths.shape
-    total_pixels = batch_size * time_size * npix
-    device = obs.obs.device
-
-    if obs.obs.shape[0] == 0:
-        counts = torch.zeros(total_pixels, dtype=torch.int64, device=device)
-        cu_seqlens_k = torch.zeros(total_pixels + 1, dtype=torch.int32, device=device)
-        packed = obs
-    else:
-        batch_idx = lengths_to_idx(obs.lengths, output_size=obs.obs.shape[0]) % (
-            batch_size * time_size
-        )
-        flat_idx = (batch_idx * npix + obs.pix.long()).int()
-        sorted_order, counts = sort_and_pack(flat_idx, total_pixels)
-        order = sorted_order.long()
+    order, packing = pixel_packing(
+        obs.pix,
+        obs.lengths,
+        obs.hpx_level,
+        pixel_order,
+        build_group_map=build_group_map,
+    )
+    packed = obs
+    if order is not None:
         reordered = {name: getattr(obs, name)[order] for name in _PER_OBS_FIELDS}
         packed = dataclasses.replace(obs, **reordered)
-        cu_seqlens_k = torch.zeros(total_pixels + 1, dtype=torch.int32, device=device)
-        cu_seqlens_k[1:] = counts.cumsum(0).to(torch.int32)
+    return dataclasses.replace(packed, attention_packing=packing)
 
-    group_map = build_pixel_group_map(cu_seqlens_k) if build_group_map else None
 
-    attention_packing = types.AttentionPacking(
+def pixel_packing(
+    pix: torch.Tensor,
+    lengths: torch.Tensor,
+    hpx_level: int,
+    pixel_order: str,
+    *,
+    build_group_map: bool,
+) -> tuple[torch.Tensor | None, "types.AttentionPacking"]:
+    """The order that makes each pixel's observations contiguous, and the attention
+    layout of the sorted observations.
+
+    ``pix`` and ``lengths`` describe the observations in their incoming order; the order
+    is None when there are none. Returned rather than applied so a caller can reorder
+    raw per-row inputs before deriving per-row features: the result equals reordering
+    the features, without holding both orders of them. ``TransformV2`` does this for
+    ``float_metadata``, (n_obs, 50) float32.
+    """
+    npix = 12 * 4**hpx_level
+    _, batch_size, time_size = lengths.shape
+    total_pixels = batch_size * time_size * npix
+    if pix.shape[0] == 0:
+        order = None
+        counts = torch.zeros(total_pixels, dtype=torch.int64, device=pix.device)
+    else:
+        batch_idx = lengths_to_idx(lengths, output_size=pix.shape[0]) % (
+            batch_size * time_size
+        )
+        flat_idx = (batch_idx * npix + pix.long()).int()
+        sorted_order, counts = sort_and_pack(flat_idx, total_pixels)
+        order = sorted_order.long()
+    cu_seqlens_k = torch.zeros(
+        counts.shape[0] + 1, dtype=torch.int32, device=counts.device
+    )
+    cu_seqlens_k[1:] = counts.cumsum(0).to(torch.int32)
+    packing = types.AttentionPacking(
         counts=counts,
         cu_seqlens_k=cu_seqlens_k,
         npix=npix,
-        hpx_level=obs.hpx_level,
+        hpx_level=hpx_level,
         is_packed=True,
-        group_map=group_map,
+        group_map=build_pixel_group_map(cu_seqlens_k) if build_group_map else None,
         pixel_order=pixel_order,
     )
-    return dataclasses.replace(packed, attention_packing=attention_packing)
+    return order, packing

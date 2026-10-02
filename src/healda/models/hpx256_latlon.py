@@ -69,10 +69,10 @@ class Hpx256LatlonModel(nn.Module):
         # Every geometric field built here is indexed by flat pixel, so it must be built in
         # the order the backbone's tokens are in.
         self.pixel_order = pixel_order
-        backbone_order = getattr(backbone, "spatial_token_order", None)
-        if backbone_order is not None and backbone_order != pixel_order:
+        if backbone.spatial_token_order != pixel_order:
             raise ValueError(
-                f"pixel order disagreement: the backbone's tokens are in {backbone_order!r} "
+                f"pixel order disagreement: the backbone's tokens are in "
+                f"{backbone.spatial_token_order!r} "
                 f"but this wrapper builds its statics, geo fields and output regridder in "
                 f"{pixel_order!r}."
             )
@@ -138,6 +138,9 @@ class Hpx256LatlonModel(nn.Module):
         else:
             self.calendar_hpx = None
             self.calendar_ll = None
+        # Decode only the last frame, the analysis; the output then has one frame. Skips
+        # 7 of 8 frames of the 0.25 degree tail's compute and activations.
+        self.last_frame_only = False
         self._compile()
 
     def _geo(self, timestamp, *, on_hpx: bool):
@@ -210,11 +213,10 @@ class Hpx256LatlonModel(nn.Module):
         return einops.rearrange(out, "(b t) c h w -> b c t h w", b=b, t=t)
 
     def _compile(self):
-        if getattr(self.backbone, "compile_dit", False):
-            self._call_tail = torch.compile(self._latlon_tail)
+        if self.backbone.compile_dit:
+            self.graphcast_decode.compile_chunks()
             self._call_cond = torch.compile(self._cond)
         else:
-            self._call_tail = self._latlon_tail
             self._call_cond = self._cond
 
     @property
@@ -278,5 +280,15 @@ class Hpx256LatlonModel(nn.Module):
             decoded = self.backbone(x, **kwargs)
         with healda.utils.profiling.nvtx_range("latlon:tail"):
             with healda.utils.profiling.cuda_timing_range("latlon:tail"):
-                pred = self._call_tail(decoded.out, second, day, timestamp)
+                pred = self._decode_frames(decoded.out, second, day, timestamp)
         return Output(out=pred, obs=decoded.obs)
+
+    def tokenize_observations(self, unified_obs):
+        return self.backbone.tokenize_observations(unified_obs)
+
+    def _decode_frames(self, latent, second, day, timestamp):
+        if self.last_frame_only:
+            latent, second, day, timestamp = (
+                x[:, -1:] for x in (latent, second, day, timestamp)
+            )
+        return self._latlon_tail(latent, second, day, timestamp)

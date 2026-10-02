@@ -350,8 +350,10 @@ class TrainingLoopBase(abc.ABC):
             if optimizer and self.optimizer is not None:
                 self._load_optimizer_state(checkpoint)
 
-            with checkpoint.open("loop.json") as f:
-                old_loop = self.loads(f.read())
+            loop_json = checkpoint.read_loop_json()
+            if loop_json is None:
+                raise ValueError(f"{resume_state_dump} has no loop.json")
+            old_loop = self.loads(loop_json)
 
             # Restore iterator state if available (for backward compatibility)
             if iterator_state:
@@ -674,8 +676,7 @@ class TrainingLoopBase(abc.ABC):
                 with checkpoint.open("optimizer_state.pth", "w") as f:
                     torch.save(self.optimizer.state_dict(), f)
 
-            with checkpoint.open("loop.json", "w") as f:
-                f.write(self.dumps().encode())
+            checkpoint.write_loop_json(self.dumps())
 
             # Save iterator state for resuming
             with checkpoint.open("iterator_state.json", "w") as f:

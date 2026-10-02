@@ -90,15 +90,32 @@ class CycleTableSource(Protocol):
     def get(self, cycle: pd.Timestamp) -> pa.Table | None: ...
 
 
-def archive_cycle_and_window(time: pd.Series) -> tuple[pd.Series, pd.Series]:
+def archive_cycle_and_window(time) -> tuple[np.ndarray, np.ndarray]:
     """The 6-hourly cycle file holding each time, and its end-aligned 3-hour window.
 
-    NCEP dumps cover ``[cycle - 3h, cycle + 3h)``; the archives window a file's rows as
-    ``cycle`` when ``time <= cycle``, else ``cycle + 3h``. Inverse of ``_cycle_and_half``.
+    ``time`` is anything ``numpy`` reads as ``datetime64[ns]`` (int64 values are
+    nanoseconds); both results are ``datetime64[ns]``, NaT where ``time`` is. The
+    archives window a file's rows as ``cycle`` when ``time <= cycle``, else
+    ``cycle + 3h``. Inverse of ``_cycle_and_half``.
     """
-    cycle = (time + pd.Timedelta(hours=3)).dt.floor("6h")
-    window = cycle.where(time <= cycle, cycle + pd.Timedelta(hours=3))
-    return cycle, window
+    time = np.asarray(time, dtype="datetime64[ns]")
+    hour = 3_600_000_000_000
+    cycle = ((time.view(np.int64) + 3 * hour) // (6 * hour) * (6 * hour)).view(
+        "datetime64[ns]"
+    )
+    cycle[np.isnat(time)] = np.datetime64("NaT")
+    return cycle, archive_window(time, cycle)
+
+
+def archive_window(time, cycle) -> np.ndarray:
+    """The end-aligned 3-hour window of each time within its cycle file: ``cycle``
+    when ``time <= cycle``, else ``cycle + 3h``; ``datetime64[ns]``, NaT where ``time``
+    is."""
+    time = np.asarray(time, dtype="datetime64[ns]")
+    cycle = np.asarray(cycle, dtype="datetime64[ns]")
+    window = np.where(time <= cycle, cycle, cycle + np.timedelta64(3, "h"))
+    window[np.isnat(time)] = np.datetime64("NaT")
+    return window
 
 
 class SampleDropout:

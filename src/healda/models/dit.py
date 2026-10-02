@@ -1105,6 +1105,19 @@ class DiT(torch.nn.Module):
         tokenizer = self._get_backbone_obs_tokenizer()
         return tokenizer(unified_obs), attention_packing
 
+    def tokenize_observations(
+        self, unified_obs: UnifiedObservation
+    ) -> UnifiedObservation:
+        """``unified_obs`` with its tokens computed, which the forward then uses as given.
+
+        Drops the reference to ``float_metadata`` so its memory can be freed: the
+        tokenizer is its only reader, and it is (n_obs, 50) float32.
+        """
+        if not self.backbone_pixel_attention:
+            return unified_obs
+        tokens, _ = self._get_backbone_obs_inputs(unified_obs)
+        return dataclasses.replace(unified_obs, obs_tokens=tokens, float_metadata=None)
+
     @healda.utils.profiling.nvtx
     def forward(
         self,
