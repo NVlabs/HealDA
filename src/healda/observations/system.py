@@ -136,7 +136,7 @@ class ObsRandomDrop:
     """Rows hidden at random, resampled per window. Training only.
 
     Carries no seed: the loaders draw from the worker's process-global numpy stream,
-    which PyTorch seeds per (rank, worker). See docs/obs_dropout_seeding.md.
+    which PyTorch seeds per (rank, worker).
     """
 
     wind: float = 0.0

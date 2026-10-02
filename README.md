@@ -104,7 +104,7 @@ Training reads prepared Parquet observations from the NNJA archive (`NNJA_ROOT`)
 the source the checkpoints are trained on. The older UFS replay archive
 (`UFS_OBS_PATH`) is still readable for earlier runs. Each has its own layout, schema
 and channel vocabulary, and a checkpoint reads only the source it was trained on.
-See [`docs/observation-input.md`](docs/observation-input.md), including what data
+See [`docs/observations.md`](docs/observations.md), including what data
 must satisfy to match a trained checkpoint.
 
 ## Inference
