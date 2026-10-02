@@ -43,12 +43,3 @@ follow semantic versioning starting with its first tagged release.
 
 - `healda.utils.storage.get_duckdb_connection`; `duckdb` is no longer a runtime
   dependency.
-- Non-release experiments, legacy workflows, data-preparation implementations,
-  site-specific launch configuration, and campaign analysis from the intended
-  release boundary.
-
-### Known limitations
-
-- Checkpoint publication decisions and container-based validation remain
-  release blockers; no model assets are distributed.
-- The training recipes have not been scientifically reviewed.

@@ -6,7 +6,7 @@ set -euo pipefail
 
 # The smoke preset is short but still requires compatible prepared assets.
 : "${ERA5_HPX64_104CH_ZARR:?set the packed state Zarr path}"
-: "${UFS_OBS_PATH:?set the prepared observation root}"
+: "${NNJA_ROOT:?set the NNJA observation archive root}"
 
 OUTPUT_DIR="${OUTPUT_DIR:-./training-runs}"
 
