@@ -6,7 +6,7 @@ set -euo pipefail
 
 # Experimental only: this workflow has not been scientifically validated.
 : "${ERA5_HPX64_104CH_ZARR:?set the packed state Zarr path}"
-: "${UFS_OBS_PATH:?set the prepared observation root}"
+: "${NNJA_ROOT:?set the NNJA observation archive root}"
 : "${BASE_CHECKPOINT:?set a compatible training-state checkpoint}"
 
 OUTPUT_DIR="${OUTPUT_DIR:-./fine-tuning-runs}"

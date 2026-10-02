@@ -1,11 +1,11 @@
 # HealDA
 
-HealDA is an experimental training package for observation-conditioned,
-HEALPix-grid atmospheric data assimilation. The public package boundary covers
-training, checkpointing, supported state datasets, prepared-observation loaders,
-model components, and distributed execution. It does not include raw-data ETL,
-prepared datasets, checkpoints, scientific benchmark claims, or an end-user
-inference application.
+HealDA is an experimental package for observation-conditioned, HEALPix-grid
+atmospheric data assimilation. It contains the model architecture, distributed
+training, inference, and data loaders for observations and target analysis states
+already converted to Parquet and Zarr respectively, with the observation
+filtering, thinning and normalization applied on load. It does not include
+raw-data ETL.
 
 > This code is provided for research and development purposes only.
 
@@ -38,7 +38,7 @@ Set paths through environment variables or a `.env` file:
 
 ```bash
 export ERA5_HPX64_104CH_ZARR=/data/era5_hpx64_104ch.zarr
-export UFS_OBS_PATH=/data/prepared_observations/
+export NNJA_ROOT=/data/nnja/
 export CHECKPOINT_ROOT=/runs
 
 torchrun --standalone --nproc-per-node=1 \
@@ -46,8 +46,8 @@ torchrun --standalone --nproc-per-node=1 \
 ```
 
 This smoke recipe is minimal in duration, not in data requirements. It expects
-the prepared state, observation, channel-table, and normalization assets used by
-the selected recipe. See [`examples/training/minimal.sh`](examples/training/minimal.sh).
+the prepared state Zarr and NNJA observation archive used by the selected
+recipe. See [`examples/training/minimal.sh`](examples/training/minimal.sh).
 
 ### Resume and fine-tune
 
@@ -62,9 +62,7 @@ healda-train --name debug-single-gpu --output_dir /runs \
 
 `--finetune_from` initializes model weights from a checkpoint only when no
 resumable checkpoint is found. Optimizer and iterator state are not restored by
-the CLI fine-tuning path. Fine-tuning is experimental and has not been
-scientifically validated; do not treat the example as a supported scientific
-recipe. See
+the CLI fine-tuning path. See
 [`examples/fine_tuning/from_checkpoint.sh`](examples/fine_tuning/from_checkpoint.sh).
 
 ## Configuration structure
@@ -90,45 +88,31 @@ be divisible by `time_parallel * space_parallel`; the video length must also be
 compatible with time sharding. FSDP with `space_parallel > 1` is not wired.
 Multi-process and multi-node configurations require CUDA/NCCL.
 
+## Hardware
+
+The checkpoints come from the 0.25 degree recipe `v2-nnja-latlon-final` in
+`healda.cli.train`. It has been trained on GB300 nodes with `time_parallel=8`,
+eight GPUs per video sample. `time_parallel=4` also trains without changes.
+Training it on H100-class GPUs needs further memory savings, such as more
+activation checkpointing, and has not been validated.
+Inference currently needs about 40 GB of GPU memory and has been run on H100 and
+Blackwell GPUs.
+
 ## Prepared observation input
 
-Training consumes prepared Parquet, not raw BUFR or NetCDF. The supported
-loader-facing contract is documented in
-[`docs/observation-input.md`](docs/observation-input.md). In brief, archives must
-use the expected daily or cycle file layout, exact column names and compatible
-Arrow types, UTC timestamps, stable sensor/platform/channel vocabularies, and a
-matching `channel_table.parquet`. Observation creation and archive migration are
-outside the package boundary.
+Training reads prepared Parquet observations from the NNJA archive (`NNJA_ROOT`),
+the source the checkpoints are trained on. The older UFS replay archive
+(`UFS_OBS_PATH`) is still readable for earlier runs. Each has its own layout, schema
+and channel vocabulary, and a checkpoint reads only the source it was trained on.
+See [`docs/observation-input.md`](docs/observation-input.md), including what data
+must satisfy to match a trained checkpoint.
 
-## Inference boundary
+## Inference
 
-HealDA owns training and its checkpoint/model interfaces. Earth2Studio is the
-intended integration boundary for future inference workflows, but this
-repository does not currently expose a supported Earth2Studio model wrapper or
-inference CLI. Consumers should not assume a training checkpoint is directly
-loadable by Earth2Studio until a versioned adapter and checkpoint compatibility
-tests are published.
-
-## Release model
-
-The project is pre-release software. Releases are expected to use semantic
-versioning while the Python API, recipes, data contracts, and checkpoint format
-remain subject to change. Compatibility guarantees begin only when explicitly
-stated in release notes.
-
-## Known limitations and blockers
-
-- No prepared datasets, checkpoints, or turnkey data-preparation pipeline are
-  distributed.
-- Training requires CUDA; supported hardware/software combinations have not
-  been published.
-- Built-in recipes include research configurations and are not all validated
-  release recipes.
-- Fine-tuning and checkpoint portability across configuration changes are not
-  scientifically validated.
-- A supported Earth2Studio inference adapter is not yet available.
-- Checkpoint publication decisions and container-based validation remain
-  release blockers.
+`healda.inference.load_da_model` rebuilds a trained network from a checkpoint's
+`loop.json`, and `DAModel.run_analysis` produces analyses from in-memory observation
+cycle tables. `healda.observations.adapters.e2s_nnja.analysis_tables` builds those
+tables from Earth2Studio NNJA observation frames.
 
 ## Contributing
 
