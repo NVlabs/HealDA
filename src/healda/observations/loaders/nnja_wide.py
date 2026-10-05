@@ -22,11 +22,12 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Collection, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from healda.observations.loaders.archive_row_groups import (
@@ -43,6 +44,7 @@ from healda.observations.sensors_nnja import (
     get_global_channel_id,
 )
 from healda.observations.sensors_nnja import channel_table as nnja_channel_table
+from healda.observations.system import ChannelDenial
 from healda.observations.preprocessing import ir_spectral, scan_geometry
 from healda.utils.profiling import cpu_timing_range
 from healda.config.environment import nnja_archive
@@ -100,6 +102,47 @@ IR_SOUNDERS = tuple(
 # CrIS names the detector in its 3x3 array field_of_view and the cross-track look
 # field_of_regard; the look is the scan position. Elsewhere field_of_view is the position.
 SCAN_POSITION_COLUMN = {"cris": "field_of_regard"}
+# Per-footprint source quality flags, each nonzero when the provider marks the footprint
+# degraded. fov_quality_bad is derived in the ir48 store from fov_quality, 2025-01-01 on.
+# A dotted name reads one field of a per-channel struct; any channel flagged flags the footprint.
+SOURCE_QUALITY_FLAGS = {
+    "cris": ("scan_quality", "fov_quality_bad"),
+    "iasi": ("summary_quality",),
+    "atms": (
+        "scan_quality",
+        "granule_quality",
+        "channel_auxiliary.list.element.channel_quality",
+    ),
+}
+# The bits that flag, where not every bit does (LSB = 0). ATMS granule_quality bits 4-10;
+# ATMS channel_quality bits 1-8, bit 9 being the Moon in the space view.
+# fov_quality (NFQF) bits that set CrIS fov_quality_bad in any band (LSB 14, 15).
+CRIS_FOV_QUALITY_BAD = 0xC000
+SOURCE_FLAG_BITS = {
+    "granule_quality": 0x7F0,
+    "channel_auxiliary.list.element.channel_quality": 0x1FE,
+}
+
+
+def source_flagged(table: pa.Table, flags: Sequence[str]) -> np.ndarray:
+    """Per row, whether any of `flags` present in `table` is set."""
+    flagged = np.zeros(table.num_rows, dtype=bool)
+    for flag in flags:
+        column = flag.split(".")[0]
+        if column not in table.column_names:
+            continue
+        values = table[column].combine_chunks()
+        if pa.types.is_fixed_size_list(values.type):
+            size = values.type.list_size
+            leaf = values.values.field(flag.rsplit(".", 1)[1])
+            leaf = leaf.slice(values.offset * size, len(values) * size)
+            bits = leaf.fill_null(0).to_numpy(zero_copy_only=False).reshape(-1, size)
+        else:
+            bits = values.fill_null(0).to_numpy(zero_copy_only=False)[:, None]
+        mask = SOURCE_FLAG_BITS.get(flag)
+        flagged |= ((bits & mask) if mask is not None else bits).any(axis=1)
+    return flagged
+
 
 # Archive footprint columns → unified schema. Scan_Angle is derived from the scan identity, and
 # Sat_Zenith_Angle is the archive's unsigned magnitude signed by scan side.
@@ -359,6 +402,8 @@ class ReadPlan:
     # The sensor's scan-identity column, when it is not the field_of_view every other
     # footprint column is keyed on.
     scan_columns: tuple[str, ...] = ()
+    # The source quality flags read when flagged footprints are dropped.
+    flag_columns: tuple[str, ...] = ()
 
     @property
     def channel_count(self) -> int:
@@ -369,8 +414,17 @@ class ReadPlan:
         return [
             *FOOTPRINT_COLUMNS,
             *self.scan_columns,
+            *self.flag_columns,
             *SELECTION_COLUMNS,
             *self.value_columns,
+        ]
+
+    def columns_in(self, published: Collection[str]) -> list[str]:
+        """`columns`, less the flag columns a file does not publish."""
+        return [
+            name
+            for name in self.columns
+            if name.split(".")[0] in published or name not in self.flag_columns
         ]
 
 
@@ -454,22 +508,28 @@ class NNJAWideLoader(NNJAArchiveLoader):
         `ir_spectral.ir_channel_sets` rather than the published axis.
       - NULL_COLUMNS are filled with nulls, being conventional-only fields.
 
-    Not read here: every quality flag, the scene descriptors, the collocated imager groups,
-    azimuth angles, QC, etc. Relevant fields/QC flags:
+    Read only with `drop_source_flagged` or `only_source_flagged`: `SOURCE_QUALITY_FLAGS`, a footprint dropped if any is
+    set (in `SOURCE_FLAG_BITS` where given), a flag a day does not publish read as unflagged.
+    CrIS fov_quality_bad is 1 where bit 14 or 15 (LSB = 0) of fov_quality (NFQF) is set in any
+    band. The ir48 store has it from 2025-01-01; `table_source` tables built by
+    `adapters.e2s_nnja` compute it the same way.
+
+    Not read here: every other quality flag, the scene descriptors, the collocated imager groups, azimuth
+    angles, QC, etc. Relevant fields/QC flags:
         AIRS  channel_auxiliary.acquisition_quality  ACQF, BUFR 0-33-032, per channel per footprint.
                                                     The only flag in the archive that marks values
                                                     which are present and wrong. Identifies channel popping.
-        CrIS  band_calibration_quality.fov_quality   NFQF, 0-33-077, per band per footprint. Decode bits 2, 5 and 10 only:
-                                                    bit 9 is a day/night indicator that fires on
-                                                    half the archive. Identifies real sensor failures (ex: N21 failure on 2025-03-02).
+        CrIS  band_calibration_quality.fov_quality   NFQF, 0-33-077, per band per footprint. Read as
+                                                    fov_quality_bad. Bit 10 (LSB = 0) fires on
+                                                    half the archive, day/night-like.
                 band_calibration_quality
                 .calibration_quality                 NCQF, 0-33-076, fires on 0.0007-0.015%.
                 scan_quality                         NSQF, 0-33-075, coarser: something on the scan
                                                     is degraded, without saying what.
                 geolocation_quality, quality_mark, radiance_type_flags, track_qualifier
-        IASI  summary_quality                        QGFQ, 0-33-060, 2 bits per footprint. Does not
-                                                    identify damaged present values; flagged
-                                                    footprints reconstruct no worse than clean.
+        IASI  summary_quality                        QGFQ, 0-33-060, 2 bits per footprint. Set on
+                                                    every Metop-B footprint 2025-11-25 12Z to
+                                                    11-26 12:57Z, the corrupted span; ~0.3% otherwise.
                 geometric_quality                      nonzero on 0.7-2.0% of footprints.
                 instrument_noise_quality, radiometric_calibration_quality,
                 spectral_calibration_quality, system_quality_function
@@ -497,6 +557,9 @@ class NNJAWideLoader(NNJAArchiveLoader):
         ir_units: str = "kelvin",
         normalize: bool = True,
         platform_channel_dropout: Sequence[tuple[str, str, int, float]] = (),
+        channel_denials: Sequence[ChannelDenial] = (),
+        drop_source_flagged: bool = False,
+        only_source_flagged: bool = False,
         dropout_scope: str = "row",
         table_source: Mapping[str, CycleTableSource] | None = None,
     ) -> None:
@@ -527,6 +590,11 @@ class NNJAWideLoader(NNJAArchiveLoader):
             platform_channel_dropout: Training-time rules of
                 ``(sensor, platform, raw_channel_id, probability)``. Dropout is
                 applied to model-facing rows after footprint thinning.
+            channel_denials: Drop each rule's channel observations taken in its window.
+            drop_source_flagged: Drop footprints with any `SOURCE_QUALITY_FLAGS` flag set,
+                ahead of thinning.
+            only_source_flagged: The inverse: keep only the flagged footprints, to inspect
+                what the flags remove.
             table_source: Per sensor, archive-schema tables of each cycle file
                 (`adapters.e2s_nnja.sat_tables`), read instead of `archive_root`. A sensor
                 it omits contributes no rows.
@@ -582,27 +650,22 @@ class NNJAWideLoader(NNJAArchiveLoader):
         self.ir_channels = _resolve_ir_channels(ir_channels)
         self.ir_units = ir_units
         self.normalize = normalize
+        if drop_source_flagged and only_source_flagged:
+            raise ValueError(
+                "drop_source_flagged and only_source_flagged are exclusive"
+            )
+        self.drop_source_flagged = drop_source_flagged
+        self.only_source_flagged = only_source_flagged
         dropout_rules: dict[str, list[tuple[int, int, float]]] = {}
         seen_dropout_rules = set()
         for sensor, platform, raw_channel_id, probability in platform_channel_dropout:
-            if sensor not in self.sensors:
+            platform_id, global_channel_id = self._channel_key(
+                sensor, platform, raw_channel_id
+            )
+            if not 0.0 <= probability < 1.0:
                 raise ValueError(
-                    f"dropout rule sensor {sensor!r} is not loaded by this loader"
+                    f"dropout probability must be in [0, 1), got {probability}"
                 )
-            if platform not in PLATFORM_NAME_TO_ID:
-                raise ValueError(f"unknown dropout platform: {platform!r}")
-            platform_id = PLATFORM_NAME_TO_ID[platform]
-            if platform_id not in SENSOR_CONFIGS[sensor].platform_ids:
-                raise ValueError(
-                    f"{sensor} is not available on dropout platform {platform!r}"
-                )
-            if raw_channel_id not in SENSOR_CONFIGS[sensor].channels:
-                raise ValueError(f"{sensor} has no raw channel {raw_channel_id}")
-            if not 0.0 <= probability <= 1.0:
-                raise ValueError(
-                    f"dropout probability must be in [0, 1], got {probability}"
-                )
-            global_channel_id = int(get_global_channel_id(sensor, [raw_channel_id])[0])
             key = (sensor, platform_id, global_channel_id)
             if key in seen_dropout_rules:
                 raise ValueError(
@@ -616,6 +679,16 @@ class NNJAWideLoader(NNJAArchiveLoader):
         self._platform_channel_dropout = {
             sensor: tuple(rules) for sensor, rules in dropout_rules.items()
         }
+        self._denials = tuple(
+            (
+                *self._channel_key(d.sensor, d.platform, d.channel),
+                None if d.start is None else np.datetime64(pd.Timestamp(d.start), "ns"),
+                None if d.end is None else np.datetime64(pd.Timestamp(d.end), "ns"),
+            )
+            for d in channel_denials
+            # A denial for a known sensor this run doesn't load has nothing to drop.
+            if d.sensor in self.sensors or d.sensor not in SENSOR_CONFIGS
+        )
         self._read_plans: dict[str, ReadPlan] = {}
         self._sensor_roots: dict[str, str] = {}
         configure_arrow_pools()
@@ -726,6 +799,11 @@ class NNJAWideLoader(NNJAArchiveLoader):
             value_encoding=value_encoding or {},
             scan_columns=tuple(
                 name for name in (SCAN_POSITION_COLUMN.get(sensor),) if name is not None
+            ),
+            flag_columns=(
+                SOURCE_QUALITY_FLAGS.get(sensor, ())
+                if self.drop_source_flagged or self.only_source_flagged
+                else ()
             ),
         )
         self._read_plans[sensor] = plan
@@ -1120,6 +1198,38 @@ class NNJAWideLoader(NNJAArchiveLoader):
             )
         return table
 
+    def _channel_key(
+        self, sensor: str, platform: str, raw_channel_id: int
+    ) -> tuple[int, int]:
+        """``(platform_id, global_channel_id)`` of a rule, rejecting one this loader can't serve."""
+        if sensor not in self.sensors:
+            raise ValueError(f"rule sensor {sensor!r} is not loaded by this loader")
+        if platform not in PLATFORM_NAME_TO_ID:
+            raise ValueError(f"unknown rule platform: {platform!r}")
+        platform_id = PLATFORM_NAME_TO_ID[platform]
+        if platform_id not in SENSOR_CONFIGS[sensor].platform_ids:
+            raise ValueError(f"{sensor} is not available on rule platform {platform!r}")
+        if raw_channel_id not in SENSOR_CONFIGS[sensor].channels:
+            raise ValueError(f"{sensor} has no raw channel {raw_channel_id}")
+        return platform_id, int(get_global_channel_id(sensor, [raw_channel_id])[0])
+
+    def _deny(self, table: pa.Table) -> pa.Table:
+        """Drop each denied channel's observations taken inside its ``[start, end)``."""
+        if not self._denials or not table.num_rows:
+            return table
+        obs_time = _numpy(table["Absolute_Obs_Time"]).astype("datetime64[ns]")
+        platform = _numpy(table["Platform_ID"])
+        channel = _numpy(table[GLOBAL_CHANNEL_ID.name])
+        drop = np.zeros(table.num_rows, dtype=bool)
+        for platform_id, global_channel_id, start, end in self._denials:
+            hit = (platform == platform_id) & (channel == global_channel_id)
+            if start is not None:
+                hit &= obs_time >= start
+            if end is not None:
+                hit &= obs_time < end
+            drop |= hit
+        return table.filter(pa.array(~drop)) if drop.any() else table
+
     def _scoped_rules(
         self, sensor: str, dropout: SampleDropout
     ) -> tuple[tuple[int, int, float], ...]:
@@ -1165,9 +1275,14 @@ class NNJAWideLoader(NNJAArchiveLoader):
         The retained rows are passed into transform so only those are gathered and
         normalized.
         """
+        if plan.flag_columns:
+            flagged = source_flagged(table, plan.flag_columns)
+            keep = flagged if self.only_source_flagged else ~flagged
+            if not keep.all():
+                table = table.filter(pa.array(keep))
         keep_rows = self.select(table, sensor)
         long = self.expand(self.transform(table, plan, sensor, keep_rows), plan, sensor)
-        return self._apply_platform_channel_dropout(long, rng, rules)
+        return self._apply_platform_channel_dropout(self._deny(long), rng, rules)
 
     def _row_group_jobs(
         self, sensor: str, windows: pd.DatetimeIndex
@@ -1190,10 +1305,13 @@ class NNJAWideLoader(NNJAArchiveLoader):
                 if plan is None:
                     plan = self.read_plan(sensor, day, parquet.schema_arrow)
                 window_groups = list(window_row_groups(parquet, windows, path=path))
-            for window, group in window_groups:
-                read = functools.partial(
-                    parquet.read_row_group, group, columns=plan.columns
+                columns = (
+                    plan.columns_in(parquet.schema_arrow.names)
+                    if plan.flag_columns
+                    else plan.columns
                 )
+            for window, group in window_groups:
+                read = functools.partial(parquet.read_row_group, group, columns=columns)
                 jobs.append((plan, window, read))
         return jobs
 
@@ -1210,7 +1328,10 @@ class NNJAWideLoader(NNJAArchiveLoader):
             if table is None or not table.num_rows:
                 continue
             plan = self.read_plan(sensor, f"table_source[{cycle}]", table.schema)
-            read = functools.partial(window_rows, table, window, plan.columns)
+            columns = dict.fromkeys(
+                name.split(".")[0] for name in plan.columns_in(table.column_names)
+            )
+            read = functools.partial(window_rows, table, window, list(columns))
             jobs.append((plan, window, read))
         return jobs
 
@@ -1342,8 +1463,6 @@ if __name__ == "__main__":
     # Run as `python -m healda.observations.loaders.nnja_wide`. As a path, this file's
     # directory leads sys.path and its `types.py` shadows the stdlib module.
     import time
-
-    import pyarrow.compute as pc
 
     sensors = ["atms", "amsua", "mhs"]
     sample_time = pd.Timestamp("2022-01-18T21:00:00")

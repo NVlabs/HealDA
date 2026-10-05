@@ -187,6 +187,7 @@ class NNJAConventionalLoader:
         surface_pressure_dropout: float = 0.0,
         dropout_scope: str = "row",
         ascat_only_scatterometer: bool = False,
+        pressure_height_fill: str | None = None,
     ) -> None:
         self.sensors = [CONV_SENSOR]
         self.obs_context_hours = obs_context_hours
@@ -222,6 +223,7 @@ class NNJAConventionalLoader:
             surface_pressure_dropout=surface_pressure_dropout,
             dropout_scope=dropout_scope,
             ascat_only_scatterometer=ascat_only_scatterometer,
+            pressure_height_fill=pressure_height_fill,
         )
 
     @functools.cached_property
@@ -278,6 +280,12 @@ class NNJAConventionalLoader:
             )
             if table.num_rows == 0:
                 return table
+        if self.drop_obs_channel_ids:
+            # Ids named in the base conv vocabulary (conv_var_global_ids) match here,
+            # before levels are expanded; level ids match after.
+            table = self._drop_channels(table)
+            if table.num_rows == 0:
+                return table
         table = self._attach_base_bounds(table)
         table = filter_observations(
             table,
@@ -316,13 +324,14 @@ class NNJAConventionalLoader:
         table = _set_typed_column(table, SENSOR_ID, sensor_id)
 
         if self.drop_obs_channel_ids:
-            drop = pa.array(self.drop_obs_channel_ids).cast(
-                table[GLOBAL_CHANNEL_ID.name].type
-            )
-            table = table.filter(
-                pc.invert(pc.is_in(table[GLOBAL_CHANNEL_ID.name], drop))
-            )
+            table = self._drop_channels(table)
         return table
+
+    def _drop_channels(self, table: pa.Table) -> pa.Table:
+        drop = pa.array(self.drop_obs_channel_ids).cast(
+            table[GLOBAL_CHANNEL_ID.name].type
+        )
+        return table.filter(pc.invert(pc.is_in(table[GLOBAL_CHANNEL_ID.name], drop)))
 
     async def sel_time(self, times: pd.DatetimeIndex) -> dict[str, list[pa.Table]]:
         loaded = await self._loader.sel_time(times)

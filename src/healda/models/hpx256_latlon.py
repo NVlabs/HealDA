@@ -59,6 +59,7 @@ class Hpx256LatlonModel(nn.Module):
         hpx_level: int = 8,
         decode_k: int = 4,
         decode_base_level: int | None = None,
+        decode_fp32_output: bool = False,
         fine_calendar: bool = True,
     ):
         super().__init__()
@@ -96,6 +97,7 @@ class Hpx256LatlonModel(nn.Module):
             nlat=NLAT,
             nlon=NLON,
             base_level=decode_base_level,
+            fp32_output=decode_fp32_output,
         )
 
         statics_ll = load_era5_statics_latlon()

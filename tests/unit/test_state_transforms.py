@@ -68,3 +68,14 @@ def test_restore_fill_only_touches_outside_the_domain():
         out[0][~valid] == CHANNEL_DOMAIN_FILL["sst"]
     ), "land sst must be filled"
     assert np.all(out[1] == 288.0), "an unmasked channel must be untouched"
+
+
+@pytest.mark.parametrize("backend", ["numpy", "torch"])
+def test_clamp_physical_clips_bounded_channels_only(backend):
+    channels = ["Q850", "sic", "tcc", "T850", "tcwv"]
+    x = np.array([-1e-4, 1.12, -0.1, -5.0, np.nan], dtype=np.float32)[:, None, None]
+    state = torch.as_tensor(x) if backend == "torch" else x
+    out = np.asarray(st.clamp_physical(state, channels))
+    np.testing.assert_array_equal(out[:4, 0, 0], [0.0, 1.0, 0.0, -5.0])
+    assert np.isnan(out[4, 0, 0])
+    assert np.asarray(state)[1, 0, 0] == np.float32(1.12)

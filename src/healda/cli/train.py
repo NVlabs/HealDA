@@ -45,6 +45,7 @@ from healda.datasets.da.state_stats import (
     make_batch_info,
 )
 from healda.config.variables import VARIABLE_CONFIGS, encode_channels
+from healda.observations.system import ObsFilters
 from healda.observations.loaders import combined
 from healda.observations.sensors import (
     PLATFORM_NAME_TO_ID,
@@ -136,6 +137,8 @@ class LatlonDecode:
     k: int = 4
     # Width the backbone hands the decoder, not the channel count of the loss target.
     decode_channels: int = 128
+    # Run the decoder's output projection outside autocast, in fp32. Inference sets it.
+    fp32_output: bool = False
 
 
 def _migrate_latlon_fields(d: dict) -> dict:
@@ -824,10 +827,15 @@ class TrainingLoop(loop.TrainingLoopBase):
     def _transform_options(self):
         return healda.models.transform_options_for(self.model_config)
 
-    def get_dataset(self, train: bool, years: list[int] | None = None):
+    def get_dataset(
+        self,
+        train: bool,
+        years: list[int] | None = None,
+        extra_obs_filters: ObsFilters = ObsFilters(),
+    ):
         """``years`` picks the span; ``train`` stays free to mean "augment like training".
 
-        Only inference passes ``years``. ``train_years`` is still honoured when ``train``,
+        Only inference passes ``years`` and ``extra_obs_filters``. ``train_years`` is still honoured when ``train``,
         since an arm sets it for its own split and validates with ``train=False``.
         """
         # Registered gridded-state tasks go through the single factory.
@@ -852,6 +860,7 @@ class TrainingLoop(loop.TrainingLoopBase):
                 obs_config=self.obs_config,
                 transform_options=self._transform_options,
                 training=train,
+                extra_obs_filters=extra_obs_filters,
             )
             dist.print0(
                 f"[setup] dataset={dataset_name!r} split={split} "
@@ -868,6 +877,10 @@ class TrainingLoop(loop.TrainingLoopBase):
         # Anything not in the task table comes from a registered provider:
         # obs-to-state DA when the config asks for obs, else mask training.
         provider = dataset_provider(self.dataset)
+        if extra_obs_filters != ObsFilters():
+            raise ValueError(
+                f"dataset {self.dataset!r} takes no extra observation filters"
+            )
 
         if self.obs_config.use_obs:
             return provider.ObsDataset(
@@ -1350,6 +1363,7 @@ class TrainingLoop(loop.TrainingLoopBase):
             hpx_level=self.resolved_hpx_in_level,
             decode_k=self.latlon_decode.k,
             decode_base_level=self.latlon_decode.base_level,
+            decode_fp32_output=self.latlon_decode.fp32_output,
             fine_calendar=True,
             # Derived, not defaulted: the wrapper owns a second copy of the geometry and has
             # to build it in the same order the backbone's tokens are in.

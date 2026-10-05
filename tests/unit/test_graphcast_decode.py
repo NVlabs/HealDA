@@ -166,3 +166,17 @@ def test_forward_shape_and_finiteness():
     out = decoder(z, aux)
     assert out.shape == (2, 3, NLAT, NLON)
     assert torch.isfinite(out).all()
+
+
+def test_fp32_output_leaves_the_head_out_of_bf16_autocast():
+    torch.manual_seed(0)
+    decoder = _decoder()
+    z = torch.randn(1, 12 * 4, 4 * 8)
+    aux = torch.randn(1, NLAT * NLON, 2)
+    with torch.no_grad(), torch.autocast("cpu", dtype=torch.bfloat16):
+        rounded = decoder(z, aux)
+        decoder.fp32_output = True
+        exact = decoder(z, aux)
+    assert rounded.dtype == torch.bfloat16
+    assert exact.dtype == torch.float32
+    torch.testing.assert_close(exact, rounded.float(), rtol=2e-2, atol=2e-2)

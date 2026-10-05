@@ -48,6 +48,7 @@ from healda.observations.loaders.nnja_base import archive_window
 from healda.observations.loaders.nnja_satwnd import ARCHIVE_HPX_LEVEL
 from healda.observations.loaders.nnja_wide import (
     ARCHIVE_HPX_ORDER,
+    CRIS_FOV_QUALITY_BAD,
     RADIANCE_PREFIXES,
     SAID_TO_PLATFORM_NAME,
     SCAN_POSITION_COLUMN,
@@ -168,8 +169,21 @@ FOOTPRINT_KEYS = (
     "satellite_za",
     "solza",
 )
-# NNJAObsSat columns sat_tables reads.
-SAT_COLUMNS = ("variable", "sensor_index", "observation", *FOOTPRINT_KEYS)
+# NNJAObsSat footprint flag columns -> the archive's; null for sensors that lack them.
+FOOTPRINT_FLAGS = {
+    "scan_quality": "scan_quality",
+    "granule_quality": "granule_quality",
+    "footprint_quality": "summary_quality",
+}
+# NNJAObsSat columns sat_tables reads; the quality columns are optional.
+SAT_COLUMNS = (
+    "variable",
+    "sensor_index",
+    "observation",
+    "quality",
+    *FOOTPRINT_FLAGS,
+    *FOOTPRINT_KEYS,
+)
 
 
 def _integer(values: np.ndarray, pa_type: pa.DataType) -> pa.Array:
@@ -451,6 +465,38 @@ def _prepbufr_tables(table: pa.Table) -> dict[pd.Timestamp, pa.Table]:
     return _split_by_cycle(table, cycle)
 
 
+def _footprint_flags(table, kept, first) -> dict:
+    """The archive's footprint flag columns from those NNJAObsSat carries."""
+    columns = {}
+    for name, archive_name in FOOTPRINT_FLAGS.items():
+        if name not in table.column_names:
+            continue
+        values = _native(table[name]).astype(np.float64)
+        values = (values if values.size == kept.size else values[kept])[first]
+        values[values < 0] = np.nan
+        if np.isfinite(values).any():
+            columns[archive_name] = _integer(values, pa.uint32())
+    return columns
+
+
+def _quality_columns(table, sensor, kept, slot, footprint, channel_count) -> dict:
+    """The per-channel provider flags NNJAObsSat's quality carries, as the archive's
+    columns: ATMS channel_quality, and CrIS fov_quality_bad from NFQF."""
+    if "quality" not in table.column_names or sensor not in ("atms", "cris"):
+        return {}
+    quality = np.asarray(_native(table["quality"]), dtype=np.float64)
+    quality = quality if quality.size == kept.size else quality[kept]
+    flags = np.zeros((channel_count, footprint[-1] + 1), dtype=np.int64)
+    flags[slot, footprint] = np.where(quality > 0, quality, 0)
+    if sensor == "cris":
+        bad = (flags & CRIS_FOV_QUALITY_BAD).any(axis=0)
+        return {"fov_quality_bad": pa.array(bad.astype(np.uint8))}
+    leaf = pa.StructArray.from_arrays(
+        [pa.array(flags.T.ravel().astype(np.uint16))], ["channel_quality"]
+    )
+    return {"channel_auxiliary": pa.FixedSizeListArray.from_arrays(leaf, channel_count)}
+
+
 def sat_tables(
     frame: pd.DataFrame,
     sensor: str,
@@ -509,10 +555,11 @@ def _sat_tables(
         starts[1:] |= ~same
     first = np.flatnonzero(starts)
 
+    footprint = np.cumsum(starts) - 1
     observation = np.full((channels.size, first.size), np.nan)
     values = _native(table["observation"])
     values = values if values.size == kept.size else values[kept]
-    observation[slot, np.cumsum(starts) - 1] = values
+    observation[slot, footprint] = values
     prefix = SENSOR_VALUE_PREFIX[sensor]
     if prefix in RADIANCE_PREFIXES:
         wavenumber = ir_spectral.wavenumber_cm_inverse(sensor, channels)
@@ -572,6 +619,8 @@ def _sat_tables(
         ),
         **scan_columns,
         "hpx2048_nest": pa.array(pixels, mask=~valid_position),
+        **_quality_columns(table, sensor, kept, slot, footprint, channels.size),
+        **_footprint_flags(table, kept, first),
     }
     fields = [pa.field(name, values.type) for name, values in columns.items()]
     arrays = list(columns.values())

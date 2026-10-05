@@ -1,0 +1,5 @@
+sensor,platform,channel,start,end,note
+amsua,metop-b,3,2025-01-01T00:00,,"EUMETSAT declared ch3 permanently degraded 2025-01-30; not assimilated by NOAA GSI since 2016-09-25"
+amsua,metop-b,6,2025-01-01T00:00,,"ECMWF blocklisted ch6 for noise drift in 2022-01; not assimilated by NOAA GSI since 2016-09-25"
+amsua,metop-c,4,2026-03-16T03:00,,"NOAA OSPO reports ch4 noise from 2026-03-17; archive shows drift from 2026-03-16 06Z and data loss after 2026-05-06"
+amsua,metop-b,9,2026-03-18T21:00,2026-03-24T00:00,"EUMETSAT reports ch9 noise spikes from 2026-03-21; ECMWF excluded the channel from 2026-03-24; window set from the archive"

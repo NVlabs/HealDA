@@ -27,17 +27,15 @@ from healda.datasets.da.tasks import (
     satellite_sensors,
 )
 from healda.datasets.da.transform import TransformV2
+from healda.datasets.da.hourly_latlon_dataset import NLAT as LATLON_NLAT
+from healda.datasets.da.hourly_latlon_dataset import NLON as LATLON_NLON
+from healda.observations.system import ObsFilters, inference_filters
 from healda.observations.loaders.nnja_base import CycleTableSource
 from healda.observations.preprocessing.ir_spectral import ir_channel_preset
 from healda.training.checkpoint import Checkpoint
 
-# Operational channel denials: (sensor, platform, channel, first analysis time, or None
-# for always).
-DENIALS = (
-    ("amsua", "metop-b", 3, pd.Timestamp("2025-01-01")),
-    ("amsua", "metop-b", 6, pd.Timestamp("2025-01-01")),
-    ("amsua", "metop-c", 4, pd.Timestamp("2026-03-17")),
-)
+# Inference defaults shared by load_da_model and the inference CLI.
+PRESSURE_HEIGHT_FILL = "sonde"
 
 
 @dataclasses.dataclass
@@ -46,7 +44,7 @@ class DAModel:
     loop: TrainingLoop
     transform: TransformV2
     device: torch.device
-    denials: tuple = ()
+    extra_filters: ObsFilters = ObsFilters()
 
     @property
     def channels(self) -> list[str]:
@@ -91,15 +89,6 @@ class DAModel:
             frames[-1] + pd.Timedelta(hours=obs.context_end),
         )
 
-    def obs_config(self, analysis_time):
-        """The recipe's observing system with the denials active at ``analysis_time``."""
-        denied = [
-            (sensor, platform, channel)
-            for sensor, platform, channel, start in self.denials
-            if start is None or pd.Timestamp(analysis_time) >= start
-        ]
-        return self.loop.obs_config.deny_platform_channels(denied)
-
     def run_analysis(
         self,
         analysis_times,
@@ -113,17 +102,14 @@ class DAModel:
 
         Each analysis is the last frame of a ``time_length`` window fed with the
         observations of every frame. ``satellite_tables`` is keyed by sensor; a stream
-        or sensor not passed contributes no observations. A dated denial applies to an
-        analysis from its start on; one call cannot straddle that date.
+        or sensor not passed contributes no observations.
         """
         times = pd.DatetimeIndex(analysis_times)
-        obs_config = self.obs_config(times[0])
-        if any(self.obs_config(t) != obs_config for t in times[1:]):
-            raise ValueError("analysis times straddle a dated denial; split the call")
         # A None source reads the on-disk archive; a stream not passed is empty instead.
         loader = build_obs_loader(
-            obs_config,
+            self.loop.obs_config,
             training=False,
+            extra_filters=self.extra_filters,
             satellite_table_source=satellite_tables or {},
             gpsro_table_source=gpsro_tables or {},
             satwnd_table_source=satwnd_tables or {},
@@ -177,23 +163,49 @@ class DAModel:
 
     def to_physical(self, prediction: torch.Tensor) -> torch.Tensor:
         """Model space ``(b, C, lat, lon)`` -> physical units, fills re-imposed."""
-        stats = self.loop.batch_info.normalization
-        shape = (1, -1) + (1,) * (prediction.ndim - 2)
-        center = torch.as_tensor(
-            stats.center, dtype=prediction.dtype, device=prediction.device
-        ).view(shape)
-        scales = torch.as_tensor(
-            stats.scales, dtype=prediction.dtype, device=prediction.device
-        ).view(shape)
-        physical = prediction * scales + center
-        physical = state_transforms.to_physical_space(
-            physical, self.channels, self.loop.variable_config.name, channel_axis=1
+        return to_physical(
+            prediction, self.loop, restore_fill=self.loop.use_masked_domain_loss
         )
-        if self.loop.use_masked_domain_loss:
-            physical = state_transforms.restore_fill(
-                physical, self.channels, state_masks.LATLON_025, None, channel_axis=1
-            )
+
+
+def to_physical(
+    prediction: torch.Tensor, loop, *, restore_fill: bool, clamp: bool = False
+) -> torch.Tensor:
+    """Model space -> physical units, channel axis 1.
+
+    Spatial dims are ``(lat, lon)`` or one flat axis of the run's grid. With
+    ``restore_fill``, masked channels get the loader's fill outside their domain.
+    With ``clamp``, bounded channels are clipped to ``state_transforms.PHYSICAL_BOUNDS``.
+    """
+    channels = list(loop.batch_info.channels)
+    physical = state_transforms.to_physical_space(
+        loop.batch_info.denormalize(prediction),
+        channels,
+        loop.variable_config.name,
+        channel_axis=1,
+    )
+    if clamp:
+        physical = state_transforms.clamp_physical(physical, channels, channel_axis=1)
+    if not restore_fill or not any(c in state_masks.CHANNEL_DOMAIN for c in channels):
         return physical
+    if not loop.latlon_decode:
+        # The run's own order, not a constant: a disk-nest arm emits nest.
+        return state_transforms.restore_fill(
+            physical,
+            channels,
+            state_masks.HPX64,
+            loop._pipeline_pixel_order,
+            channel_axis=1,
+        )
+    shape = physical.shape
+    grid = (
+        physical.reshape(*shape[:-1], LATLON_NLAT, LATLON_NLON)
+        if shape[-1] == LATLON_NLAT * LATLON_NLON
+        else physical
+    )
+    return state_transforms.restore_fill(
+        grid, channels, state_masks.LATLON_025, None, channel_axis=1
+    ).reshape(shape)
 
 
 def _run_coroutine(coroutine):
@@ -229,7 +241,9 @@ def load_da_model(
     device,
     *,
     loop_name: str | None = None,
-    denials=DENIALS,
+    extra_filters: ObsFilters | None = None,
+    pressure_height_fill: str | None = PRESSURE_HEIGHT_FILL,
+    fp32_output_head: bool = True,
 ) -> DAModel:
     """Rebuild the trained network and its observation pipeline from a checkpoint.
 
@@ -237,18 +251,26 @@ def load_da_model(
     satellite and NNJA conventional observations, the streams ``run_analysis`` takes as
     tables. ``checkpoint`` is a ``.checkpoint`` zip written by ``healda-train``;
     ``loop_name`` is the preset to fall back to when it carries no ``loop.json``.
-    ``denials`` holds ``(sensor, platform, channel, start)`` rules the loaders drop,
-    ``start`` None for always; the default is ``DENIALS``. Building the recipe fetches
-    ERA5 statics into the healda cache on first use.
+    ``extra_filters`` defaults to ``inference_filters()``, as the inference CLI does. Provider
+    flags act only where a table carries them; ``e2s_nnja`` tables carry none.
+    ``pressure_height_fill`` replaces the recipe's (None: no fill), and
+    ``fp32_output_head`` keeps the decoder output in fp32, both as the CLI defaults.
+    Building the recipe fetches ERA5 statics into the healda cache on first use.
     """
     device = torch.device(device)
     loop = read_training_loop(checkpoint, loop_name)
+    loop.obs_config = dataclasses.replace(
+        loop.obs_config, nnja_pressure_height_fill=pressure_height_fill
+    )
     obs = loop.obs_config
     if not (loop.latlon_decode and obs.use_nnja_sat and obs.use_nnja_conv):
         raise ValueError(
             "load_da_model supports only the NNJA lat/lon recipe (latlon_decode with "
             "use_nnja_sat and use_nnja_conv)"
         )
+    loop.latlon_decode = dataclasses.replace(
+        loop.latlon_decode, fp32_output=fp32_output_head
+    )
     net = loop.get_network()
     with Checkpoint(checkpoint) as ckpt:
         net = ckpt.read_model(net=net, map_location="cpu")
@@ -269,5 +291,9 @@ def load_da_model(
         pixel_order=options.pixel_order,
     )
     return DAModel(
-        net=net, loop=loop, transform=transform, device=device, denials=tuple(denials)
+        net=net,
+        loop=loop,
+        transform=transform,
+        device=device,
+        extra_filters=inference_filters() if extra_filters is None else extra_filters,
     )

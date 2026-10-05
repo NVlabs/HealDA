@@ -62,6 +62,9 @@ class ObsConfig:
     # Place radiosonde levels at their drifted position and time (PrepBUFR XDR/YDR/HRDR)
     # instead of the launch point.
     nnja_balloon_drift: bool = False
+    # "sonde": fill a missing ZOB of radiosonde/pibal winds (220/221) with the
+    # standard-atmosphere height of POB.
+    nnja_pressure_height_fill: str | None = None
     conv_min_pressure_hpa: float | None = None
     use_conv_level_stats: bool = False
     conv_level_channels: bool = False
@@ -98,8 +101,7 @@ class ObsConfig:
     # How every NNJA random drop applies: "row" per observation, "sample" all-or-nothing
     # for the whole sample. Sample scope needs LoopConfig.fix_time_parallel_rng.
     nnja_dropout_scope: str = "row"
-    # (sensor, platform, raw channel id, probability) drop rules. Below 1 they are a
-    # training-only regulariser; at 1 they are a denial and hold at inference too.
+    # Training-only (sensor, platform, raw channel id, probability) drop rules, p < 1.
     nnja_platform_channel_dropout: tuple[tuple[str, str, int, float], ...] = ()
     # None loads `sensors_nnja.DEFAULT_SENSORS`; a tuple names sensors instead.
     nnja_sensors: tuple[str, ...] | None = None
@@ -117,24 +119,6 @@ class ObsConfig:
     nnja_max_quality_mark: int | None = 2
     # HEALPix level of SATWND spatial thinning; see NNJASatwndLoader for the full key.
     nnja_satwnd_thin_hpx_level: int = 5
-
-    def deny_platform_channels(self, denied) -> "ObsConfig":
-        """This config with ``(sensor, platform, channel)`` triples denied.
-
-        A denial is a drop rule at probability 1; it replaces any rule on the same key.
-        """
-        rules = {
-            (sensor, platform, channel): probability
-            for sensor, platform, channel, probability in self.nnja_platform_channel_dropout
-        }
-        for sensor, platform, channel in denied:
-            rules[(sensor, platform, int(channel))] = 1.0
-        return dataclasses.replace(
-            self,
-            nnja_platform_channel_dropout=tuple(
-                sorted(key + (probability,) for key, probability in rules.items())
-            ),
-        )
 
     def __post_init__(self):
         # JSON round-trips tuples as lists; canonicalize so equality holds.
@@ -212,9 +196,9 @@ class ObsConfig:
             channel,
             probability,
         ) in self.nnja_platform_channel_dropout:
-            if not 0.0 <= probability <= 1.0:
+            if not 0.0 <= probability < 1.0:
                 raise ValueError(
-                    "nnja platform/channel dropout probability must be in [0, 1], "
+                    "nnja platform/channel dropout probability must be in [0, 1), "
                     f"got {probability} for {(sensor, platform, channel)}"
                 )
             key = (sensor, platform, channel)

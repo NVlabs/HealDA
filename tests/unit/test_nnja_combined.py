@@ -290,6 +290,11 @@ def test_nnja_conventional_loader_emits_gsi_conv_plevel(tmp_path):
         combined.SENSOR_OFFSET[combined.CONV_SENSOR] + int(value) for value in expanded
     ]
 
+    # A variable named in the base conv vocabulary is dropped before level expansion.
+    loader.drop_obs_channel_ids = sensors.conv_var_global_ids(["ps"])
+    kept = loader._to_conv_plevel(table)
+    assert kept[LOCAL_CHANNEL_ID.name].to_pylist() == expanded[:1].tolist()
+
 
 def test_nnja_conventional_loader_sel_time_empty_archive(tmp_path):
     cycles = tmp_path / "cycles"
@@ -341,8 +346,7 @@ def test_get_conv_loader_applies_wind_dropout_only_while_training(
     assert eval_loader._loader.wind_obs_dropout == 0.0
 
 
-def test_platform_channel_rules_below_one_are_training_only(tmp_path, monkeypatch):
-    """Under 1 the rule is a regulariser; at 1 it is a denial and has to hold when scoring."""
+def test_platform_channel_rules_are_training_only(tmp_path, monkeypatch):
     from healda.datasets.da import tasks
 
     _write_base_channel_table(tmp_path / "channel_table.parquet")
@@ -353,7 +357,7 @@ def test_platform_channel_rules_below_one_are_training_only(tmp_path, monkeypatc
         conv_level_channels=True,
         nnja_platform_channel_dropout=(
             ("amsua", "metop-b", 3, 0.2),
-            ("amsua", "metop-b", 6, 1.0),
+            ("amsua", "metop-b", 6, 0.2),
         ),
     )
 
@@ -361,5 +365,4 @@ def test_platform_channel_rules_below_one_are_training_only(tmp_path, monkeypatc
     eval_loader = tasks.build_obs_loader(config, training=False)
 
     assert len(train_loader.satellite._platform_channel_dropout["amsua"]) == 2
-    kept = eval_loader.satellite._platform_channel_dropout["amsua"]
-    assert [probability for _, _, probability in kept] == [1.0]
+    assert eval_loader.satellite._platform_channel_dropout == {}

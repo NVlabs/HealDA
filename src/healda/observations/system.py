@@ -7,27 +7,30 @@ out, which are randomly dropped, and the named report-type groups a filter can a
 ``ObsConfig`` is the flat record serialized into checkpoints; this is what the loaders
 are built from.
 
-Filters are deterministic and are whatever the run asks for. A scoring run may deny more
-than training did -- that is an observing-system experiment, and denying a report type,
-an IR/MW or conv channel, or a whole sensor is the point of one. Scoring never changes a
-filter on its own; all it does is turn off the random drops, which are a training
-regulariser and would just add noise to a score. Denying one (sensor, platform, channel)
-is the exception: that axis has no filter, only a probability, so a denial is a drop rule
-at 1 and those survive into scoring.
+Filters are deterministic: the recipe's, plus whatever a run adds (``extra`` to
+``ObsPipeline``; ``inference_filters`` is the scoring default). Random drops are a training
+regulariser and are off when not training.
 """
 
+import csv
 import dataclasses
 import enum
+import pathlib
+
+import pandas as pd
 
 from healda.config.models import ObsConfig
 from healda.observations.preprocessing.ncep_report_types import observation_type_tab
 
 __all__ = [
+    "ChannelDenial",
     "FAMILY_REPORT_TYPES",
     "ObsFamily",
     "ObsFilters",
     "ObsPipeline",
     "ObsRandomDrop",
+    "inference_filters",
+    "load_denials",
     "report_types_for",
 ]
 
@@ -109,6 +112,51 @@ def report_types_for(families) -> frozenset[int]:
 
 
 # --------------------------------------------------------------------------------------
+# Dated satellite channel denials; the packaged list is what scoring applies by default.
+# --------------------------------------------------------------------------------------
+
+DENIALS_CSV = pathlib.Path(__file__).with_name("denials.csv")
+
+
+@dataclasses.dataclass(frozen=True)
+class ChannelDenial:
+    """Drops a (sensor, platform, raw channel)'s observations taken in [start, end).
+
+    Times are UTC ISO strings; None leaves that side open.
+    """
+
+    sensor: str
+    platform: str
+    channel: int
+    start: str | None = None
+    end: str | None = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "channel", int(self.channel))
+        start, end = (
+            None if t is None else pd.Timestamp(t) for t in (self.start, self.end)
+        )
+        if any(t is not None and t.tzinfo is not None for t in (start, end)):
+            raise ValueError(f"{self}: times are UTC without a zone suffix")
+        if start is not None and end is not None and start >= end:
+            raise ValueError(f"{self}: start is not before end")
+
+
+def load_denials(path=DENIALS_CSV) -> tuple[ChannelDenial, ...]:
+    with open(path, newline="") as handle:
+        return tuple(
+            ChannelDenial(
+                row["sensor"],
+                row["platform"],
+                row["channel"],
+                row["start"] or None,
+                row["end"] or None,
+            )
+            for row in csv.DictReader(handle)
+        )
+
+
+# --------------------------------------------------------------------------------------
 # Filters and random drops.
 # --------------------------------------------------------------------------------------
 
@@ -129,6 +177,22 @@ class ObsFilters:
     # Non-GPS conv rows only. GPS-RO keeps its own floor, QCLimits.PRESSURE_MIN_GPS
     # (0.5 hPa), which is hardcoded and not configurable.
     non_gps_min_pressure_hpa: float | None = None
+    # NNJA satellites: dated (sensor, platform, channel) denials, and footprints their
+    # provider quality flags mark.
+    channel_denials: tuple[ChannelDenial, ...] = ()
+    drop_source_flagged: bool = False
+
+    def removing_also(self, extra: "ObsFilters") -> "ObsFilters":
+        """These filters plus ``extra``'s channel ids, report types, denials and flags."""
+        return dataclasses.replace(
+            self,
+            channel_ids=tuple(sorted(set(self.channel_ids) | set(extra.channel_ids))),
+            report_types=tuple(
+                sorted(set(self.report_types) | set(extra.report_types))
+            ),
+            channel_denials=(*self.channel_denials, *extra.channel_denials),
+            drop_source_flagged=self.drop_source_flagged or extra.drop_source_flagged,
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -146,14 +210,40 @@ class ObsRandomDrop:
     scope: str = "row"
 
 
+def inference_filters(
+    *,
+    denials_csv=DENIALS_CSV,
+    extra_denials=(),
+    drop_source_flagged: bool = True,
+    channel_ids=(),
+    report_types=(),
+) -> ObsFilters:
+    """What scoring removes beyond the recipe: the packaged denials and provider flags
+    unless asked otherwise. ``denials_csv`` None applies no file."""
+    from_file = () if denials_csv is None else load_denials(denials_csv)
+    return ObsFilters(
+        channel_ids=tuple(channel_ids),
+        report_types=tuple(report_types),
+        channel_denials=(*from_file, *extra_denials),
+        drop_source_flagged=drop_source_flagged,
+    )
+
+
 class ObsPipeline:
-    def __init__(self, obs_config: ObsConfig, *, training: bool):
+    def __init__(
+        self,
+        obs_config: ObsConfig,
+        *,
+        training: bool,
+        extra: ObsFilters = ObsFilters(),
+    ):
         # Which archive supplies each half. NNJA satellites with UFS conventional is a
         # supported pairing; the reverse is rejected by ObsConfig.
         self.nnja_sat = obs_config.use_nnja_sat
         self.nnja_conv = obs_config.use_nnja_conv
         self.gpsro_saids = obs_config.nnja_gpsro_saids
         self.surface_winds = obs_config.nnja_surface_winds
+        self.pressure_height_fill = obs_config.nnja_pressure_height_fill
         self.max_quality_mark = obs_config.nnja_max_quality_mark
         # PrepBUFR AMVs are always dropped; this only adds the dedicated archive.
         self.satwnd = obs_config.use_nnja_satwnd
@@ -171,17 +261,15 @@ class ObsPipeline:
             uv_in_situ_only=obs_config.conv_uv_in_situ_only,
             gps_level1_only=obs_config.conv_gps_level1_only,
             non_gps_min_pressure_hpa=obs_config.conv_min_pressure_hpa,
-        )
+        ).removing_also(extra)
         # The only place `training` is read: it turns off random drops, nothing else.
-        # A rule at probability 1 is a denial, not a regulariser, so it survives.
-        rules = obs_config.nnja_platform_channel_dropout
-        if not training:
-            rules = tuple(rule for rule in rules if rule[3] >= 1.0)
         self.random_drop = ObsRandomDrop(
             wind=obs_config.nnja_wind_dropout if training else 0.0,
             surface_pressure=(
                 obs_config.nnja_surface_pressure_dropout if training else 0.0
             ),
-            platform_channel=rules,
+            platform_channel=obs_config.nnja_platform_channel_dropout
+            if training
+            else (),
             scope=obs_config.nnja_dropout_scope,
         )

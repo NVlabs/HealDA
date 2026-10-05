@@ -22,7 +22,8 @@ from healda.observations.loaders import combined
 from healda.observations.loaders.nnja_base import CycleTableSource
 from healda.observations.loaders.nnja_wide import NNJAWideLoader
 from healda.observations.loaders.ufs import UFSUnifiedLoader
-from healda.observations.system import ObsPipeline
+from healda.observations import sensors as gsi_sensors
+from healda.observations.system import ObsFilters, ObsPipeline
 from healda.observations.sensors_nnja import DEFAULT_SENSORS
 from healda.observations.preprocessing import scan_geometry
 
@@ -99,7 +100,7 @@ class TrainingTaskConfig:
             )
 
 
-# All tasks use YearHoldoutSplit (val=2022, test=2025); each store's time range sets
+# All tasks use YearHoldoutSplit (val=2022, test=2025 onwards); each store's time range sets
 # the first year.
 TASK_CONFIGS: dict[str, TrainingTaskConfig] = {
     "era5_74ch": TrainingTaskConfig(
@@ -277,6 +278,8 @@ def _get_sat_loader(
             sensor: scan_geometry.SCAN_GEOMETRY[sensor].keep for sensor in sensors
         },
         platform_channel_dropout=pipeline.random_drop.platform_channel,
+        channel_denials=pipeline.filters.channel_denials,
+        drop_source_flagged=pipeline.filters.drop_source_flagged,
         dropout_scope=pipeline.random_drop.scope,
         table_source=table_source,
     )
@@ -309,6 +312,7 @@ def _get_conv_loader(
             satwnd_thin_hpx_level=pipeline.satwnd_thin_hpx_level,
             gpsro_saids=pipeline.gpsro_saids,
             surface_winds=pipeline.surface_winds,
+            pressure_height_fill=pipeline.pressure_height_fill,
             max_quality_mark=pipeline.max_quality_mark,
             obs_context_hours=(obs_config.context_start, obs_config.context_end),
             # Applied against the GSI conv-plevel vocabulary, before nnja_combined
@@ -345,10 +349,20 @@ def _get_conv_loader(
     )
 
 
+def _is_conv_channel_id(global_id: int) -> bool:
+    return any(
+        gsi_sensors.SENSOR_OFFSET[name]
+        <= global_id
+        < gsi_sensors.SENSOR_OFFSET[name] + gsi_sensors.SENSOR_CONFIGS[name].channels
+        for name in ("conv", "conv-plevel")
+    )
+
+
 def build_obs_loader(
     obs_config: ObsConfig,
     *,
     training: bool,
+    extra_filters: ObsFilters = ObsFilters(),
     satellite_table_source: Mapping[str, CycleTableSource] | None = None,
     gpsro_table_source: CycleTableSource | None = None,
     satwnd_table_source: CycleTableSource | None = None,
@@ -363,12 +377,29 @@ def build_obs_loader(
 
     The table sources replace the NNJA archives with in-memory cycle tables
     (``healda.observations.adapters.e2s_nnja``); ``satellite_table_source`` is keyed by
-    sensor. A ``None`` source reads the archive on disk.
+    sensor. A ``None`` source reads the archive on disk. ``extra_filters`` are removals a
+    run adds to the recipe's (``ObsFilters.removing_also``).
     """
     assert obs_config.innovation_type == "none"
-    pipeline = ObsPipeline(obs_config, training=training)
+    pipeline = ObsPipeline(obs_config, training=training, extra=extra_filters)
+    filters = pipeline.filters
+    if (
+        filters.channel_denials or filters.drop_source_flagged or filters.report_types
+    ) and not pipeline.nnja_sat:
+        raise ValueError(
+            "channel denials, provider flags and report-type drops apply to NNJA "
+            "observations"
+        )
 
     if pipeline.nnja_sat:
+        not_conv = [
+            i for i in pipeline.filters.channel_ids if not _is_conv_channel_id(i)
+        ]
+        if not_conv:
+            raise ValueError(
+                f"drop_obs_channel_ids {not_conv} are not conventional channels; NNJA "
+                "satellite channels are denied with ObsFilters.channel_denials"
+            )
         return combined.CombinedObsLoader(
             satellite=_get_sat_loader(
                 obs_config, pipeline, table_source=satellite_table_source

@@ -467,3 +467,76 @@ def test_checkpoints_written_before_the_rename_still_load():
 
     assert ObsConfig(nnja_gpsro_saids="ufs2024").nnja_gpsro_saids == "legacy"
     assert ObsConfig(nnja_gpsro_saids="all").nnja_gpsro_saids == "full"
+
+
+def test_synthetic_tropical_cyclone_winds_are_not_loaded(tmp_path):
+    rows = {
+        "XOB": [10.0, 20.0],
+        "YOB": [10.0, 20.0],
+        "DHR": [0.0, 0.0],
+        "POB": [500.0, 500.0],
+        "ZOB": [5500.0, 5500.0],
+        "CAT": [1.0, 1.0],
+        "TYP": [210.0, 220.0],
+        "TOB": [np.nan] * 2,
+        "TQM": [15.0] * 2,
+        "QOB": [np.nan] * 2,
+        "QQM": [15.0] * 2,
+        "UOB": [5.0, 6.0],
+        "VOB": [-5.0, -6.0],
+        "WQM": [2.0, 2.0],
+        "PQM": [15.0] * 2,
+    }
+    table = pa.table({k: pa.array(v, type=pa.float32()) for k, v in rows.items()})
+    directory = tmp_path / "2025"
+    directory.mkdir(parents=True)
+    pq.write_table(table, directory / "gdas.20250702.t00z.prepbufr.nr.parquet")
+    loader = NNJAConvLoader(
+        archive_root=str(tmp_path), normalize=False, include_gpsro=False
+    )
+    loaded = asyncio.run(loader.sel_time(pd.DatetimeIndex([TARGET])))["obs_v2"][0]
+    assert set(np.asarray(loaded["Observation_Type"]).tolist()) == {220}
+
+
+@pytest.mark.parametrize("fill", [None, "sonde"])
+def test_pressure_height_fill(tmp_path, fill):
+    # 220 without ZOB, 220 with ZOB, 120 without ZOB, 282 without ZOB.
+    rows = {
+        "XOB": [10.0, 20.0, 30.0, 40.0],
+        "YOB": [10.0, 20.0, 30.0, 40.0],
+        "DHR": [0.0] * 4,
+        "POB": [500.0, 300.0, 700.0, 1013.0],
+        "ZOB": [np.nan, 9000.0, np.nan, np.nan],
+        "CAT": [1.0, 4.0, 1.0, 0.0],
+        "TYP": [220.0, 220.0, 120.0, 282.0],
+        "TOB": [np.nan, np.nan, 5.0, np.nan],
+        "TQM": [2.0] * 4,
+        "QOB": [np.nan] * 4,
+        "QQM": [15.0] * 4,
+        "UOB": [5.0, 6.0, np.nan, 7.0],
+        "VOB": [-5.0, -6.0, np.nan, -7.0],
+        "WQM": [2.0] * 4,
+        "PQM": [15.0] * 4,
+    }
+    directory = tmp_path / "2025"
+    directory.mkdir()
+    pq.write_table(
+        pa.table({k: pa.array(v, type=pa.float32()) for k, v in rows.items()}),
+        directory / "gdas.20250702.t00z.prepbufr.nr.parquet",
+    )
+    loader = NNJAConvLoader(
+        archive_root=str(tmp_path),
+        normalize=False,
+        include_gpsro=False,
+        pressure_height_fill=fill,
+    )
+    table = asyncio.run(loader.sel_time(pd.DatetimeIndex([TARGET])))["obs_v2"][0]
+    pressure = np.asarray(table["Pressure"])
+    height = dict(zip(pressure.tolist(), np.asarray(table["Height"]).tolist()))
+
+    assert height[300.0] == pytest.approx(9000.0)
+    assert np.isnan(height[1013.0])
+    assert np.isfinite(height[500.0]) == (fill is not None)
+    if fill is not None:
+        assert height[500.0] == pytest.approx(5574, abs=2)
+    assert np.isnan(height[700.0])

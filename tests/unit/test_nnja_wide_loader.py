@@ -30,6 +30,7 @@ from healda.observations.sensors_nnja import (
     get_global_channel_id,
 )
 from healda.observations.schema import GLOBAL_CHANNEL_ID
+from healda.observations.system import ChannelDenial
 from healda.observations.preprocessing import ir_spectral, scan_geometry
 
 # Publish the curated set plus a few channels outside it, so subsetting has to do work. The
@@ -79,6 +80,16 @@ MIN_VALID = 100.0
 MAX_VALID = 400.0
 
 
+FLAGGED_EVERY = 10
+
+
+def _flag_type(flag: str, channels) -> pa.DataType:
+    if "." not in flag:
+        return pa.uint16()
+    leaf = pa.struct([(flag.rsplit(".", 1)[1], pa.uint16())])
+    return pa.list_(leaf, len(channels))
+
+
 def _wide_schema(sensor: str, nullable_pixel: bool) -> pa.Schema:
     channels, _platforms, _scan = SENSOR_SHAPE[sensor]
     prefix = wide.SENSOR_VALUE_PREFIX[sensor]
@@ -95,6 +106,8 @@ def _wide_schema(sensor: str, nullable_pixel: bool) -> pa.Schema:
     ]
     if sensor in wide.SCAN_POSITION_COLUMN:
         fields.append(pa.field(wide.SCAN_POSITION_COLUMN[sensor], pa.uint16()))
+    for flag in wide.SOURCE_QUALITY_FLAGS.get(sensor, ()):
+        fields.append(pa.field(flag.split(".")[0], _flag_type(flag, channels)))
     metadata = (
         {b"nnja.archive.value_encoding": json.dumps(CRIS_ENCODING).encode()}
         if sensor == "cris"
@@ -165,6 +178,21 @@ def _window_table(
         columns["field_of_view"] = (1 + rows % detectors).astype(np.uint16)
         columns[wide.SCAN_POSITION_COLUMN[sensor]] = (1 + rows % scan_positions).astype(
             np.uint16
+        )
+    for offset, flag in enumerate(wide.SOURCE_QUALITY_FLAGS.get(sensor, ())):
+        bits = np.where(rows % FLAGGED_EVERY == offset, 16, 0).astype(np.uint16)
+        if "." not in flag:
+            columns[flag.split(".")[0]] = bits
+            continue
+        # One channel carries the flag; the Moon bit elsewhere does not count.
+        per_channel = np.zeros((ROWS, len(channels)), dtype=np.uint16)
+        per_channel[:, -1] = bits
+        per_channel[rows % FLAGGED_EVERY == FLAGGED_EVERY - 1, 0] = 512
+        leaf = pa.StructArray.from_arrays(
+            [pa.array(per_channel.ravel())], [flag.rsplit(".", 1)[1]]
+        )
+        columns[flag.split(".")[0]] = pa.FixedSizeListArray.from_arrays(
+            leaf, len(channels)
         )
     for index, channel in enumerate(channels):
         columns[f"{prefix}__ch_{channel:05d}"] = values[index]
@@ -436,16 +464,16 @@ def test_expansion_reproduces_the_wide_values():
         assert long[name].null_count == long.num_rows
 
 
-def test_platform_channel_dropout_targets_metop_b_amsua_only():
+def test_a_denial_targets_metop_b_amsua_only():
     loader = loader_for(
         archive_root=build_archive("amsua"),
         sensors=("amsua",),
         thin_nside=None,
         fov_keep_range={},
         normalize=False,
-        platform_channel_dropout=(
-            ("amsua", "metop-b", 3, 1.0),
-            ("amsua", "metop-b", 6, 1.0),
+        channel_denials=(
+            ChannelDenial("amsua", "metop-b", 3),
+            ChannelDenial("amsua", "metop-b", 6),
         ),
     )
     plan = plan_for(loader, sensor="amsua")
@@ -458,9 +486,7 @@ def test_platform_channel_dropout_targets_metop_b_amsua_only():
         pa.array(source_platform, type=pa.uint16()),
     )
 
-    # Rules are resolved per sample in sel_time and passed in, so state them here too.
-    rules = loader._platform_channel_dropout["amsua"]
-    long = loader.to_long(table, plan, "amsua", np.random.default_rng(0), rules)
+    long = loader.to_long(table, plan, "amsua", None, ())
 
     channel = np.asarray(long[GLOBAL_CHANNEL_ID.name])
     platform = np.asarray(long["Platform_ID"])
@@ -473,17 +499,132 @@ def test_platform_channel_dropout_targets_metop_b_amsua_only():
     assert long.num_rows == ROWS * len(SENSOR_SHAPE["amsua"][0]) - ROWS
 
 
-def iasi_window(**overrides):
-    """An IASI loader, its read plan, and the first row group of its day."""
+def test_dated_denial_drops_its_channel_only_inside_its_span():
     loader = loader_for(
-        build_archive("iasi"),
-        sensors=("iasi",),
+        archive_root=build_archive("amsua"),
+        sensors=("amsua",),
+        channel_denials=(
+            ChannelDenial(
+                "amsua", "metop-c", 4, "2026-03-17T00:00", "2026-03-17T01:00"
+            ),
+        ),
+    )
+    metop_c, metop_b = (PLATFORM_NAME_TO_ID[p] for p in ("metop-c", "metop-b"))
+    ch4, ch5 = get_global_channel_id("amsua", [4, 5])
+
+    def kept(obs_time):
+        table = pa.table(
+            {
+                "Platform_ID": pa.array([metop_c, metop_c, metop_b], type=pa.uint16()),
+                GLOBAL_CHANNEL_ID.name: pa.array(
+                    [ch4, ch5, ch4], type=GLOBAL_CHANNEL_ID.type
+                ),
+                "Absolute_Obs_Time": pa.array(
+                    [pd.Timestamp(obs_time)] * 3, type=pa.timestamp("ns")
+                ),
+            }
+        )
+        return loader._deny(table).num_rows
+
+    assert kept("2026-03-16T23:59") == 3
+    assert kept("2026-03-17T00:00") == 2
+    assert kept("2026-03-17T00:59") == 2
+    assert kept("2026-03-17T01:00") == 3
+
+
+def test_a_denial_for_an_unloaded_sensor_is_skipped_and_an_unknown_one_rejected():
+    loader_for(channel_denials=(ChannelDenial("amsua", "metop-c", 4),))
+    with pytest.raises(ValueError, match="not loaded"):
+        loader_for(channel_denials=(ChannelDenial("amsau", "metop-c", 4),))
+
+
+def test_source_flags_honour_bit_masks_and_per_channel_structs():
+    quality = pa.struct([("channel_quality", pa.uint16())])
+    per_channel = [[0, 0], [512, 0], [0, 2], None]
+    table = pa.table(
+        {
+            "scan_quality": pa.array([0, 0, 0, 1], pa.uint32()),
+            "granule_quality": pa.array([8, 16, 0, 0], pa.uint16()),
+            "channel_auxiliary": pa.array(
+                [
+                    None if row is None else [{"channel_quality": v} for v in row]
+                    for row in per_channel
+                ],
+                pa.list_(quality, 2),
+            ),
+        }
+    )
+    flagged = wide.source_flagged(table, wide.SOURCE_QUALITY_FLAGS["atms"])
+    assert flagged.tolist() == [False, True, True, True]
+    assert not wide.source_flagged(table.slice(0, 1), ["summary_quality"]).any()
+
+
+def long_rows(loader, plan, sensor, table):
+    return loader.to_long(table, plan, sensor, None, ()).num_rows
+
+
+@pytest.mark.parametrize("sensor", ["iasi", "cris", "atms"])
+def test_source_flagged_footprints_are_dropped_only_when_asked(sensor):
+    plain, plain_plan, _ = sensor_window(sensor)
+    loader, plan, table = sensor_window(sensor, drop_source_flagged=True)
+
+    flagged = wide.source_flagged(table, plan.flag_columns)
+    assert 0 < flagged.sum() < table.num_rows
+    clean = table.filter(pa.array(~flagged))
+    assert long_rows(loader, plan, sensor, table) == long_rows(
+        plain, plain_plan, sensor, clean
+    )
+    assert long_rows(plain, plain_plan, sensor, table) > long_rows(
+        loader, plan, sensor, table
+    )
+
+
+@pytest.mark.parametrize("sensor", ["iasi", "cris", "atms"])
+def test_only_source_flagged_keeps_exactly_the_dropped_footprints(sensor):
+    plain, plain_plan, _ = sensor_window(sensor)
+    loader, plan, table = sensor_window(sensor, only_source_flagged=True)
+    flagged = wide.source_flagged(table, plan.flag_columns)
+    assert long_rows(loader, plan, sensor, table) == long_rows(
+        plain, plain_plan, sensor, table.filter(pa.array(flagged))
+    )
+    with pytest.raises(ValueError, match="exclusive"):
+        sensor_window(sensor, drop_source_flagged=True, only_source_flagged=True)
+
+
+@pytest.mark.parametrize("sensor", ["iasi", "cris", "atms"])
+def test_a_day_without_a_flag_column_reads_as_unflagged_by_it(sensor):
+    loader, plan, table = sensor_window(sensor, drop_source_flagged=True)
+    missing = plan.flag_columns[-1].split(".")[0]
+    published = [name for name in table.column_names if name != missing]
+    assert missing not in plan.columns_in(published)
+    fewer = wide.source_flagged(table.select(published), plan.flag_columns)
+    assert fewer.sum() < wide.source_flagged(table, plan.flag_columns).sum()
+
+
+@pytest.mark.parametrize("sensor", ["iasi", "cris", "atms"])
+def test_the_archive_read_carries_every_flag_column(sensor):
+    loader = loader_for(
+        build_archive(sensor),
+        sensors=(sensor,),
+        drop_source_flagged=True,
+    )
+    plan, _window, read = loader._row_group_jobs(sensor, pd.DatetimeIndex([TARGET]))[0]
+    read_columns = read().column_names
+    for flag in plan.flag_columns:
+        assert flag.split(".")[0] in read_columns
+
+
+def sensor_window(sensor, **overrides):
+    """A loader of `sensor`, its read plan, and the first row group of its day."""
+    loader = loader_for(
+        build_archive(sensor),
+        sensors=(sensor,),
         normalize=False,
         thin_nside=None,
         **overrides,
     )
-    plan = plan_for(loader, sensor="iasi")
-    path = loader._path("iasi", DAY)
+    plan = plan_for(loader, sensor=sensor)
+    path = loader._path(sensor, DAY)
     return loader, plan, pq.ParquetFile(path).read_row_group(0, columns=plan.columns)
 
 
@@ -504,7 +645,7 @@ def test_an_unknown_channel_preset_is_rejected():
 def test_iasi_reads_the_channels_a_preset_names(ir_channels):
     # The archive publishes the 48 curated channels plus three the set does not name, so
     # None is visibly wider than the whole curated set rather than equal to it.
-    _loader, plan, _table = iasi_window(ir_channels=ir_channels)
+    _loader, plan, _table = sensor_window("iasi", ir_channels=ir_channels)
     expected = (
         IASI_CHANNELS
         if ir_channels is None
@@ -525,13 +666,13 @@ def test_ir32_is_a_prefix_of_ir48():
 def test_explicit_channel_numbers_are_read_in_archive_order():
     # The analysis path: name channels outright rather than take a prefix of the ranking.
     wanted = [IASI_CURATED[40], IASI_CURATED[0], IASI_CHANNELS[-1]]
-    _loader, plan, _table = iasi_window(ir_channels={"iasi": wanted})
+    _loader, plan, _table = sensor_window("iasi", ir_channels={"iasi": wanted})
     assert [int(name[-5:]) for name in plan.value_columns] == sorted(wanted)
 
 
 def test_a_channel_the_archive_lacks_is_rejected():
     with pytest.raises(ValueError, match="absent"):
-        iasi_window(ir_channels={"iasi": [1, 999_99]})
+        sensor_window("iasi", ir_channels={"iasi": [1, 999_99]})
 
 
 def test_naming_no_channel_for_a_sensor_is_rejected():
@@ -561,7 +702,7 @@ def test_a_config_written_before_the_presets_still_loads():
 def test_iasi_radiance_reads_back_as_kelvin():
     # The fixture published the Planck radiance of a scene at MEAN kelvin, so inverting it
     # has to land back on that scene and not merely on something finite.
-    loader, plan, table = iasi_window()
+    loader, plan, table = sensor_window("iasi")
     assert plan.wavenumber is not None
 
     kelvin = loader.transform(table, plan, "iasi", None).values
@@ -572,7 +713,7 @@ def test_iasi_radiance_reads_back_as_kelvin():
 def test_iasi_can_come_back_as_radiance_screened_in_kelvin():
     # The bounds in the channel table are kelvin, so a radiance read still has to screen on
     # the inverted value: here one radiance is positive, finite, and far too cold.
-    loader, plan, table = iasi_window(ir_units="radiance")
+    loader, plan, table = sensor_window("iasi", ir_units="radiance")
     name = plan.value_columns[0]
     spoiled = table.column(name).to_numpy(zero_copy_only=False).copy()
     spoiled[0] = 1e-8
@@ -595,7 +736,7 @@ def test_radiance_with_normalization_is_rejected():
 def test_iasi_radiance_at_or_below_zero_is_invalid():
     # Planck inversion is undefined there and returns NaN, which has to be caught by the
     # range check rather than reaching the model as a kelvin value.
-    loader, plan, table = iasi_window()
+    loader, plan, table = sensor_window("iasi")
     name = plan.value_columns[0]
     spoiled = table.column(name).to_numpy(zero_copy_only=False).copy()
     spoiled[:3] = (0.0, -1.0, np.nan)

@@ -55,6 +55,48 @@ TRANSFORMS: dict[str, dict[str, ChannelTransform]] = {
 }
 
 
+#: Physical (lower, upper) bounds; None leaves that side open. Specific humidity at every level
+#: is bounded below by 0 (see `physical_bounds`).
+PHYSICAL_BOUNDS: dict[str, tuple[float | None, float | None]] = {
+    "tcw": (0.0, None),
+    "tcwv": (0.0, None),
+    "sd": (0.0, None),
+    "swvl1": (0.0, None),
+    "swvl2": (0.0, None),
+    "sic": (0.0, 1.0),
+    "tcc": (0.0, 1.0),
+    "lcc": (0.0, 1.0),
+    "mcc": (0.0, 1.0),
+    "hcc": (0.0, 1.0),
+}
+
+
+def physical_bounds(channel: str) -> tuple[float | None, float | None]:
+    if channel[:1] == "Q" and channel[1:].isdigit():
+        return (0.0, None)
+    return PHYSICAL_BOUNDS.get(channel, (None, None))
+
+
+def clamp_physical(
+    state: Array, channels: Sequence[str], channel_axis: int = -3
+) -> Array:
+    """Clip each bounded channel of a physical-space state to `physical_bounds`; NaN kept."""
+    out = state.clone() if isinstance(state, torch.Tensor) else state.copy()
+    for i, channel in enumerate(channels):
+        low, high = physical_bounds(channel)
+        if low is None and high is None:
+            continue
+        take = [slice(None)] * out.ndim
+        take[channel_axis] = i
+        sub = out[tuple(take)]
+        out[tuple(take)] = (
+            sub.clip(low, high)
+            if isinstance(sub, torch.Tensor)
+            else np.clip(sub, low, high)
+        )
+    return out
+
+
 def _index(channels: Sequence[str], name: str) -> int:
     try:
         return list(channels).index(name)

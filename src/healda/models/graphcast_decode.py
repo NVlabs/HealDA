@@ -120,6 +120,7 @@ class GraphCastDecoder(nn.Module):
         nlon: int,
         base_level: int | None = None,
         remat: bool = True,
+        fp32_output: bool = False,
     ):
         super().__init__()
         if level_mesh < level_in:
@@ -169,6 +170,8 @@ class GraphCastDecoder(nn.Module):
         nn.init.zeros_(self.node[-1].weight)
         nn.init.zeros_(self.node[-1].bias)
         self.out = nn.Linear(hidden, out_channels)
+        # Runs `out` outside autocast, so the output is not rounded to bf16.
+        self.fp32_output = fp32_output
 
         idx, efeat, _ = build_mesh_edges(level_mesh, k, pixel_order, nlat, nlon)
         bidx, bweight = build_bilinear_weights(base_level, nlat, nlon, pixel_order)
@@ -197,7 +200,11 @@ class GraphCastDecoder(nn.Module):
 
         x = vj + self.lin_dst(q).unsqueeze(2) + self.lin_e(efeat)
         m = self.ln(self.w2(F.silu(x))).sum(2)
-        return self.out(q + self.node(torch.cat([q, m], -1)))
+        h = q + self.node(torch.cat([q, m], -1))
+        if self.fp32_output:
+            with torch.autocast(h.device.type, enabled=False):
+                return self.out(h.float())
+        return self.out(h)
 
     def forward(self, z: torch.Tensor, aux: torch.Tensor) -> torch.Tensor:
         """z: (bt, npix_in, in_channels); aux: (bt, nlat*nlon, aux_channels)."""

@@ -18,10 +18,14 @@ Split = SplitName | Sequence[int]
 
 @dataclasses.dataclass(frozen=True)
 class YearHoldoutSplit:
-    """Train on all years except one validation year and one test year."""
+    """Train before `test_year` except `validation_year`; test on `test_year` onwards."""
 
     validation_year: int = 2022
     test_year: int = 2025
+
+    def __post_init__(self):
+        if self.validation_year >= self.test_year:
+            raise ValueError("validation_year must precede test_year")
 
     def mask(self, times: pd.DatetimeIndex, split: Split) -> np.ndarray:
         years = times.year
@@ -33,7 +37,7 @@ class YearHoldoutSplit:
 
         if split == "train":
             return np.asarray(
-                (years != self.validation_year) & (years != self.test_year),
+                (years != self.validation_year) & (years < self.test_year),
                 dtype=bool,
             )
 
@@ -41,7 +45,7 @@ class YearHoldoutSplit:
             return np.asarray(years == self.validation_year, dtype=bool)
 
         if split == "test":
-            return np.asarray(years == self.test_year, dtype=bool)
+            return np.asarray(years >= self.test_year, dtype=bool)
 
         raise ValueError(f"Unknown split: {split!r}")
 

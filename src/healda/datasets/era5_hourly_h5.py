@@ -8,8 +8,10 @@ dataset shaped ``(time, channel, lat, lon)``, alongside a ``metadata/data.json``
 sidecar naming the grid, the ordered channels and the time step. Cadence comes
 from that sidecar, so hourly and thinned (6-hourly) packs read the same way.
 
-A channel list may span several packs, and a channel's years may be split across
-them; each channel is read per year from the pack holding that year.
+A channel list may span several packs, and a channel's time axis may be split across
+them; each channel is read per time step from the first pack, in the order given, whose
+year file reaches that step. Listing a final archive before a preliminary one that extends
+it therefore reads the final archive wherever it exists.
 """
 
 import concurrent.futures
@@ -72,10 +74,11 @@ class Era5HourlyH5:
     """Random-access reader over one or more packs, in physical units.
 
     Packs are built one variable group at a time, so a channel list may span
-    several of them, and a channel's years may be split across them (an archive
-    root holding the older years beside a root holding newer ones). A channel is
-    therefore resolved per year, to whichever pack holds that year. All packs must
-    share a grid and time step.
+    several of them, and a channel's time axis may be split across them (an archive
+    root holding the older years beside a root holding newer ones, or a root whose
+    year file extends past the end of another's). A channel is therefore resolved per
+    time step, to the first pack in ``roots`` order whose year file reaches that step.
+    All packs must share a grid and time step.
     """
 
     def __init__(self, roots: str | Sequence[str], channels: list[str]):
@@ -108,30 +111,54 @@ class Era5HourlyH5:
         self.years = {year for pack in packs for year in pack.years}
         for name in self.channels:
             self.years &= {year for pack in self._owners[name] for year in pack.years}
-        self._reads_cache: dict[int, list[tuple[_Pack, list[int], list[int]]]] = {}
+        self._reads_cache: dict[
+            tuple[int, int], list[tuple[_Pack, list[int], list[int]]]
+        ] = {}
         self._open: list[_Pack] = packs
+        # Where any pack's year file ends: the pack choice for a step changes only there.
+        self._ends = {
+            year: np.unique([pack.nsteps(year) for pack in packs if year in pack.years])
+            for year in self.years
+        }
         self.steps_by_year = {
-            year: min(pack.nsteps(year) for pack, _, _ in self._reads_for(year))
+            year: min(
+                max(
+                    pack.nsteps(year)
+                    for pack in self._owners[name]
+                    if year in pack.years
+                )
+                for name in self.channels
+            )
             for year in self.years
         }
 
-    def _reads_for(self, year: int) -> list[tuple[_Pack, list[int], list[int]]]:
-        """Per pack, the store rows to read for ``year`` and the output rows they fill.
+    def _segment_starts(self, year: int, steps: np.ndarray) -> np.ndarray:
+        """Per step, the first step of the run sharing its pack choice in ``year``."""
+        ends = self._ends.get(year, np.zeros(0, dtype=int))
+        starts = np.concatenate([[0], ends])
+        return starts[np.searchsorted(ends, steps, side="right")]
+
+    def _reads_for(
+        self, year: int, step: int
+    ) -> list[tuple[_Pack, list[int], list[int]]]:
+        """Per pack, the store rows to read for ``step`` of ``year`` and the output rows
+        they fill. Every step of the same segment (see `_segment_starts`) reads alike.
 
         h5py only accepts an increasing fancy index, hence reading in store order.
         """
-        if year in self._reads_cache:
-            return self._reads_cache[year]
+        key = (year, int(self._segment_starts(year, np.array([step]))[0]))
+        if key in self._reads_cache:
+            return self._reads_cache[key]
 
         chosen: dict[str, _Pack] = {}
         for name in self.channels:
             for pack in self._owners[name]:
-                if year in pack.years:
+                if year in pack.years and step < pack.nsteps(year):
                     chosen[name] = pack
                     break
             else:
                 raise ValueError(
-                    f"no pack holds channel {name!r} for {year}; searched "
+                    f"no pack holds channel {name!r} for {year} step {step}; searched "
                     + ", ".join(pack.root for pack in self._owners[name])
                 )
 
@@ -146,7 +173,7 @@ class Era5HourlyH5:
                 reads.append(
                     (pack, [row for row, _ in pairs], [slot for _, slot in pairs])
                 )
-        self._reads_cache[year] = reads
+        self._reads_cache[key] = reads
         return reads
 
     def _time_index(self, time: pd.Timestamp) -> int:
@@ -177,13 +204,16 @@ class Era5HourlyH5:
 
         jobs: list[tuple] = []
         for year in np.unique(years):
-            idxs = np.flatnonzero(years == year)
+            in_year = np.flatnonzero(years == year)
             hours = np.array(
-                [self._time_index(times[int(i)]) for i in idxs], dtype=np.int64
+                [self._time_index(times[int(i)]) for i in in_year], dtype=np.int64
             )
-            uniq, inv = np.unique(hours, return_inverse=True)
-            for pack, rows, slots in self._reads_for(int(year)):
-                jobs.append((pack, rows, slots, int(year), idxs, uniq, inv))
+            segments = self._segment_starts(int(year), hours)
+            for segment in np.unique(segments):
+                idxs = in_year[segments == segment]
+                uniq, inv = np.unique(hours[segments == segment], return_inverse=True)
+                for pack, rows, slots in self._reads_for(int(year), int(segment)):
+                    jobs.append((pack, rows, slots, int(year), idxs, uniq, inv))
 
         if len(jobs) <= 1:
             for pack, rows, slots, year, idxs, uniq, inv in jobs:

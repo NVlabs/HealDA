@@ -31,6 +31,7 @@ from healda.datasets.da.tasks import (
     get_sensors_for_config,
 )
 from healda.observations.coverage import obs_coverage
+from healda.observations.system import ObsFilters
 from healda.datasets.da.state_stats import make_batch_info
 from healda.datasets.da import state_transforms
 from healda.datasets.da.state_masks import CHANNEL_DOMAIN_FILL
@@ -253,6 +254,7 @@ class HourlyLatlonDataset(torch.utils.data.Dataset):
         obs_config=None,
         transform_options: TransformOptions | None = None,
         training: bool = False,
+        extra_obs_filters: ObsFilters = ObsFilters(),
     ):
         if isinstance(variable_config, str):
             variable_config = VARIABLE_CONFIGS[variable_config]
@@ -288,7 +290,11 @@ class HourlyLatlonDataset(torch.utils.data.Dataset):
             model_world_size=model_world_size,
         )
         self._obs_loader = (
-            build_obs_loader(obs_config, training=training) if use_obs else None
+            build_obs_loader(
+                obs_config, training=training, extra_filters=extra_obs_filters
+            )
+            if use_obs
+            else None
         )
         self._obs_transform = None
         if use_obs:

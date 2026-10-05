@@ -374,6 +374,53 @@ def test_cris_tables_store_the_archive_code_and_detector():
         e2s_nnja.sat_tables(frame.drop(columns="detector"), "cris")
 
 
+@pytest.mark.parametrize(
+    ("sensor", "column", "bad"),
+    [
+        ("atms", "quality", 2),
+        ("cris", "quality", 1 << 14),
+        ("atms", "scan_quality", 2),
+        ("atms", "granule_quality", 1 << 4),
+        ("cris", "scan_quality", 1),
+        ("iasi", "footprint_quality", 1),
+    ],
+)
+def test_provider_flags_in_e2s_columns_drop_footprints(sensor, column, bad):
+    channels = (
+        np.arange(1, 23)
+        if sensor == "atms"
+        else sorted(ir_spectral.ir_channel_preset("ir32")[sensor])
+    )
+    frame = _sat_frame(sensor, channels, 4 if sensor == "cris" else None)
+    frame[column] = 0
+    third = frame.index[frame["lat"] == 12.0]
+    if column == "quality":
+        # One channel of the third footprint; the Moon bit (512) does not count.
+        frame.loc[third[3], column] = bad
+        frame.loc[frame.index[0], column] = 512 if sensor == "atms" else 0
+    else:
+        frame.loc[third, column] = bad
+        # The usual ATMS granule value, a correction applied, does not count.
+        frame.loc[frame.index[0], column] = 2 if column == "granule_quality" else 0
+    tables = e2s_nnja.sat_tables(frame, sensor)
+
+    def rows(flags, window):
+        loader = NNJAWideLoader(
+            [sensor],
+            thin_nside=None,
+            normalize=False,
+            drop_source_flagged=flags,
+            table_source={sensor: tables},
+        )
+        times = pd.DatetimeIndex([window])
+        return asyncio.run(loader.sel_time(times))["obs_v2"][0].num_rows
+
+    # Only the flagged footprint goes, in every window that reads it.
+    later = CYCLE + pd.Timedelta(hours=3)
+    assert rows(False, later) == len(channels) and rows(True, later) == 0
+    assert rows(False, CYCLE) - rows(True, CYCLE) == len(channels)
+
+
 def test_wide_loader_reads_tables_like_an_archive_file(tmp_path):
     tables = e2s_nnja.sat_tables(_sat_frame("atms", np.arange(1, 23)), "atms")
     # The archive layout: a day file per sensor, one row group per DA window.

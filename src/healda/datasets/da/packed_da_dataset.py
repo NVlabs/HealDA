@@ -29,6 +29,7 @@ from healda.datasets.da.tasks import (
     get_sensors_for_config,
 )
 from healda.observations.coverage import obs_coverage
+from healda.observations.system import ObsFilters
 from healda.observations.loaders.ufs import get_channel_table
 from healda.datasets.da.packed_state import PackedStateReader
 from healda.datasets.da.transform import (
@@ -98,6 +99,7 @@ class PackedDADataset(torch.utils.data.Dataset):
         obs_config=None,
         transform_options: TransformOptions,
         training: bool = False,
+        extra_obs_filters: ObsFilters = ObsFilters(),
     ):
         self.config = config
         self.variable_config = VARIABLE_CONFIGS[config.target.variable_config]
@@ -162,7 +164,11 @@ class PackedDADataset(torch.utils.data.Dataset):
         )
 
         self._obs_loader = (
-            build_obs_loader(obs_config, training=training) if use_obs else None
+            build_obs_loader(
+                obs_config, training=training, extra_filters=extra_obs_filters
+            )
+            if use_obs
+            else None
         )
         self.channel_table = get_channel_table()
         self.npix = 49152

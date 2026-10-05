@@ -229,9 +229,9 @@ def test_year_holdout_split_accepts_a_year_list():
     split = YearHoldoutSplit()
     assert split.select(times, [2025]).year.unique().tolist() == [2025]
     assert sorted(split.select(times, [2024, 2026]).year.unique()) == [2024, 2026]
-    # The named splits are unchanged.
-    assert split.select(times, "test").year.unique().tolist() == [2025]
-    assert 2025 not in split.select(times, "train").year.unique()
+    # Training stops before the test year; test runs from it onwards.
+    assert split.select(times, "test").year.unique().tolist() == [2025, 2026]
+    assert split.select(times, "train").year.unique().tolist() == [2024]
     with pytest.raises(ValueError, match="Unknown split"):
         split.mask(times, "nonsense")
 
@@ -314,3 +314,33 @@ def test_obs_coverage_follows_the_archive_in_use():
     assert ufs.name == "ufs_obs"
     assert nnja.name == "nnja_obs"
     assert pd.Timestamp(nnja.end) > pd.Timestamp(ufs.end)
+
+
+def test_coverage_ends_at_the_earliest_live_stream():
+    from healda.observations.coverage import StreamExtent, last_analysis, unbroken_run
+
+    def extent(stream, until):
+        covered = None if until is None else pd.Timestamp(until)
+        return StreamExtent(stream, "daily", covered, 0, 0)
+
+    prepbufr = extent("prepbufr", "2026-05-31T21:00")
+    atms, amsub = extent("atms", "2026-07-15T00:00"), extent("amsub", None)
+    assert last_analysis([atms, amsub, prepbufr], 3) == pd.Timestamp("2026-05-31T18:00")
+    assert last_analysis([atms, amsub], 3) == pd.Timestamp("2026-07-14T18:00")
+    with pytest.raises(ValueError, match="no live stream"):
+        last_analysis([amsub], 3)
+    # A one-day hole is an outage; a three-day hole ends the run.
+    present = np.array([1, 1, 0, 1, 0, 0, 0, 1], bool)
+    assert unbroken_run(present, pd.Timedelta(days=1), pd.Timedelta(days=2)) == (3, 1)
+
+
+def test_a_run_adds_removals_to_the_recipes_filters():
+    from healda.config.models import ObsConfig
+    from healda.observations.system import ChannelDenial, ObsFilters, ObsPipeline
+
+    recipe = ObsConfig(use_obs=True, drop_report_types=(188,))
+    denial = ChannelDenial("amsua", "metop-b", 3)
+    extra = ObsFilters(report_types=(240,), channel_denials=(denial,))
+    filters = ObsPipeline(recipe, training=False, extra=extra).filters
+    assert filters.report_types == (188, 240)
+    assert filters.channel_denials == (denial,)

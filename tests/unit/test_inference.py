@@ -3,7 +3,6 @@
 """healda.inference: the observation and denormalization paths."""
 
 import asyncio
-import dataclasses
 import io
 import zipfile
 from types import SimpleNamespace
@@ -18,8 +17,10 @@ from healda.config.variables import VARIABLE_CONFIGS
 from healda.datasets.base import BatchInfo
 from healda.datasets.da import state_masks
 from healda.datasets.da.tasks import build_obs_loader
-from healda.inference import DENIALS, DAModel, read_training_loop
+from healda.inference import DAModel, read_training_loop
 from healda.observations.adapters import e2s_nnja
+from healda.observations import sensors, sensors_nnja
+from healda.observations.system import ChannelDenial, load_denials
 from healda.observations.loaders import combined
 from healda.observations.schema import GLOBAL_CHANNEL_ID, SENSOR_ID
 from tests.unit.test_e2s_nnja_adapter import CYCLE, _gps_frame, _wind_frame
@@ -127,23 +128,20 @@ def test_to_physical_denormalizes_inverts_tcw_and_restores_the_sst_fill(masked):
     assert torch.all(physical[:, 2][..., ~ocean] == land_value)
 
 
-def test_denials_apply_from_their_start_date():
-    model = dataclasses.replace(_model(), denials=DENIALS)
-
-    def denied(time):
-        rules = model.obs_config(pd.Timestamp(time)).nnja_platform_channel_dropout
-        return {rule[:3] for rule in rules if rule[3] == 1.0}
-
-    metop_b = {("amsua", "metop-b", 3), ("amsua", "metop-b", 6)}
-    assert denied("2024-12-31T18") == set()
-    assert denied("2025-01-02T00") == metop_b
-    assert denied("2026-03-17T00") == metop_b | {("amsua", "metop-c", 4)}
+def test_packaged_denials_name_real_channels():
+    rows = load_denials()
+    assert rows
+    for denial in rows:
+        config = sensors_nnja.SENSOR_CONFIGS[denial.sensor]
+        assert denial.channel in config.channels
+        assert sensors.PLATFORM_NAME_TO_ID[denial.platform] in config.platform_ids
 
 
-def test_run_analysis_rejects_times_straddling_a_denial():
-    model = dataclasses.replace(_model(), denials=DENIALS)
-    with pytest.raises(ValueError, match="straddle"):
-        model.run_analysis(["2024-12-31T18", "2025-01-01T00"])
+def test_a_denial_rejects_an_empty_or_zoned_window():
+    with pytest.raises(ValueError, match="before end"):
+        ChannelDenial("amsua", "metop-b", 9, "2026-03-24T00:00", "2026-03-18T21:00")
+    with pytest.raises(ValueError, match="zone"):
+        ChannelDenial("amsua", "metop-b", 9, "2026-03-24T00:00Z")
 
 
 def test_read_training_loop_requires_loop_json(tmp_path):

@@ -42,6 +42,7 @@ from healda.observations.loaders.nnja_satwnd import (
     SATWND_ARCHIVE,
     SATWND_REPORT_TYPES,
     NNJASatwndLoader,
+    pressure_to_height_m,
 )
 from healda.observations.system import FAMILY_REPORT_TYPES, ObsFamily
 from healda.observations.sensors import (
@@ -64,8 +65,9 @@ Q_REPORT_TYPES = frozenset({
     118, 119, 120, 130, 131, 132, 133, 134, 135, 136, 180, 181, 182, 183, 187,
     301, 302,
 })
+# 210 (synthetic tropical-cyclone winds) is excluded: it is not an observation.
 UV_REPORT_TYPES = frozenset({
-    210, 216, 217, 218, 219, 220, 221, 223, 224, 228, 229, 230, 231, 232, 233, 234,
+    216, 217, 218, 219, 220, 221, 223, 224, 228, 229, 230, 231, 232, 233, 234,
     235, 236, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 252, 253, 254,
     256, 257, 258, 259, 260, 270, 280, 281, 282, 284, 285, 286, 287, 289, 290, 291,
     296, 401, 402,
@@ -118,6 +120,8 @@ VARIABLES = (
 # measurement: 282 is a nominal 1013 hPa constant, 284 is reduced from MSLP. 282 is also
 # 17 buoys in one basin, 21 obs a cycle against the ~105,000 recovered here.
 SURFACE_WIND_TYPES = (280, 281, 287)
+# Radiosonde and pibal winds, the reports the "sonde" height fill applies to.
+SONDE_WIND_REPORT_TYPES = (220, 221)
 
 CORE_COLUMNS = ("XOB", "YOB", "DHR", "POB", "TYP")
 OPTIONAL_METADATA_COLUMNS = ("ZOB", "CAT", "ELV")
@@ -164,6 +168,7 @@ class NNJAConvLoader(NNJAArchiveLoader):
         surface_pressure_dropout: float = 0.0,
         dropout_scope: str = "row",
         ascat_only_scatterometer: bool = False,
+        pressure_height_fill: str | None = None,
     ) -> None:
         if data_spacing != 3:
             raise ValueError("NNJA conventional cycle halves require data_spacing=3")
@@ -181,6 +186,11 @@ class NNJAConvLoader(NNJAArchiveLoader):
             raise ValueError(
                 f'gpsro_saids must be "legacy" or "full", got {gpsro_saids!r}'
             )
+        if pressure_height_fill not in (None, "sonde"):
+            raise ValueError(
+                f'pressure_height_fill must be "sonde" or None, got {pressure_height_fill!r}'
+            )
+        self.pressure_height_fill = pressure_height_fill
         self.archive_root = archive_root
         # Read instead of archive_root when given.
         self.prepbufr_table_source = prepbufr_table_source
@@ -331,6 +341,10 @@ class NNJAConvLoader(NNJAArchiveLoader):
                 & np.isfinite(elv)
             )
             height[fill] = elv[fill] + 10.0
+        if self.pressure_height_fill is not None:
+            # Standard-atmosphere height of POB, which is how aircraft ZOB is defined.
+            fill = ~np.isfinite(height) & np.isin(report_type, SONDE_WIND_REPORT_TYPES)
+            height[fill] = pressure_to_height_m(pressure[fill])
         category = (
             self._numpy(table, "CAT", np.float64)
             if "CAT" in table.column_names
