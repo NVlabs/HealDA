@@ -300,3 +300,18 @@ def test_sibling_prefix_does_not_materialise_an_absent_optional():
     cfg = parse_args(Config, ["--inner2.k", "9"])
     assert cfg.inner is None
     assert cfg.inner2 == Inner(k=9)
+
+
+def test_absent_optional_with_a_bool_field_stays_none():
+    @dataclass
+    class Inner:
+        k: int = 4
+        fp32: bool = False
+
+    @dataclass
+    class Config:
+        inner: Inner | None = None
+
+    assert parse_args(Config, args=[]).inner is None
+    assert parse_args(Config, ["--inner.fp32"]).inner == Inner(k=4, fp32=True)
+    assert parse_args(Config, ["--inner.k", "2"]).inner == Inner(k=2, fp32=False)

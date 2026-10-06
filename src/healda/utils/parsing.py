@@ -179,6 +179,7 @@ def parse_args(
                         this_parser.add_argument(
                             arg_name,
                             action="store_true",
+                            default=None if absent else False,
                             help=help_str,
                         )
                 elif is_enum(T):
