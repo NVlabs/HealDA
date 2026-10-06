@@ -119,7 +119,8 @@ lack either (`preprocessing/filtering.py`, `QCLimits` in `observations/sensors.p
 Some families report both coordinates. For the others the loader fills one in.
 
 - **PrepBUFR conventional** (`loaders/nnja_conventional.py`): pressure is `POB` and
-  height is `ZOB`. Rows without `ZOB` are dropped, with two exceptions.
+  height is `ZOB`. Rows without `ZOB` are dropped, with two exceptions (and a third
+  at inference, below).
   - Scatterometer winds report a 10 m wind and no `ZOB`. Their height is set to
     10 m.
   - Surface winds of report types 280, 281 and 287 (`nnja_surface_winds`) get
@@ -151,8 +152,7 @@ loader changes on load:
   it reads no others. For the trained configuration that is the `ir32` preset, 32
   channels each for AIRS, IASI and CrIS (`ir_channel_preset` in
   `preprocessing/ir_spectral.py`). Microwave sounders are read on all their
-  channels. `healda.inference.DENIALS` drops channels from a given date: MetOp-B
-  AMSU-A 3 and 6 from 2025-01-01, and MetOp-C AMSU-A 4 from 2026-03-17.
+  channels.
 - **Microwave sounders** carry no antenna-to-brightness-temperature correction.
   ATMS is read from `antenna_temperature`. The AMSU-A, AMSU-B and MHS archives
   name their column `brightness_temperature`, but apart from NOAA-15 and NOAA-16
@@ -170,6 +170,26 @@ loader changes on load:
 - **Geometry**: longitude is -180 to 180 in the archive and moved to 0 to 360 on
   load. Satellite zenith angle is an unsigned magnitude in the archive, and the
   loader gives it GSI's sign, negative on the first half of the scan.
+
+### At inference
+
+`healda.inference` applies an observation policy on top of the training recipe,
+on by default (`inference_filters` in `observations/system.py`):
+
+- **Provider quality flags**: footprints the data provider flags are dropped. The
+  flags mark bad calibration or corrupted data, and separate it cleanly from good
+  data. Which flags and bits, per sensor, is `SOURCE_QUALITY_FLAGS` in
+  `loaders/nnja_wide.py`: CrIS scan and field-of-view quality, IASI `QGFQ`, ATMS
+  scan, granule and channel quality. A flag column the input lacks is not applied,
+  so a new source should carry them. Earth2Studio's `NNJAObsSat` carries them in its
+  per-channel `quality` column (ATMS channel quality, and CrIS `NFQF`, from which
+  the field-of-view flag is derived) and its footprint columns `scan_quality`,
+  `granule_quality` and `footprint_quality`.
+- **Channel denials**: channels known to be degraded are dropped over a date
+  range. The list is `observations/denials.csv`.
+- **Radiosonde and pibal wind heights**: winds of report types 220 and 221 without
+  `ZOB` get the standard-atmosphere height of their `POB` instead of being dropped
+  (`PRESSURE_HEIGHT_FILL` in `inference.py`).
 
 ## Invariants
 
