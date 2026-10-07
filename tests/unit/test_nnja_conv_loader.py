@@ -16,6 +16,7 @@ from healda.observations.loaders.nnja_conventional import (
     SATWND_REPORT_TYPES,
     SURFACE_WIND_TYPES,
     NNJAConvLoader,
+    is_withheld,
 )
 from healda.observations.loaders.nnja_gpsro import GPS_LEGACY_SAIDS
 from healda.observations.preprocessing.filtering import _get_conv_filter_mask
@@ -191,6 +192,35 @@ def test_wind_dropout_targets_ascat_but_preserves_other_winds(tmp_path):
     assert set(report_type[np.isin(np.asarray(table["local_channel_id"]), [6, 7])]) == {
         220
     }
+
+
+def test_withhold_stations_drops_only_held_out_sondes_and_land_stations(tmp_path):
+    candidates = np.array([f"{i:05d}" for i in range(100)], dtype=object)
+    held, kept = (
+        candidates[is_withheld(candidates)][0],
+        candidates[~is_withheld(candidates)][0],
+    )
+    # Negative-half rows are report types 181, 120, 220, 133 (aircraft, never held out).
+    table = _source_table(False).append_column(
+        "SID", pa.array([held, held, kept, held])
+    )
+    directory = tmp_path / "cycles" / "2025"
+    directory.mkdir(parents=True)
+    pq.write_table(table, directory / "gdas.20250702.t00z.prepbufr.nr.parquet")
+
+    def report_types(withhold):
+        loader = NNJAConvLoader(
+            archive_root=str(tmp_path / "cycles"),
+            normalize=False,
+            include_gpsro=False,
+            max_quality_mark=None,
+            withhold_stations=withhold,
+        )
+        out = asyncio.run(loader.sel_time(pd.DatetimeIndex([TARGET])))["obs_v2"][0]
+        return set(np.asarray(out["Observation_Type"]))
+
+    assert report_types(False) == {181, 120, 220, 133}
+    assert report_types(True) == {220, 133}
 
 
 def test_missing_cycles_return_typed_empty_tables(tmp_path):
@@ -540,3 +570,21 @@ def test_pressure_height_fill(tmp_path, fill):
     if fill is not None:
         assert height[500.0] == pytest.approx(5574, abs=2)
     assert np.isnan(height[700.0])
+
+
+def test_holdout_covers_every_assimilated_land_station_type():
+    from healda.observations.loaders import nnja_conventional as conv
+
+    land_mass, land_wind = {181, 183, 187}, {281, 284, 287}
+    assimilated = (conv.T_REPORT_TYPES | conv.Q_REPORT_TYPES | conv.UV_REPORT_TYPES) & (
+        land_mass | land_wind
+    )
+    assert assimilated <= conv.HOLDOUT_REPORT_TYPES
+
+
+def test_station_holdout_is_deterministic_and_about_ten_percent():
+    ids = np.array([f"{i:05d}" for i in range(20000)], dtype=object)
+    withheld = is_withheld(ids)
+    assert 0.08 < withheld.mean() < 0.12
+    np.testing.assert_array_equal(withheld, is_withheld([f" {i} " for i in ids]))
+    assert not is_withheld(["", None, np.nan]).any()

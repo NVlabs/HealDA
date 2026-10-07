@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import os
+import zlib
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Sequence
@@ -52,6 +53,31 @@ from healda.observations.sensors import (
     SENSOR_NAME_TO_ID,
     SENSOR_OFFSET,
 )
+
+# A station is withheld (ObsConfig.nnja_withhold_stations) when crc32 of its normalized id
+# falls in the lowest HOLDOUT_PERCENT of 100 buckets.
+HOLDOUT_PERCENT = 10
+
+# PrepBUFR report types of radiosondes and pibals (120, 220, 221) and land surface
+# stations (181, 183, 187 mass; 281, 284, 287 wind).
+HOLDOUT_REPORT_TYPES = frozenset({120, 220, 221, 181, 183, 187, 281, 284, 287})
+
+
+def normalize_station_id(station_id) -> str:
+    return "" if pd.isna(station_id) else str(station_id).strip().upper()
+
+
+def is_withheld(station_ids) -> np.ndarray:
+    codes, unique = pd.factorize(
+        pd.Series(station_ids, dtype=object), use_na_sentinel=False
+    )
+    keys = [normalize_station_id(s) for s in unique]
+    flags = np.array(
+        [bool(k) and zlib.crc32(k.encode()) % 100 < HOLDOUT_PERCENT for k in keys],
+        dtype=bool,
+    )
+    return flags[codes]
+
 
 # Report-type allowlists follow global_convinfo and the existing GSI comparison
 # filters.  In particular, POB is a level coordinate on most rows and must only
@@ -158,6 +184,7 @@ class NNJAConvLoader(NNJAArchiveLoader):
         gpsro_archive_root: str = nnja_archive("parquet", "gpsro_v3"),
         drop_restricted_aircraft: bool = False,
         balloon_drift: bool = False,
+        withhold_stations: bool = False,
         include_satwnd: bool = False,
         satwnd_archive_root: str = SATWND_ARCHIVE,
         satwnd_thin_hpx_level: int = 5,
@@ -202,6 +229,7 @@ class NNJAConvLoader(NNJAArchiveLoader):
         self.surface_winds = surface_winds
         self.drop_restricted_aircraft = drop_restricted_aircraft
         self.balloon_drift = balloon_drift
+        self.withhold_stations = withhold_stations
         self.include_satwnd = include_satwnd
         self.wind_obs_dropout = wind_obs_dropout
         self.surface_pressure_dropout = surface_pressure_dropout
@@ -308,6 +336,11 @@ class NNJAConvLoader(NNJAArchiveLoader):
             & np.isfinite(pressure)
             & (pressure > 0)
         )
+        if self.withhold_stations:
+            if "SID" not in table.column_names:
+                raise ValueError("withhold_stations needs the PrepBUFR SID column")
+            held_type = np.isin(report_type, tuple(HOLDOUT_REPORT_TYPES))
+            base_valid &= ~(held_type & is_withheld(table["SID"].to_numpy()))
         if self.drop_restricted_aircraft:
             base_valid = base_valid & ~np.isin(
                 report_type, tuple(RESTRICTED_AIRCRAFT_TYPES)
@@ -508,6 +541,8 @@ class NNJAConvLoader(NNJAArchiveLoader):
         columns += [name for name in OPTIONAL_METADATA_COLUMNS if name in available]
         if self.balloon_drift:
             columns += ["XDR", "YDR", "HRDR"]
+        if self.withhold_stations:
+            columns.append("SID")
         for spec in VARIABLES:
             columns += [
                 name

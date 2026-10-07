@@ -84,6 +84,7 @@ private = [
     "duckdb",
     "icechunk>=1.1.14",
     "joblib>=1.5.3",
+    "nnja-ai>=1.0.0",
     # earth2studio.data.utils imports it; the alpha does not declare it.
     "obspec>=0.1.0",
 ]

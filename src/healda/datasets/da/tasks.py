@@ -322,6 +322,7 @@ def _get_conv_loader(
             conv_gps_level1_only=filters.gps_level1_only,
             drop_restricted_aircraft=filters.restricted_aircraft,
             balloon_drift=filters.balloon_drift,
+            withhold_stations=filters.withhold_stations,
             drop_report_types=filters.report_types,
             conv_min_pressure_hpa=filters.non_gps_min_pressure_hpa,
             use_conv_level_stats=obs_config.use_conv_level_stats

@@ -12,8 +12,7 @@ import zarr
 import torch
 import numpy as np
 
-
-GRAVITY = 9.80665
+from healda.utils.thermo import GRAVITY
 
 # The ERA5 invariants are the 1979-01-01 NCAR RDA fields on the 0.25 degree grid.
 # Geopotential is converted to metres so orography matches the UFS field's units.

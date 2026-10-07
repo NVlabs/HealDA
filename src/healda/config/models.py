@@ -65,6 +65,8 @@ class ObsConfig:
     # "sonde": fill a missing ZOB of radiosonde/pibal winds (220/221) with the
     # standard-atmosphere height of POB.
     nnja_pressure_height_fill: str | None = None
+    # Drop the radiosonde and land-station reports withheld by loaders.nnja_conventional.is_withheld.
+    nnja_withhold_stations: bool = False
     conv_min_pressure_hpa: float | None = None
     use_conv_level_stats: bool = False
     conv_level_channels: bool = False

@@ -172,6 +172,7 @@ class ObsFilters:
     report_types: tuple[int, ...] = ()
     restricted_aircraft: bool = False
     balloon_drift: bool = False
+    withhold_stations: bool = False
     uv_in_situ_only: bool = False
     gps_level1_only: bool = False
     # Non-GPS conv rows only. GPS-RO keeps its own floor, QCLimits.PRESSURE_MIN_GPS
@@ -258,6 +259,7 @@ class ObsPipeline:
             ),
             restricted_aircraft=obs_config.drop_restricted_aircraft,
             balloon_drift=obs_config.nnja_balloon_drift,
+            withhold_stations=obs_config.nnja_withhold_stations,
             uv_in_situ_only=obs_config.conv_uv_in_situ_only,
             gps_level1_only=obs_config.conv_gps_level1_only,
             non_gps_min_pressure_hpa=obs_config.conv_min_pressure_hpa,
