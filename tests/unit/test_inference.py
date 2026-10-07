@@ -17,7 +17,8 @@ from healda.config.variables import VARIABLE_CONFIGS
 from healda.datasets.base import BatchInfo
 from healda.datasets.da import state_masks
 from healda.datasets.da.tasks import build_obs_loader
-from healda.inference import DAModel, read_training_loop
+from healda.cli.train import LatlonDecode
+from healda.inference import DAModel, read_training_loop, set_inference_recipe
 from healda.observations.adapters import e2s_nnja
 from healda.observations import sensors, sensors_nnja
 from healda.observations.system import ChannelDenial, load_denials
@@ -150,3 +151,20 @@ def test_read_training_loop_requires_loop_json(tmp_path):
         archive.writestr("net_state.pth", io.BytesIO().getvalue())
     with pytest.raises(ValueError, match="loop.json"):
         read_training_loop(path)
+
+
+def test_inference_recipe_sets_the_height_fill_and_the_output_head_precision():
+    loop = SimpleNamespace(
+        obs_config=LATLON_OBS, latlon_decode=LatlonDecode(fp32_output=False)
+    )
+    set_inference_recipe(loop)
+    assert loop.obs_config.nnja_pressure_height_fill == "sonde"
+    assert loop.latlon_decode.fp32_output is True
+
+    set_inference_recipe(loop, fill_uv_sonde_heights=False, fp32_output_head=False)
+    assert loop.obs_config.nnja_pressure_height_fill is None
+    assert loop.latlon_decode.fp32_output is False
+
+    hpx = SimpleNamespace(obs_config=LATLON_OBS, latlon_decode=None)
+    set_inference_recipe(hpx)
+    assert hpx.latlon_decode is None

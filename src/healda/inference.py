@@ -19,7 +19,7 @@ import torch
 
 import healda.models
 import healda.utils.datetime
-from healda.cli.train import LOOPS, TrainingLoop
+from healda.cli.train import TrainingLoop
 from healda.datasets.da import state_masks, state_transforms
 from healda.datasets.da.tasks import (
     build_obs_loader,
@@ -36,6 +36,31 @@ from healda.training.checkpoint import Checkpoint
 
 # Inference defaults shared by load_da_model and the inference CLI.
 PRESSURE_HEIGHT_FILL = "sonde"
+
+
+def set_inference_recipe(
+    loop: TrainingLoop,
+    *,
+    fill_uv_sonde_heights: bool = True,
+    fp32_output_head: bool = True,
+) -> None:
+    """Apply the inference settings to ``loop`` in place, overriding what it trained with.
+
+    ``fill_uv_sonde_heights`` gives radiosonde and pibal wind reports (PrepBUFR types
+    220 and 221) that carry no height the standard-atmosphere height of their pressure;
+    without it the loader drops those winds. ``fp32_output_head`` keeps a lat/lon
+    decoder's output projection out of bf16.
+    """
+    loop.obs_config = dataclasses.replace(
+        loop.obs_config,
+        nnja_pressure_height_fill=PRESSURE_HEIGHT_FILL
+        if fill_uv_sonde_heights
+        else None,
+    )
+    if loop.latlon_decode is not None:
+        loop.latlon_decode = dataclasses.replace(
+            loop.latlon_decode, fp32_output=fp32_output_head
+        )
 
 
 @dataclasses.dataclass
@@ -218,21 +243,18 @@ def _run_coroutine(coroutine):
         return pool.submit(asyncio.run, coroutine).result()
 
 
-def read_training_loop(checkpoint, loop_name: str | None = None) -> TrainingLoop:
+def read_training_loop(checkpoint) -> TrainingLoop:
     """The ``TrainingLoop`` a checkpoint was written by.
 
-    Read from the checkpoint's ``loop.json``; ``loop_name`` names a ``LOOPS`` preset
-    to fall back to for checkpoints written without one.
+    Read from the checkpoint's ``loop.json``, which ``healda-train`` writes with every
+    checkpoint.
     """
     with Checkpoint(checkpoint) as ckpt:
         loop_json = ckpt.read_loop_json()
     if loop_json is None:
-        if loop_name is None:
-            raise ValueError(
-                "checkpoint has no loop.json; pass loop_name (a healda-train preset) "
-                "or use a checkpoint written by healda-train"
-            )
-        return LOOPS[loop_name]
+        raise ValueError(
+            "checkpoint has no loop.json; use a checkpoint written by healda-train"
+        )
     return TrainingLoop.loads(loop_json)
 
 
@@ -240,9 +262,8 @@ def load_da_model(
     checkpoint,
     device,
     *,
-    loop_name: str | None = None,
     extra_filters: ObsFilters | None = None,
-    pressure_height_fill: str | None = PRESSURE_HEIGHT_FILL,
+    fill_uv_sonde_heights: bool = True,
     fp32_output_head: bool = True,
 ) -> DAModel:
     """Rebuild the trained network and its observation pipeline from a checkpoint.
@@ -250,17 +271,17 @@ def load_da_model(
     Only the NNJA lat/lon recipe is supported: a 0.25 degree decode fed by NNJA
     satellite and NNJA conventional observations, the streams ``run_analysis`` takes as
     tables. ``checkpoint`` is a ``.checkpoint`` zip written by ``healda-train``;
-    ``loop_name`` is the preset to fall back to when it carries no ``loop.json``.
     ``extra_filters`` defaults to ``inference_filters()``, as the inference CLI does. Provider
     flags act only where a table carries them; ``e2s_nnja`` tables carry none.
-    ``pressure_height_fill`` replaces the recipe's (None: no fill), and
-    ``fp32_output_head`` keeps the decoder output in fp32, both as the CLI defaults.
+    ``fill_uv_sonde_heights`` and ``fp32_output_head`` are as in ``set_inference_recipe``.
     Building the recipe fetches ERA5 statics into the healda cache on first use.
     """
     device = torch.device(device)
-    loop = read_training_loop(checkpoint, loop_name)
-    loop.obs_config = dataclasses.replace(
-        loop.obs_config, nnja_pressure_height_fill=pressure_height_fill
+    loop = read_training_loop(checkpoint)
+    set_inference_recipe(
+        loop,
+        fill_uv_sonde_heights=fill_uv_sonde_heights,
+        fp32_output_head=fp32_output_head,
     )
     obs = loop.obs_config
     if not (loop.latlon_decode and obs.use_nnja_sat and obs.use_nnja_conv):
@@ -268,9 +289,6 @@ def load_da_model(
             "load_da_model supports only the NNJA lat/lon recipe (latlon_decode with "
             "use_nnja_sat and use_nnja_conv)"
         )
-    loop.latlon_decode = dataclasses.replace(
-        loop.latlon_decode, fp32_output=fp32_output_head
-    )
     net = loop.get_network()
     with Checkpoint(checkpoint) as ckpt:
         net = ckpt.read_model(net=net, map_location="cpu")

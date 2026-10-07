@@ -108,6 +108,7 @@ exclude = [
 
 [project.scripts]
 healda-train = "healda.cli.train:main"
+healda-inference-local = "healda.cli.inference_local:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/healda"]

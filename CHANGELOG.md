@@ -18,6 +18,9 @@ follow semantic versioning starting with its first tagged release.
   analyses from in-memory PrepBUFR, GPS-RO, SATWND and satellite cycle tables,
   with dated channel denials (`DENIALS`). Supporting `TransformV2.transform_observations`
   and `build_obs_loader` table sources.
+- `healda-inference-local` (`healda.cli.inference_local`): score a checkpoint over a date
+  range of local observations and targets, writing the analysis zarr with per-time
+  metrics; `healda.inference_output` holds its asynchronous writer and store.
 - `healda.observations.adapters.e2s_nnja`: Earth2Studio NNJA frames as NNJA archive
   tables (`analysis_tables` for all streams at once), keyed by each row's source file
   (`cycle_time`).
