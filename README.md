@@ -25,6 +25,18 @@ uv pip install -e .
 healda-train --help
 ```
 
+For training on Blackwell GPUs (compute capability 10.0 and newer), install the CuTe DSL
+attention kernels. They are optional, but a significant speed-up (2-3x on the attention
+kernels), and the 0.25 degree recipe requests them:
+
+```bash
+uv sync --extra cutedsl        # or: uv pip install -e '.[cutedsl]'
+python -c "import cutlass.cute"
+```
+
+Without them, or on older GPUs, training falls back to Triton (pixel attention) and einsum
+(temporal attention) kernels and logs one warning for each at start-up.
+
 HealDA is licensed under the [Apache License 2.0](LICENSE).
 
 ## Training
@@ -61,8 +73,12 @@ healda-train --name debug-single-gpu --output_dir /runs \
 
 `--finetune_from` initializes model weights from a checkpoint only when no
 resumable checkpoint is found. Optimizer and iterator state are not restored by
-the CLI fine-tuning path. See
-[`examples/fine_tuning/from_checkpoint.sh`](examples/fine_tuning/from_checkpoint.sh).
+the CLI fine-tuning path, and the sample count starts at zero, so the preset's
+learning-rate schedule (warm-up and decay) runs from the start: give a fine-tuning
+preset its own schedule. Resuming the original run instead continues it at the end of
+its schedule. See
+[`examples/fine_tuning/from_checkpoint.sh`](examples/fine_tuning/from_checkpoint.sh),
+which uses the HEALPix smoke recipe and does not load the 0.25 degree checkpoints.
 
 ## Configuration structure
 
@@ -76,7 +92,8 @@ Configuration has three layers:
 
 Run `healda-train --help` against the installed version for the authoritative
 flag list. If `--name` does not match a preset, the CLI uses the `--loop.*`
-configuration.
+configuration. If it does match, the preset is used as defined and `--loop.*` flags are
+ignored: a run with different settings needs its own preset.
 
 ## Distributed execution
 
@@ -94,6 +111,10 @@ The checkpoints come from the 0.25 degree recipe `v2-nnja-latlon-final` in
 eight GPUs per video sample. `time_parallel=4` also trains without changes.
 Training it on H100-class GPUs needs further memory savings, such as more
 activation checkpointing, and has not been validated.
+As a reference for a new setup, that recipe trains at about 126 seconds per thousand
+samples (`Timing/sec_per_kimg` in the log) on 32 GB300 GPUs (batch 4, `time_parallel=8`),
+about 110k samples in a 4-hour job. A much slower run usually lacks the CuTe DSL kernels or
+reads data from a slow filesystem.
 Inference currently needs about 40 GB of GPU memory and has been run on H100 and
 Blackwell GPUs.
 
