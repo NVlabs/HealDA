@@ -1,5 +1,14 @@
 # HealDA
 
+![Maturity: L2 Hardened](https://img.shields.io/badge/Maturity-L2%20Hardened-5C6BC0?style=flat-square)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](LICENSE)
+![Python 3.11 | 3.12](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue?style=flat-square)
+[![Docs](https://img.shields.io/badge/docs-nvlabs.github.io%2FHealDA-blue?style=flat-square)](https://nvlabs.github.io/HealDA/)
+
+[![pre-commit](https://img.shields.io/github/actions/workflow/status/NVlabs/HealDA/pre-commit.yml?branch=main&label=pre-commit&style=flat-square)](https://github.com/NVlabs/HealDA/actions/workflows/pre-commit.yml)
+[![license-check](https://img.shields.io/github/actions/workflow/status/NVlabs/HealDA/license-check.yml?branch=main&label=license-check&style=flat-square)](https://github.com/NVlabs/HealDA/actions/workflows/license-check.yml)
+[![docs](https://img.shields.io/github/actions/workflow/status/NVlabs/HealDA/docs.yml?branch=main&label=docs&style=flat-square)](https://github.com/NVlabs/HealDA/actions/workflows/docs.yml)
+
 HealDA is an experimental package for observation-conditioned, HEALPix-grid
 atmospheric data assimilation. It contains the model architecture, distributed
 training, inference, and data loaders for prepared observations (Parquet) and

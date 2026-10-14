@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it using the metadata from this file.
+type: software
+title: HealDA
+abstract: Observation-conditioned atmospheric data assimilation on the HEALPix grid.
+version: 0.1.0
+license: Apache-2.0
+repository-code: https://github.com/NVlabs/HealDA
+keywords:
+  - data-assimilation
+  - deep-learning
+  - weather
+authors:
+  - family-names: Gupta
+    given-names: Aayush
+    affiliation: NVIDIA
+  - family-names: Sobhani
+    given-names: Negin
+    affiliation: NVIDIA
+  - family-names: Carpentieri
+    given-names: Alberto
+    affiliation: NVIDIA
+  - family-names: Brenowitz
+    given-names: Noah
+    affiliation: NVIDIA

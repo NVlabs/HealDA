@@ -3,6 +3,9 @@
 
 
 RUFF = uvx ruff==0.6.9
+
+.PHONY: lint check-licenses fix-licenses format docs docs-serve test test-integration test-distributed
+
 lint:
 	$(RUFF) format --check
 	$(RUFF) check
@@ -18,6 +21,12 @@ fix-licenses:
 # hook versions, so adding a hook there applies here and to the git hook alike.
 format:
 	uvx pre-commit run -a
+
+docs:
+	uv run --only-group docs mkdocs build --strict
+
+docs-serve:
+	uv run --only-group docs mkdocs serve
 
 test:
 	pytest tests/unit

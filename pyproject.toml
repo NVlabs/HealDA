@@ -54,6 +54,7 @@ dependencies = [
 
 [project.urls]
 Repository = "https://github.com/NVlabs/HealDA"
+Documentation = "https://nvlabs.github.io/HealDA/"
 Issues = "https://github.com/NVlabs/HealDA/issues"
 
 [project.optional-dependencies]
@@ -93,6 +94,15 @@ dev = [
     "pytest-asyncio>=1.2.0",
     "pytest-regtest>=2.1.0",
     "pre-commit>=3.0.0",
+]
+docs = [
+    "mkdocs>=1.6.0,<2",
+    "mkdocs-material>=9.5.0",
+    "pymdown-extensions>=10.0",
+    "mike>=2.1",
+    "mkdocstrings[python]>=0.26",
+    # Formats the signatures mkdocstrings renders.
+    "ruff==0.6.9",
 ]
 
 [tool.ruff]

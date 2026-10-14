@@ -78,26 +78,30 @@ Two places in the code show the format in full:
 ### Inputs the model was trained with
 
 - **Satellite sounders**, from every platform below that was flying. Each sensor's
-  platforms are those in its normalization file under
-  `observations/normalizations/nnja/`.
-  - ATMS: Suomi NPP, NOAA-20, NOAA-21
-  - AMSU-A: NOAA-15 to NOAA-19, MetOp-A, MetOp-B, MetOp-C
-  - AMSU-B: NOAA-15 to NOAA-17 (training only, no longer flying)
-  - MHS: NOAA-18, NOAA-19, MetOp-A, MetOp-B, MetOp-C
-  - AIRS: Aqua
-  - IASI: MetOp-A, MetOp-B, MetOp-C
-  - CrIS: Suomi NPP, NOAA-20, NOAA-21
-- **Conventional PrepBUFR reports** of temperature, humidity, wind and surface
-  pressure from:
-  - radiosondes, dropsondes and pibals
-  - aircraft, including the restricted AMDAR, ACARS and TAMDAR reports
-  - surface land stations (synoptic and METAR)
-  - surface marine stations (ships and buoys)
-  - wind profilers, NEXRAD VAD winds and RASS
-  - scatterometers (ASCAT, QuikSCAT, ERS, WindSat)
+    platforms are those in its normalization file under
+    `observations/normalizations/nnja/`.
 
-  The report types each variable accepts are `T_REPORT_TYPES`, `Q_REPORT_TYPES`,
-  `UV_REPORT_TYPES` and `PRESSURE_REPORT_TYPES` in `loaders/nnja_conventional.py`.
+    - ATMS: Suomi NPP, NOAA-20, NOAA-21
+    - AMSU-A: NOAA-15 to NOAA-19, MetOp-A, MetOp-B, MetOp-C
+    - AMSU-B: NOAA-15 to NOAA-17 (training only, no longer flying)
+    - MHS: NOAA-18, NOAA-19, MetOp-A, MetOp-B, MetOp-C
+    - AIRS: Aqua
+    - IASI: MetOp-A, MetOp-B, MetOp-C
+    - CrIS: Suomi NPP, NOAA-20, NOAA-21
+
+- **Conventional PrepBUFR reports** of temperature, humidity, wind and surface
+    pressure from:
+
+    - radiosondes, dropsondes and pibals
+    - aircraft, including the restricted AMDAR, ACARS and TAMDAR reports
+    - surface land stations (synoptic and METAR)
+    - surface marine stations (ships and buoys)
+    - wind profilers, NEXRAD VAD winds and RASS
+    - scatterometers (ASCAT, QuikSCAT, ERS, WindSat)
+
+    The report types each variable accepts are `T_REPORT_TYPES`, `Q_REPORT_TYPES`,
+    `UV_REPORT_TYPES` and `PRESSURE_REPORT_TYPES` in `loaders/nnja_conventional.py`.
+
 - **GPS radio occultation** bending angle, from every satellite in the archive.
 - **Satellite winds** (atmospheric motion vectors) from the SATWND archive. Their
   PrepBUFR copies are dropped.
@@ -119,14 +123,16 @@ lack either (`preprocessing/filtering.py`, `QCLimits` in `observations/sensors.p
 Some families report both coordinates. For the others the loader fills one in.
 
 - **PrepBUFR conventional** (`loaders/nnja_conventional.py`): pressure is `POB` and
-  height is `ZOB`. Rows without `ZOB` are dropped, with two exceptions (and a third
-  at inference, below).
-  - Scatterometer winds report a 10 m wind and no `ZOB`. Their height is set to
-    10 m.
-  - Surface winds of report types 280, 281 and 287 (`nnja_surface_winds`) get
-    height `ELV` + 10 m, as in GSI. Types 282 (ATLAS buoys) and 284 are excluded
-    and dropped, because their `POB` is a nominal 1013 hPa or reduced from
-    sea-level pressure rather than measured.
+    height is `ZOB`. Rows without `ZOB` are dropped, with two exceptions (and a third
+    at inference, below).
+
+    - Scatterometer winds report a 10 m wind and no `ZOB`. Their height is set to
+      10 m.
+    - Surface winds of report types 280, 281 and 287 (`nnja_surface_winds`) get
+      height `ELV` + 10 m, as in GSI. Types 282 (ATLAS buoys) and 284 are excluded
+      and dropped, because their `POB` is a nominal 1013 hPa or reduced from
+      sea-level pressure rather than measured.
+
 - **GPS radio occultation** (`loaders/nnja_gpsro.py`) reports height only. Height
   is `heit_at_impact_m`. Pressure is `blended_pressure_5km_hpa`, which
   `derive_level_coordinates` in `preprocessing/gpsro_pressure.py` derives from the

@@ -26,13 +26,18 @@ try:
 except (ImportError, OSError) as exc:
     _CUTEDSL_UNAVAILABLE = exc
 
-    def unsupported_reasons(**_kwargs) -> list[str]:
+    # Bound by assignment: a def that shadows the imported name breaks griffe's static
+    # alias resolution, which the documentation build relies on.
+    def _unsupported_reasons_without_cutedsl(**_kwargs) -> list[str]:
         return ["nvidia-cutlass-dsl to be installed"]
 
-    def fused_cutedsl(*_args, **_kwargs):
+    def _fused_cutedsl_without_cutedsl(*_args, **_kwargs):
         raise RuntimeError(
             "the cutedsl temporal kernels need nvidia-cutlass-dsl, which is not installed"
         ) from _CUTEDSL_UNAVAILABLE
+
+    unsupported_reasons = _unsupported_reasons_without_cutedsl
+    fused_cutedsl = _fused_cutedsl_without_cutedsl
 
 
 __all__ = ["fused_cutedsl", "pixel_attention", "unsupported_reasons"]

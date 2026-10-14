@@ -1,0 +1,78 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Builds the MkDocs site strictly on every push and pull request. On the default
+# branch of the upstream repository it also publishes the site as the "main"
+# version into the gh-pages branch with mike, which GitHub Pages serves
+# (Settings -> Pages -> Source: Deploy from a branch, gh-pages, /).
+
+name: docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --only-group docs
+      - run: uv run --no-sync mkdocs build --strict
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs-html
+          path: site/
+          retention-days: 7
+
+  deploy:
+    if: >-
+      github.repository == 'NVlabs/HealDA' &&
+      github.event_name != 'pull_request' &&
+      github.ref_name == github.event.repository.default_branch
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      DOCS_PAGES_BRANCH: gh-pages
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --only-group docs
+      - name: Publish the main version
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          uv run --no-sync mike deploy main \
+            --branch "${DOCS_PAGES_BRANCH}" \
+            --message "Deploy docs for ${GITHUB_SHA}" \
+            --push
+          uv run --no-sync mike set-default main \
+            --branch "${DOCS_PAGES_BRANCH}" \
+            --message "Set default docs version to main" \
+            --push

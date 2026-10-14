@@ -7,6 +7,10 @@ follow semantic versioning starting with its first tagged release.
 
 ### Added
 
+- MkDocs documentation site with an API reference, built by the `docs` workflow and
+  published to GitHub Pages with mike; `make docs` and `make docs-serve`.
+- README badges and `CITATION.cff`.
+
 - Installable `healda` package and `healda-train` console entry point.
 - Public training, checkpointing, observation-loading, and distributed
   execution package boundary.
