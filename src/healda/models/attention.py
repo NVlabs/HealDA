@@ -540,9 +540,13 @@ _flex_attention = None
 
 def _compiled_flex_attention():
     global _flex_attention
-    if _flex_attention is None:
-        from torch.nn.attention.flex_attention import flex_attention
+    from torch.nn.attention.flex_attention import flex_attention
 
+    # Inside a compiled region, reading the cached global would add a guard that fails
+    # once the eager path fills it, recompiling the whole region.
+    if torch.compiler.is_compiling():
+        return flex_attention
+    if _flex_attention is None:
         _flex_attention = torch.compile(flex_attention, dynamic=False)
     return _flex_attention
 

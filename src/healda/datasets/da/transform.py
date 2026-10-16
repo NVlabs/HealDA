@@ -223,6 +223,7 @@ class TransformOptions:
     # requires this to match the model token level.
     observation_hpx_level: int = 6
     features_v2: bool = False
+    features_position: bool = False
     attention_prepack: bool = False
     build_attention_group_map: bool = True
     pixel_order: str = "hpxpadxy"
@@ -264,6 +265,7 @@ class TransformV2:
     hpx_level: int = 10  # pixel level of the observations
     hpx_level_condition: int = 6
     features_v2: bool = False
+    features_position: bool = False
     sensors: list[str] = dataclasses.field(default_factory=list)
     background_normalization: NormalizationStats | None = None
     # Explicit target stats. When None, fall back to the era5/ufs CSV stats keyed
@@ -736,6 +738,21 @@ class TransformV2:
                 sat_zenith_angle=sat_zenith_tensor,
                 sol_zenith_angle=sol_zenith_tensor,
             )
+            if self.features_position:
+                center_lon, center_lat = self._grid.pix2ang(pix)
+                meta = torch.cat(
+                    [
+                        meta,
+                        features_v2.position_features(
+                            lon_tensor,
+                            lat_tensor,
+                            center_lon,
+                            center_lat,
+                            self.hpx_level,
+                        ),
+                    ],
+                    dim=1,
+                )
         else:
             meta = features.compute_unified_metadata(
                 obs_tensors["target_time_sec"],

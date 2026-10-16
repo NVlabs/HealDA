@@ -195,6 +195,7 @@ class PackedDADataset(torch.utils.data.Dataset):
                 transform_options.pixel_order
             ),
             features_v2=transform_options.features_v2,
+            features_position=transform_options.features_position,
             attention_prepack=transform_options.attention_prepack,
             build_attention_group_map=(transform_options.build_attention_group_map),
             pixel_order=transform_options.pixel_order,

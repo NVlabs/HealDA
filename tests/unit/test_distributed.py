@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import os
+import signal
 
 import pytest
 import torch
@@ -8,7 +9,8 @@ import torch.distributed as dist
 
 from healda.config.models import ModelSensorConfig, SensorEmbedderConfig
 from healda.observations.types import UnifiedObservation
-from healda.utils.distributed import init
+from healda.utils import signals
+from healda.utils.distributed import init, should_stop
 from healda.models import dit
 from healda.models.sharding import shard_t, shard_x
 from healda.training.metrics import _StepMetricBuffer
@@ -44,6 +46,22 @@ def test_step_metrics_use_global_sum_and_count():
     expected = sum(i * i for i in range(1, world + 1)) / sum(range(1, world + 1))
     assert keys == ["loss"] and steps == [1]
     torch.testing.assert_close(means[0, 0], torch.tensor(expected, device="cuda"))
+
+
+@requires_multi_gpu
+def test_should_stop_agrees_across_ranks():
+    if not torch.distributed.is_initialized():
+        init()
+
+    signals.install()
+    try:
+        assert not should_stop()
+        if dist.get_rank() == dist.get_world_size() - 1:
+            os.kill(os.getpid(), signal.SIGTERM)
+        assert should_stop()
+    finally:
+        signals.clear()
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
 
 @requires_multi_gpu

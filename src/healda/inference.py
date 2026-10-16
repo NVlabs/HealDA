@@ -304,6 +304,7 @@ def load_da_model(
         use_nnja_sat=loop.obs_config.use_nnja_sat,
         target_normalization=loop.batch_info.normalization,
         features_v2=options.features_v2,
+        features_position=options.features_position,
         attention_prepack=options.attention_prepack,
         build_attention_group_map=options.build_attention_group_map,
         pixel_order=options.pixel_order,

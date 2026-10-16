@@ -28,7 +28,7 @@ from healda.config.models import (
     ir_preset_name,
 )
 from healda.training.providers import DATASET_PROVIDERS, dataset_provider
-from healda.utils.signals import finish_before_quitting
+from healda.utils import signals
 from healda.utils.parsing import parse_args, parse_dict
 from healda.datasets.base import BatchInfo, NormalizationStats, TimeUnit, VariableConfig
 from healda.datasets.da.tasks import (
@@ -659,7 +659,6 @@ class TrainingLoop(loop.TrainingLoopBase):
         except FileNotFoundError:
             pass
 
-    @finish_before_quitting
     def _save(self, path, optimizer=True):
         metadata = dict(
             epoch_idx=self.epoch_idx,
@@ -804,7 +803,6 @@ class TrainingLoop(loop.TrainingLoopBase):
         self.net.gradient_checkpointing_last_n = self.gradient_checkpointing_last_n
 
     @healda.utils.profiling.nvtx
-    @finish_before_quitting
     def step_optimizer(self, cur_nimg):
         """Optionally apply a scheduled gradient clipping value, then
         delegate to the base implementation for LR scheduling and optimizer step.
@@ -929,6 +927,7 @@ class TrainingLoop(loop.TrainingLoopBase):
             sampler=sampler,
             prefetch_factor=prefetch_factor if num_workers > 0 else None,
             multiprocessing_context="spawn" if num_workers > 0 else None,
+            worker_init_fn=signals.ignore_in_worker if num_workers > 0 else None,
             batch_size=batch_size,
             num_workers=num_workers,
             collate_fn=collate_fn,

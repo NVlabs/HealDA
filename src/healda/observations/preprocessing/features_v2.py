@@ -314,3 +314,24 @@ def compute_unified_metadata(
         num_warps=4,
     )
     return out
+
+
+# Columns appended after the N_FEATURES layout when the model asks for position features.
+N_POSITION_FEATURES = 4
+
+
+def position_features(
+    lon: torch.Tensor,
+    lat: torch.Tensor,
+    center_lon: torch.Tensor,
+    center_lat: torch.Tensor,
+    hpx_level: int,
+) -> torch.Tensor:
+    """Per observation, shape (N, 4) float32: east and north offset from its HEALPix pixel
+    centre in pixel sizes (about -0.7..0.7), then sin and cos of longitude. Degrees in."""
+    pixel_deg = math.degrees(math.sqrt(4 * math.pi / (12 * 4**hpx_level)))
+    dlon = torch.remainder(lon.double() - center_lon.double() + 180.0, 360.0) - 180.0
+    dx = dlon * torch.cos(torch.deg2rad(center_lat.double())) / pixel_deg
+    dy = (lat.double() - center_lat.double()) / pixel_deg
+    lon_rad = torch.deg2rad(lon.double())
+    return torch.stack([dx, dy, torch.sin(lon_rad), torch.cos(lon_rad)], dim=1).float()

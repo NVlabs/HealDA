@@ -229,6 +229,9 @@ class SensorEmbedderConfig:
     tokenizer_type: str = "concat"  # "concat" or "film"
     use_fused_mlp: bool = False
     features_v2: bool = False  # expanded features
+    # Append each observation's offset within its HEALPix pixel and sin/cos longitude
+    # (features_v2 only).
+    features_position: bool = False
 
     # Rows in the backbone tokenizer's channel embedding table. Sizes a checkpointed weight.
     max_global_channels: int = 1024
@@ -247,9 +250,16 @@ class SensorEmbedderConfig:
     @property
     def meta_dim(self) -> int:
         if self.features_v2:
-            from healda.observations.preprocessing.features_v2 import N_FEATURES
-        else:
-            from healda.observations.preprocessing.features import N_FEATURES
+            from healda.observations.preprocessing.features_v2 import (
+                N_FEATURES,
+                N_POSITION_FEATURES,
+            )
+
+            return N_FEATURES + N_POSITION_FEATURES * self.features_position
+        if self.features_position:
+            raise ValueError("features_position requires features_v2")
+        from healda.observations.preprocessing.features import N_FEATURES
+
         return N_FEATURES
 
     @property

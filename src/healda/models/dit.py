@@ -1199,6 +1199,15 @@ class DiT(torch.nn.Module):
         for attention in self._disk_attentions:
             attention.prepare_block_mask(n_tokens, hidden_states.device)
 
+        # The observation count changes every batch: compile it as dynamic from the first call
+        # rather than recompiling the block stack on the second.
+        if obs_tokens is not None:
+            torch._dynamo.maybe_mark_dynamic(obs_tokens, 0)
+        group_map = attention_packing.group_map if attention_packing else None
+        if group_map is not None:
+            torch._dynamo.maybe_mark_dynamic(group_map.program_ptr, 0)
+            torch._dynamo.maybe_mark_dynamic(group_map.program_pixels, 0)
+
         hidden_states = self._call_forward_blocks(
             hidden_states,
             input_t_sharded,

@@ -30,6 +30,7 @@ def transform_options_for(config: ModelConfigV1) -> TransformOptions:
             else config.obs_hpx_level
         ),
         features_v2=embedder is not None and embedder.features_v2,
+        features_position=embedder is not None and embedder.features_position,
         attention_prepack=config.backbone_pixel_attention,
         build_attention_group_map=config.pixel_attn_impl == PIXEL_ATTN_TRITON,
         pixel_order=dit.pipeline_token_order(config.attention_backend),

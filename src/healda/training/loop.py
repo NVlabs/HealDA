@@ -6,6 +6,7 @@ from typing import Optional
 import json
 import math
 import gc
+import sys
 import os
 import time
 import itertools
@@ -27,8 +28,7 @@ import psutil
 import torch
 import torch.utils.tensorboard
 from healda.utils import distributed as dist
-import signal
-from healda.utils.signals import finish_before_quitting, QuitEarly, handler
+from healda.utils import signals
 from healda import training_stats
 from healda.training import utils as misc
 from healda.training.metrics import Logger
@@ -42,6 +42,8 @@ except ImportError:
 
 DATASET_METADATA_FILENAME = "dataset-metadata.pth"
 TRAINER_METADATA_FILENAME = "loop.json"
+# Steps between stop polls; each poll is one scalar all-reduce and a host sync.
+STOP_CHECK_STEPS = 10
 
 
 logger = logging.getLogger(__name__)
@@ -484,7 +486,6 @@ class TrainingLoopBase(abc.ABC):
                 self.log_metric(f"grad_norm/{name}", param.grad.norm(2))
 
     @healda.utils.profiling.nvtx
-    @finish_before_quitting
     def step_optimizer(self, cur_nimg):
         with healda.utils.profiling.nvtx_range("training_loop:step"):
             warmup_imgs = self.lr_rampup_img
@@ -662,7 +663,6 @@ class TrainingLoopBase(abc.ABC):
         return None
 
     @healda.utils.profiling.nvtx
-    @finish_before_quitting
     def _save_checkpoint(self, path, optimizer: bool):
         # ensure that file updates are atomic to avoid faulty
         # restart files
@@ -832,22 +832,31 @@ class TrainingLoopBase(abc.ABC):
         logger.debug(msg)
 
     def train(self):
-        # signal.signal(signal.SIGINT, handler)
-        signal.signal(signal.SIGTERM, handler)
+        signals.install()
         try:
             self._train()
-        except QuitEarly as e:
-            dist.print0(f"Caught {e}. Quitting early.")
-            # Save the checkpoint and nothing else: there are only KillWait seconds before
-            # SIGKILL, and anything else here (a metrics flush) can eat them and lose it.
-            self.save_training_state(self.cur_nimg)
-            try:
-                del self.train_loader
-                del self.valid_loader
-            except AttributeError:
-                pass
         finally:
             self.logger.close()
+            # Shut the dataloader workers down through their queues now. They ignore
+            # SIGTERM, so multiprocessing's exit-time terminate() and join() would hang.
+            for loader in ("train_loader", "valid_loader"):
+                if hasattr(self, loader):
+                    delattr(self, loader)
+            gc.collect()
+        if signals.received():
+            # The stop is saved on every rank; skip interpreter exit handlers, where the
+            # torch.compile worker pool shutdown blocks until the job is killed.
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(0)
+
+    def _stop_early(self):
+        """Every rank arrives here from the same step, with no collective in flight."""
+        dist.print0(f"Stop requested. Saving at cur_nimg={self.cur_nimg}.")
+        torch.cuda.synchronize()
+        self.save_training_state(self.cur_nimg)
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
 
     def _batch_iterator(self):
         while True:
@@ -914,6 +923,9 @@ class TrainingLoopBase(abc.ABC):
                     )
                     steps += 1
                     self.iteration = steps
+                if steps % STOP_CHECK_STEPS == 0 and dist.should_stop():
+                    self._stop_early()
+                    return
             tick_end_time = time.time()
             self._report_step_timing(cur_tick)
             self.log_tick(

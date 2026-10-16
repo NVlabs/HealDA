@@ -1,56 +1,32 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Utilities for catching unix signals and gracefully exiting
+"""SIGTERM is recorded, not acted on: the training loop polls it at step boundaries
+through ``distributed.should_stop``, so every rank stops at the same point."""
 
-Usage:
-```
-import healda.utils.signals
 import signal
 
-# now can catch signals with exceptions
-signal.signal(healda.utils.signals.handler)
+_received: int | None = None
 
 
-def do_stuff():
-    do_optional_stuff()
-    with healda.utils.signals.finish_before_quitting():
-        do_stuff_i_need_to_finish()
-
-try:
-    do_stuff()
-except healda.utils.signals.QuitEarly:
-    cleanup()
-
-```
-
-"""
+def _record(signum, frame):
+    global _received
+    _received = signum
 
 
-class QuitEarly(Exception):
-    depth = 0
-    quit_requested = False
+def install():
+    signal.signal(signal.SIGTERM, _record)
 
 
-def finish_before_quitting(func):
-    """If signal caught defer quitting until the wrapped line of code completes
-
-    Used to handle sensitive code blocks
-    """
-
-    def newfunc(*args, **kwargs):
-        QuitEarly.depth += 1
-        func(*args, **kwargs)
-        QuitEarly.depth -= 1
-
-        if QuitEarly.quit_requested and QuitEarly.depth == 0:
-            QuitEarly.quit_requested = False
-            raise QuitEarly()
-
-    return newfunc
+def received() -> bool:
+    return _received is not None
 
 
-def handler(signum, frame):
-    if QuitEarly.depth == 0:
-        raise QuitEarly(signum, frame)
-    else:
-        QuitEarly.quit_requested = True
+def clear():
+    global _received
+    _received = None
+
+
+def ignore_in_worker(worker_id: int):
+    """DataLoader ``worker_init_fn``: Slurm signals every process in the step, and a
+    worker that dies on SIGTERM fails the main process's next fetch."""
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)

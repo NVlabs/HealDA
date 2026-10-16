@@ -3,6 +3,7 @@
 import os
 import torch
 from healda import training_stats
+from healda.utils import signals
 import datetime
 # ----------------------------------------------------------------------------
 
@@ -74,8 +75,16 @@ def get_world_size():
 # ----------------------------------------------------------------------------
 
 
-def should_stop():
-    return False
+def should_stop() -> bool:
+    """True on every rank once any rank has received SIGTERM. A collective: every rank
+    must call it at the same point."""
+    stop = signals.received()
+    if not torch.distributed.is_initialized():
+        return stop
+    device = "cuda" if torch.distributed.get_backend() == "nccl" else "cpu"
+    flag = torch.tensor(float(stop), device=device)
+    torch.distributed.all_reduce(flag, op=torch.distributed.ReduceOp.MAX)
+    return bool(flag.item())
 
 
 # ----------------------------------------------------------------------------
