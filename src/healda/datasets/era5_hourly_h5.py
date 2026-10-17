@@ -192,7 +192,12 @@ class Era5HourlyH5:
         # h5py releases the GIL during the actual HDF5 read, so threading across
         # packs overlaps their I/O wait instead of paying it out sequentially -
         # worthwhile whenever the channel list spans more than one pack.
-        block = np.asarray(fields[uniq][:, rows])
+        if len(rows) == fields.shape[1]:
+            block = np.asarray(fields[uniq])
+        else:
+            # Packs are contiguous: a channel at one time is a single hyperslab, so
+            # reading only the requested channels skips the rest of the pack.
+            block = np.stack([fields[uniq, row] for row in rows], axis=1)
         return slots, block[inv]
 
     def read(self, times) -> np.ndarray:
