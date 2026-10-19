@@ -30,6 +30,10 @@ follow semantic versioning starting with its first tagged release.
   (`cycle_time`).
 - NNJA loaders take in-memory cycle tables (`table_source`, `gpsro_table_source`,
   `satwnd_table_source`, `prepbufr_table_source`) in place of the archive.
+- `v2-nnja-latlon-dense` training preset: `v2-nnja-latlon-final` with denser
+  observations, observation position features and corrected radiosonde placement. Its
+  settings are listed beside it in `healda.cli.train`; its input differences in
+  `docs/observations.md`.
 - `ObsConfig.nnja_balloon_drift` places radiosonde levels at their drifted position
   and time (off by default), and `ObsConfig.deny_platform_channels` drops platform
   channels at probability 1.

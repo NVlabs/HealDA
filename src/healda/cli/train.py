@@ -1779,12 +1779,42 @@ LOOPS[NNJA_LATLON] = dataclasses.replace(
         ascat_only_scatterometer=False,
     ),
 )
-# TODO: increase NNJA conv quality mark to 3
+
+# NNJA_LATLON with denser observations, observation position features and radiosonde
+# placement fixes:
+# - satellites thinned at HPX128 (was 64), SATWND at HPX64 (was 32), PrepBUFR quality
+#   marks up to 3 (was 2);
+# - each observation's offset within its HEALPix pixel and sin/cos longitude as inputs;
+# - radiosonde wind levels without a height take it from their pressure, and every
+#   level sits at its drifted balloon position and time instead of the launch site;
+# - a 14 degree attention disk (was 10.46) and an fp32 output head.
+NNJA_LATLON_DENSE_POS = (
+    NNJA_LATLON + "-r14-thin128-satwnd64-qm3-sondeFill-drift-posfeat"
+)
+LOOPS[NNJA_LATLON_DENSE_POS] = dataclasses.replace(
+    LOOPS[NNJA_LATLON],
+    attention_backend="disk-nest:14",
+    latlon_decode=dataclasses.replace(
+        LOOPS[NNJA_LATLON].latlon_decode, fp32_output=True
+    ),
+    sensor_embedder_config=dataclasses.replace(
+        LOOPS[NNJA_LATLON].sensor_embedder_config, features_position=True
+    ),
+    obs_config=dataclasses.replace(
+        LOOPS[NNJA_LATLON].obs_config,
+        nnja_thin_nside=128,
+        nnja_satwnd_thin_hpx_level=6,
+        nnja_max_quality_mark=3,
+        nnja_pressure_height_fill="sonde",
+        nnja_balloon_drift=True,
+    ),
+)
 
 # Short names.
 LOOPS["v2-ufs-hpx64"] = LOOPS[UFS_HPX64]
 LOOPS["v2-nnja-hpx64"] = LOOPS[NNJA_HPX64]
 LOOPS["v2-nnja-latlon-final"] = LOOPS[NNJA_LATLON]
+LOOPS["v2-nnja-latlon-dense"] = LOOPS[NNJA_LATLON_DENSE_POS]
 
 # End-to-end single-GPU training smoke test.
 LOOPS["debug-single-gpu"] = dataclasses.replace(

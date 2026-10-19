@@ -83,3 +83,28 @@ def test_position_features_are_packed_only_when_the_embedder_asks():
     options = healda.models.transform_options_for
     assert not options(released.model_config).features_position
     assert options(posfeat.model_config).features_position
+
+
+def test_dense_preset_is_the_released_one_plus_its_listed_changes():
+    import dataclasses
+
+    from healda.cli.train import LOOPS, NNJA_LATLON
+
+    released, dense = LOOPS[NNJA_LATLON], LOOPS["v2-nnja-latlon-dense"]
+    changed = {
+        f.name
+        for f in dataclasses.fields(released)
+        if getattr(released, f.name) != getattr(dense, f.name)
+    }
+    assert changed == {
+        "attention_backend",
+        "latlon_decode",
+        "sensor_embedder_config",
+        "obs_config",
+    }
+    assert dense.sensor_embedder_config.features_position
+    assert dense.latlon_decode.fp32_output
+    obs = dense.obs_config
+    assert (obs.nnja_thin_nside, obs.nnja_satwnd_thin_hpx_level) == (128, 6)
+    assert obs.nnja_max_quality_mark == 3
+    assert obs.nnja_pressure_height_fill == "sonde" and obs.nnja_balloon_drift

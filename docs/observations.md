@@ -39,7 +39,8 @@ Wide satellite files require `latitude`, `longitude`, `time_utc`, `da_window`,
 whose names and metadata match the packaged sensor vocabulary.
 
 Conventional cycle files require `XOB`, `YOB`, `DHR`, `POB`, and `TYP`, plus
-the value and quality-mark columns for each enabled variable. GPS radio
+the value and quality-mark columns for each enabled variable; with
+`nnja_balloon_drift` also `XDR`, `YDR` and `HRDR`. GPS radio
 occultation files require `bending_angle`, `qfro`, `obs_time`,
 `impact_parameter`, `earth_radius_curvature`, and `satellite_id`.
 
@@ -57,6 +58,18 @@ validity bounds and its normalization statistics all ship with the package.
 The checkpoints were trained on the NNJA archive, built from the NNJA BUFR feeds,
 with the `v2-nnja-latlon-final` configuration in `healda/cli/train.py`. Settings
 named below take that configuration's values.
+
+`v2-nnja-latlon-dense` reads the same inputs with these differences
+(`v2-nnja-latlon-final` in brackets):
+
+- Satellite sounders are thinned at HEALPix nside 128 (64), `nnja_thin_nside`.
+- Satellite winds are thinned at HEALPix level 6 (5), `nnja_satwnd_thin_hpx_level`.
+- PrepBUFR reports with quality marks up to 3 (2) are kept, `nnja_max_quality_mark`.
+- Radiosonde levels sit at their drifted position and time (launch position),
+  `nnja_balloon_drift`. Conventional files then also need `XDR`, `YDR` and `HRDR`.
+- Radiosonde and pibal winds without `ZOB` take the standard-atmosphere height of their
+  `POB` in training as well as at inference (at inference only),
+  `nnja_pressure_height_fill="sonde"`.
 
 A checkpoint gives its intended results only on data prepared the same way. Data
 from another source, such as a near-real-time feed, has to reproduce the

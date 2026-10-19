@@ -120,6 +120,10 @@ The checkpoints come from the 0.25 degree recipe `v2-nnja-latlon-final` in
 eight GPUs per video sample. `time_parallel=4` also trains without changes.
 Training it on H100-class GPUs needs further memory savings, such as more
 activation checkpointing, and has not been validated.
+`v2-nnja-latlon-dense` is that recipe with denser observations, observation position features
+and corrected radiosonde placement; its settings are listed beside it in
+`healda.cli.train`. It reads more observations per sample, so inference with it needs
+`healda-inference-local --prefetch-factor 2` to stay within host memory.
 As a reference for a new setup, that recipe trains at about 126 seconds per thousand
 samples (`Timing/sec_per_kimg` in the log) on 32 GB300 GPUs (batch 4, `time_parallel=8`),
 about 110k samples in a 4-hour job. A much slower run usually lacks the CuTe DSL kernels or
