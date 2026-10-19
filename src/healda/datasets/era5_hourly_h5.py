@@ -93,6 +93,8 @@ class Era5HourlyH5:
             ):
                 raise ValueError(f"{pack.root} is not on the grid of {grid.root}")
 
+        if len(set(channels)) != len(channels):
+            raise ValueError(f"duplicate channels in {list(channels)}")
         self.channels = list(channels)
         self.lat = grid.lat
         self.lon = grid.lon

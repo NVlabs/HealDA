@@ -100,6 +100,7 @@ def inference_filters_from_args(args) -> ObsFilters:
         report_types=sorted(
             set(args.drop_report_types) | report_types_for(args.drop_obs_families)
         ),
+        wind_report_types=sorted(report_types_for(args.drop_wind_obs_families)),
     )
 
 
@@ -207,6 +208,10 @@ class InferenceArgs:
     drop_obs_families: a[
         list[str], Help("ObsFamily names to deny, e.g. amv scatterometer")
     ] = dataclasses.field(default_factory=list)
+    drop_wind_obs_families: a[
+        list[str],
+        Help("ObsFamily names whose u/v winds are denied, other variables kept"),
+    ] = dataclasses.field(default_factory=list)
     drop_platform_channels: a[
         list[str],
         Help(
@@ -303,6 +308,21 @@ class InferenceArgs:
         ),
     ] = False
     zarr_pool_size: a[int, Help("Write-thread count")] = 8
+    dataloader_workers: a[
+        int,
+        Help(
+            "Data-loader worker processes per rank; host memory grows with workers x "
+            "prefetch x ranks x observations per window"
+        ),
+    ] = 6
+    prefetch_factor: a[
+        int,
+        Help(
+            "Windows each loader worker keeps queued; host memory grows with workers x "
+            "prefetch x ranks x observations per window. Dense-observation models need 2: "
+            "one exceeded ~929 GB host memory at the default 6"
+        ),
+    ] = 6
     no_zarr_sharding: a[
         bool,
         Help("Write one object per analysis instead of packing 28 into one"),
@@ -465,8 +485,8 @@ def _run_in_temporary_directory(tmpdir):
     loop.dataset = dataset_name
     loop.batch_size = args.batch_gpu * dist.get_world_size()
     loop.batch_gpu = args.batch_gpu
-    loop.dataloader_num_workers = 6
-    loop.dataloader_prefetch_factor = 6
+    loop.dataloader_num_workers = args.dataloader_workers
+    loop.dataloader_prefetch_factor = args.prefetch_factor
     loop.fsdp = args.fsdp
     if args.no_compile:
         loop.compile_dit = False

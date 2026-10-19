@@ -324,6 +324,7 @@ def _get_conv_loader(
             balloon_drift=filters.balloon_drift,
             withhold_stations=filters.withhold_stations,
             drop_report_types=filters.report_types,
+            drop_wind_report_types=filters.wind_report_types,
             conv_min_pressure_hpa=filters.non_gps_min_pressure_hpa,
             use_conv_level_stats=obs_config.use_conv_level_stats
             or obs_config.conv_level_channels,
@@ -385,7 +386,10 @@ def build_obs_loader(
     pipeline = ObsPipeline(obs_config, training=training, extra=extra_filters)
     filters = pipeline.filters
     if (
-        filters.channel_denials or filters.drop_source_flagged or filters.report_types
+        filters.channel_denials
+        or filters.drop_source_flagged
+        or filters.report_types
+        or filters.wind_report_types
     ) and not pipeline.nnja_sat:
         raise ValueError(
             "channel denials, provider flags and report-type drops apply to NNJA "

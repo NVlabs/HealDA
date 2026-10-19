@@ -88,6 +88,7 @@ _FLAG_DEFAULTS = {
     "drop_sensors": [],
     "drop_report_types": [],
     "drop_obs_families": [],
+    "drop_wind_obs_families": [],
     "drop_obs_channel_ids": [],
     "drop_platform_channels": [],
     "no_denials": False,
@@ -192,6 +193,15 @@ def test_the_extra_filters_default_to_packaged_denials_and_provider_flags():
     )
     assert opted_out.channel_denials == ()
     assert not opted_out.drop_source_flagged
+
+
+def test_wind_families_deny_only_their_winds():
+    from healda.cli.inference_local import inference_filters_from_args
+    from healda.observations.system import report_types_for
+
+    extra = inference_filters_from_args(_args(drop_wind_obs_families=["radiosonde"]))
+    assert extra.wind_report_types == tuple(sorted(report_types_for(["radiosonde"])))
+    assert extra.report_types == ()
 
 
 def test_a_store_extends_by_time_and_records_who_wrote_each_slot(tmp_path):

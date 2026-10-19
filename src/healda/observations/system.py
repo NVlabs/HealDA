@@ -170,6 +170,8 @@ class ObsFilters:
     # vocabulary is built from, so it lives in tasks.satellite_sensors.
     channel_ids: tuple[int, ...] = ()
     report_types: tuple[int, ...] = ()
+    # u/v rows of these report types; their other variables stay.
+    wind_report_types: tuple[int, ...] = ()
     restricted_aircraft: bool = False
     balloon_drift: bool = False
     withhold_stations: bool = False
@@ -190,6 +192,9 @@ class ObsFilters:
             channel_ids=tuple(sorted(set(self.channel_ids) | set(extra.channel_ids))),
             report_types=tuple(
                 sorted(set(self.report_types) | set(extra.report_types))
+            ),
+            wind_report_types=tuple(
+                sorted(set(self.wind_report_types) | set(extra.wind_report_types))
             ),
             channel_denials=(*self.channel_denials, *extra.channel_denials),
             drop_source_flagged=self.drop_source_flagged or extra.drop_source_flagged,
@@ -218,6 +223,7 @@ def inference_filters(
     drop_source_flagged: bool = True,
     channel_ids=(),
     report_types=(),
+    wind_report_types=(),
 ) -> ObsFilters:
     """What scoring removes beyond the recipe: the packaged denials and provider flags
     unless asked otherwise. ``denials_csv`` None applies no file."""
@@ -225,6 +231,7 @@ def inference_filters(
     return ObsFilters(
         channel_ids=tuple(channel_ids),
         report_types=tuple(report_types),
+        wind_report_types=tuple(wind_report_types),
         channel_denials=(*from_file, *extra_denials),
         drop_source_flagged=drop_source_flagged,
     )

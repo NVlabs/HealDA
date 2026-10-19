@@ -296,6 +296,22 @@ def test_nnja_conventional_loader_emits_gsi_conv_plevel(tmp_path):
     assert kept[LOCAL_CHANNEL_ID.name].to_pylist() == expanded[:1].tolist()
 
 
+def test_wind_denial_by_report_type_keeps_other_variables_and_other_winds():
+    loader = combined.NNJAConventionalLoader(
+        include_gpsro=False, drop_wind_report_types=(220,)
+    )
+    [u] = sensors.conv_var_global_ids(["u"])
+    [t] = sensors.conv_var_global_ids(["t"])
+    table = pa.table(
+        {
+            GLOBAL_CHANNEL_ID.name: pa.array([u, t, u], GLOBAL_CHANNEL_ID.type),
+            "Observation_Type": pa.array([220, 120, 245], pa.uint16()),
+        }
+    )
+    kept = loader._drop_winds(table)
+    assert kept["Observation_Type"].to_pylist() == [120, 245]
+
+
 def test_nnja_conventional_loader_sel_time_empty_archive(tmp_path):
     cycles = tmp_path / "cycles"
     cycles.mkdir()

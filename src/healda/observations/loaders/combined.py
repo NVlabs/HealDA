@@ -181,6 +181,7 @@ class NNJAConventionalLoader:
         balloon_drift: bool = False,
         withhold_stations: bool = False,
         drop_report_types: tuple[int, ...] = (),
+        drop_wind_report_types: tuple[int, ...] = (),
         conv_min_pressure_hpa: float | None = None,
         drop_obs_channel_ids: list[int] | None = None,
         use_conv_level_stats: bool = True,
@@ -196,6 +197,7 @@ class NNJAConventionalLoader:
         self.conv_gps_level1_only = conv_gps_level1_only
         self.drop_restricted_aircraft = drop_restricted_aircraft
         self.drop_report_types = tuple(drop_report_types)
+        self.drop_wind_report_types = tuple(drop_wind_report_types)
         self.conv_min_pressure_hpa = conv_min_pressure_hpa
         self.use_conv_level_stats = use_conv_level_stats
         self.drop_obs_channel_ids = (
@@ -282,6 +284,10 @@ class NNJAConventionalLoader:
             )
             if table.num_rows == 0:
                 return table
+        if self.drop_wind_report_types:
+            table = self._drop_winds(table)
+            if table.num_rows == 0:
+                return table
         if self.drop_obs_channel_ids:
             # Ids named in the base conv vocabulary (conv_var_global_ids) match here,
             # before levels are expanded; level ids match after.
@@ -328,6 +334,17 @@ class NNJAConventionalLoader:
         if self.drop_obs_channel_ids:
             table = self._drop_channels(table)
         return table
+
+    def _drop_winds(self, table: pa.Table) -> pa.Table:
+        channel = table[GLOBAL_CHANNEL_ID.name]
+        uv = pa.array(sensors.conv_var_global_ids(["uv"])).cast(channel.type)
+        types = pa.array(
+            self.drop_wind_report_types, type=table["Observation_Type"].type
+        )
+        deny = pc.and_kleene(
+            pc.is_in(channel, uv), pc.is_in(table["Observation_Type"], types)
+        )
+        return table.filter(pc.invert(deny).fill_null(True))
 
     def _drop_channels(self, table: pa.Table) -> pa.Table:
         drop = pa.array(self.drop_obs_channel_ids).cast(
