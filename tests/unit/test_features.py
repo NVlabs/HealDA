@@ -76,5 +76,7 @@ def test_v2_triton_matches_reference(n):
     triton_out = v2.compute_unified_metadata(**data)
 
     assert ref.shape == triton_out.shape == (n, v2.N_FEATURES)
+    assert triton_out.dtype == torch.bfloat16
     if n > 0:
-        torch.testing.assert_close(ref, triton_out, atol=1e-5, rtol=1e-5)
+        # rtol is one bf16 ulp: the float32 values are rounded to bf16 on store.
+        torch.testing.assert_close(triton_out.float(), ref, atol=1e-5, rtol=2**-8)

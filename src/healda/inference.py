@@ -11,11 +11,13 @@ numerics.
 
 import asyncio
 import dataclasses
+import gc
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import torch
+from torch._dynamo.utils import counters as dynamo_counters
 
 import healda.models
 import healda.utils.datetime
@@ -160,6 +162,7 @@ class DAModel:
     @torch.inference_mode()
     def _forward(self, batch) -> torch.Tensor:
         """Model-space analysis ``(b, C, lat, lon)``, the last frame, for one batch."""
+        graphs_before = dynamo_counters["stats"]["unique_graphs"]
         second_of_day = batch["second_of_day"].to(self.device)
         b, t = second_of_day.shape
         obs_tensors, lengths = batch["unified_obs"]
@@ -184,6 +187,10 @@ class DAModel:
                 timestamp=batch["timestamp"].to(self.device),
                 is_causal=self.loop.dit_temporal_attention_causal,
             )
+        if dynamo_counters["stats"]["unique_graphs"] != graphs_before:
+            # A compile leaves its tracing state as cyclic garbage that holds this forward's
+            # inputs to the compiled blocks (the obs tokens among them).
+            gc.collect()
         return out.out[:, :, -1].float()
 
     def to_physical(self, prediction: torch.Tensor) -> torch.Tensor:

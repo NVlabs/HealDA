@@ -1111,7 +1111,7 @@ class DiT(torch.nn.Module):
         """``unified_obs`` with its tokens computed, which the forward then uses as given.
 
         Drops the reference to ``float_metadata`` so its memory can be freed: the
-        tokenizer is its only reader, and it is (n_obs, 50) float32.
+        tokenizer is its only reader, and it is (n_obs, 50).
         """
         if not self.backbone_pixel_attention:
             return unified_obs

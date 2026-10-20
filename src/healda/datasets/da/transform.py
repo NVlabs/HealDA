@@ -749,7 +749,7 @@ class TransformV2:
                             center_lon,
                             center_lat,
                             self.hpx_level,
-                        ),
+                        ).to(meta.dtype),
                     ],
                     dim=1,
                 )

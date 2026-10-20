@@ -221,7 +221,7 @@ def pixel_packing(
     is None when there are none. Returned rather than applied so a caller can reorder
     raw per-row inputs before deriving per-row features: the result equals reordering
     the features, without holding both orders of them. ``TransformV2`` does this for
-    ``float_metadata``, (n_obs, meta_dim) float32.
+    ``float_metadata``, (n_obs, meta_dim).
     """
     npix = 12 * 4**hpx_level
     _, batch_size, time_size = lengths.shape

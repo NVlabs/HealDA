@@ -260,7 +260,8 @@ def compute_unified_metadata(
         sol_zenith_angle: Solar zenith angle in degrees (NaN for conv obs), shape (N,)
 
     Returns:
-        Tensor of shape (N, 50) with unified metadata features.
+        bfloat16 tensor of shape (N, 50) with unified metadata features. Every
+        column is computed in float32 and rounded to nearest-even on store.
     """
     # Validate input shapes
     N = lon.shape[0]
@@ -288,11 +289,11 @@ def compute_unified_metadata(
             scan_angle=scan_angle,
             sat_zenith_angle=sat_zenith_angle,
             sol_zenith_angle=sol_zenith_angle,
-        )
+        ).bfloat16()
 
     # zeros (not empty): each row writes only its own private block; the off-family
     # block must read back as 0.
-    out = torch.zeros(N, N_FEATURES, dtype=torch.float32, device=lon.device)
+    out = torch.zeros(N, N_FEATURES, dtype=torch.bfloat16, device=lon.device)
     if N == 0:
         return out
     BLOCK = 256

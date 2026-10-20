@@ -49,7 +49,7 @@ def _build_tokenizer(meta_dim, out_dim, with_platform, device="cuda"):
 def _make_obs(nobs, meta_dim, with_platform, device="cuda", seed=0):
     gen = torch.Generator(device="cpu").manual_seed(seed)
     obs_vals = torch.randn(nobs, generator=gen)
-    float_meta = torch.randn(nobs, meta_dim, generator=gen)
+    float_meta = torch.randn(nobs, meta_dim, generator=gen).bfloat16()
     obs_type = torch.randint(0, _N_EMBED, (nobs,), generator=gen)
     channel = torch.randint(0, _NCHANNEL, (nobs,), generator=gen)
     platform = torch.randint(0, _NPLATFORM, (nobs,), generator=gen)

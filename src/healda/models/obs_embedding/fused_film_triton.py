@@ -810,6 +810,9 @@ def _launch_fused_film_bwd(
     hidden = w1.shape[1]
     mlp_out_dim = 2 * out_dim
     grad_out = grad_out.contiguous()
+    # The kernel reads metadata and embedding rows through one pointer base per column, so
+    # they share a dtype. Widening bf16 metadata is exact.
+    float_meta = float_meta.to(embed_weight.dtype)
     grad_embed = torch.zeros_like(embed_weight)
     grad_chan_embed = torch.zeros_like(chan_embed_weight)
     grad_platform_embed = torch.zeros_like(platform_embed_weight)
