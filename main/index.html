@@ -804,6 +804,10 @@ Multi-process and multi-node configurations require CUDA/NCCL.</p>
 eight GPUs per video sample. <code>time_parallel=4</code> also trains without changes.
 Training it on H100-class GPUs needs further memory savings, such as more
 activation checkpointing, and has not been validated.
+<code>v2-nnja-latlon-dense</code> is that recipe with denser observations, observation position features
+and corrected radiosonde placement; its settings are listed beside it in
+<code>healda.cli.train</code>. It reads more observations per sample, so inference with it needs
+<code>healda-inference-local --prefetch-factor 2</code> to stay within host memory.
 As a reference for a new setup, that recipe trains at about 126 seconds per thousand
 samples (<code>Timing/sec_per_kimg</code> in the log) on 32 GB300 GPUs (batch 4, <code>time_parallel=8</code>),
 about 110k samples in a 4-hour job. A much slower run usually lacks the CuTe DSL kernels or

@@ -721,7 +721,8 @@ layouts, one per observation family:</p>
 <code>field_of_view</code>, and <code>hpx2048_nest</code>, plus sensor-specific observation columns
 whose names and metadata match the packaged sensor vocabulary.</p>
 <p>Conventional cycle files require <code>XOB</code>, <code>YOB</code>, <code>DHR</code>, <code>POB</code>, and <code>TYP</code>, plus
-the value and quality-mark columns for each enabled variable. GPS radio
+the value and quality-mark columns for each enabled variable; with
+<code>nnja_balloon_drift</code> also <code>XDR</code>, <code>YDR</code> and <code>HRDR</code>. GPS radio
 occultation files require <code>bending_angle</code>, <code>qfro</code>, <code>obs_time</code>,
 <code>impact_parameter</code>, <code>earth_radius_curvature</code>, and <code>satellite_id</code>.</p>
 <p>Satellite wind (atmospheric motion vector) files require <code>time_utc</code>, <code>da_window</code>,
@@ -735,6 +736,18 @@ validity bounds and its normalization statistics all ship with the package.</p>
 <p>The checkpoints were trained on the NNJA archive, built from the NNJA BUFR feeds,
 with the <code>v2-nnja-latlon-final</code> configuration in <code>healda/cli/train.py</code>. Settings
 named below take that configuration's values.</p>
+<p><code>v2-nnja-latlon-dense</code> reads the same inputs with these differences
+(<code>v2-nnja-latlon-final</code> in brackets):</p>
+<ul>
+<li>Satellite sounders are thinned at HEALPix nside 128 (64), <code>nnja_thin_nside</code>.</li>
+<li>Satellite winds are thinned at HEALPix level 6 (5), <code>nnja_satwnd_thin_hpx_level</code>.</li>
+<li>PrepBUFR reports with quality marks up to 3 (2) are kept, <code>nnja_max_quality_mark</code>.</li>
+<li>Radiosonde levels sit at their drifted position and time (launch position),
+  <code>nnja_balloon_drift</code>. Conventional files then also need <code>XDR</code>, <code>YDR</code> and <code>HRDR</code>.</li>
+<li>Radiosonde and pibal winds without <code>ZOB</code> take the standard-atmosphere height of their
+  <code>POB</code> in training as well as at inference (at inference only),
+  <code>nnja_pressure_height_fill="sonde"</code>.</li>
+</ul>
 <p>A checkpoint gives its intended results only on data prepared the same way. Data
 from another source, such as a near-real-time feed, has to reproduce the
 processing below. Columns can be renamed to the archive's, but the values have to
