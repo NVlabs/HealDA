@@ -34,7 +34,9 @@ from healda.observations.loaders.nnja_base import CycleTableSource
 from healda.observations.loaders.nnja_conventional import NNJAConvLoader
 from healda.observations.loaders.nnja_satwnd import SATWND_ARCHIVE
 from healda.observations.loaders.nnja_wide import NNJAWideLoader
+from healda.observations.loaders.threads import thread_pool
 from healda.observations.preprocessing.filtering import filter_observations
+from healda.observations.protocols import ObservationBatch, Observations
 from healda.observations.loaders.ufs import LOCAL_CHANNEL_ID
 from healda.observations.schema import GLOBAL_CHANNEL_ID, SENSOR_ID
 
@@ -354,11 +356,19 @@ class NNJAConventionalLoader:
 
     async def sel_time(self, times: pd.DatetimeIndex) -> dict[str, list[pa.Table]]:
         loaded = await self._loader.sel_time(times)
-        return {"obs_v2": [self._to_conv_plevel(table) for table in loaded["obs_v2"]]}
+        loop = asyncio.get_running_loop()
+        expanded = await asyncio.gather(
+            *(
+                loop.run_in_executor(thread_pool(), self._to_conv_plevel, table)
+                for table in loaded["obs_v2"]
+            )
+        )
+        return {"obs_v2": list(expanded)}
 
 
 class CombinedObsLoader:
-    """NNJA satellite and conventional observations as one unified long table."""
+    """NNJA satellite and conventional observations: per target, the satellite footprint
+    blocks and the conventional rows as the `Observations` table."""
 
     def __init__(self, satellite: NNJAWideLoader, conventional: ConventionalLoader):
         if list(conventional.sensors) != [CONV_SENSOR]:
@@ -370,14 +380,14 @@ class CombinedObsLoader:
         self.conventional = conventional
         self.sensors = (*satellite.sensors, CONV_SENSOR)
 
-    async def sel_time(self, times: pd.DatetimeIndex) -> dict[str, list[pa.Table]]:
+    async def sel_time(self, times: pd.DatetimeIndex) -> ObservationBatch:
         # order matters, slowest first
         satellite, conventional = await asyncio.gather(
             self.satellite.sel_time(times), self.conventional.sel_time(times)
         )
         return {
             "obs_v2": [
-                pa.concat_tables([sat, _rebase(conv, _local(conv))])
+                Observations(blocks=sat.blocks, table=_rebase(conv, _local(conv)))
                 for sat, conv in zip(satellite["obs_v2"], conventional["obs_v2"])
             ]
         }

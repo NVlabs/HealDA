@@ -6,10 +6,10 @@ Each observation carries a flat pixel index ``flat_idx = batch_time_idx * npix +
 Sorting by that index groups a pixel's observations contiguously, which lets the ragged
 pixel cross-attention kernel address each pixel's tokens by prefix sums (``cu_seqlens_k``).
 
-For bounded integer keys a counting sort is O(N) with a single atomic-scatter pass, faster
-than argsort's multi-pass radix sort. Within-bucket order is nondeterministic (warp
-scheduling), which is fine: attention is permutation-invariant over a pixel's key/value
-tokens.
+The sort is a stable argsort, so a pixel's observations keep their incoming order and the
+same observations always give the same packing. Attention is permutation-invariant over a
+pixel's key/value tokens, but its floating-point sums are not, so an unstable order would
+change outputs from run to run.
 """
 
 import dataclasses
@@ -18,33 +18,6 @@ import torch
 
 from healda.observations import types
 from healda.varlen import lengths_to_idx
-
-try:
-    import triton
-    import triton.language as tl
-
-    HAS_TRITON = True
-except ImportError:
-    HAS_TRITON = False
-
-
-if HAS_TRITON:
-
-    @triton.jit
-    def _counting_sort_scatter(
-        flat_idx_ptr,
-        sorted_order_ptr,
-        bucket_offsets_ptr,
-        N,
-        BLOCK: tl.constexpr,
-    ):
-        pid = tl.program_id(0)
-        offs = pid * BLOCK + tl.arange(0, BLOCK)
-        mask = offs < N
-
-        pixel = tl.load(flat_idx_ptr + offs, mask=mask).to(tl.int64)
-        pos = tl.atomic_add(bucket_offsets_ptr + pixel, 1, mask=mask)
-        tl.store(sorted_order_ptr + pos.to(tl.int32), offs.to(tl.int32), mask=mask)
 
 
 def _counts_by_pixel(flat_idx: torch.Tensor, total_pixels: int) -> torch.Tensor:
@@ -59,35 +32,15 @@ def _counts_by_pixel(flat_idx: torch.Tensor, total_pixels: int) -> torch.Tensor:
     return counts.scatter_add_(0, idx, torch.ones_like(idx))
 
 
-def counting_sort_and_pack(flat_idx: torch.Tensor, total_pixels: int):
-    """Counting sort + atomic scatter. Returns (sorted_order int32, counts int64)."""
-    assert HAS_TRITON, "counting_sort_and_pack requires Triton"
-    N = flat_idx.shape[0]
-    device = flat_idx.device
-
-    counts = _counts_by_pixel(flat_idx, total_pixels)
-    bucket_offsets = torch.zeros(total_pixels, dtype=torch.int64, device=device)
-    bucket_offsets[1:] = counts[:-1].cumsum(0)
-
-    sorted_order = torch.empty(N, dtype=torch.int32, device=device)
-    BLOCK = 1024
-    grid = ((N + BLOCK - 1) // BLOCK,)
-    _counting_sort_scatter[grid](flat_idx, sorted_order, bucket_offsets, N, BLOCK=BLOCK)
-    return sorted_order, counts
-
-
 def sort_and_pack(flat_idx: torch.Tensor, total_pixels: int):
-    """Sort observations by flat pixel index.
+    """Sort observations by flat pixel index, stably (see the module docstring).
 
-    Uses the Triton counting sort when available (see the module docstring for why), else
-    argsort. Returns ``(sorted_order int32 permutation, counts int64 per-pixel counts)``.
+    Returns ``(sorted_order int32 permutation, counts int64 per-pixel counts)``.
     Callers apply ``sorted_order`` once to reorder the per-observation tensors and keep only
     ``counts``, as ``cu_seqlens_k`` prefix sums; the permutation is not retained.
     """
-    if HAS_TRITON and flat_idx.is_cuda:
-        return counting_sort_and_pack(flat_idx, total_pixels)
     counts = _counts_by_pixel(flat_idx, total_pixels)
-    sorted_order = flat_idx.argsort().int()
+    sorted_order = torch.argsort(flat_idx, stable=True).int()
     return sorted_order, counts
 
 

@@ -225,17 +225,17 @@ class NNJAGpsroLoader(NNJAArchiveLoader):
         self,
         table: pa.Table,
         cycle: pd.Timestamp,
-        positive_half: bool,
-    ) -> pa.Table:
+        halves: Sequence[bool],
+    ) -> dict[bool, pa.Table]:
+        """Long rows of each requested half-window that has any, keyed by half."""
         if not table.num_rows:
-            return self._empty()
+            return {}
 
         obs_time = self._numpy(table, "obs_time")
         # Parquet stores UTC timestamps; drop tz so comparisons match the cycle.
         if getattr(obs_time.dtype, "tz", None) is not None:
             obs_time = obs_time.astype("datetime64[ns]")
         cycle_ns = np.datetime64(cycle.to_datetime64(), "ns")
-        half = obs_time > cycle_ns if positive_half else obs_time <= cycle_ns
 
         def latlon(primary: str, fallback: str) -> np.ndarray:
             if primary in table.column_names:
@@ -268,16 +268,8 @@ class NNJAGpsroLoader(NNJAArchiveLoader):
                 height = np.where(usable, candidate, height).astype(np.float32)
         stats = self.channel_stats
 
-        window_end = cycle + pd.Timedelta(hours=3 if positive_half else 0)
-        window_start = window_end - pd.Timedelta(hours=self.data_spacing)
-        in_window = (obs_time > np.datetime64(window_start.to_datetime64(), "ns")) & (
-            obs_time <= np.datetime64(window_end.to_datetime64(), "ns")
-        )
-
-        keep = (
-            half
-            & in_window
-            & np.isfinite(obs_time.astype("datetime64[ns]").astype(np.int64))
+        valid = (
+            np.isfinite(obs_time.astype("datetime64[ns]").astype(np.int64))
             & np.isfinite(lat)
             & (lat >= -90)
             & (lat <= 90)
@@ -292,67 +284,77 @@ class NNJAGpsroLoader(NNJAArchiveLoader):
             & ~qfro_bit_set(qfro, 5)
         )
         if self.said_allowlist is not None:
-            keep &= np.isin(said, tuple(self.said_allowlist))
+            valid &= np.isin(said, tuple(self.said_allowlist))
 
-        rows = np.flatnonzero(keep)
-        if not rows.size:
-            return self._empty()
+        out = {}
+        for positive_half in halves:
+            half = obs_time > cycle_ns if positive_half else obs_time <= cycle_ns
+            window_end = cycle + pd.Timedelta(hours=3 if positive_half else 0)
+            window_start = window_end - pd.Timedelta(hours=self.data_spacing)
+            in_window = (
+                obs_time > np.datetime64(window_start.to_datetime64(), "ns")
+            ) & (obs_time <= np.datetime64(window_end.to_datetime64(), "ns"))
 
-        observation = bending[rows]
-        if self.normalize:
-            if not np.isfinite(stats.stddev) or stats.stddev <= 0:
-                raise ValueError(f"invalid stddev for gps_angle: {stats.stddev}")
-            observation = (observation - stats.mean) / stats.stddev
-
-        pressure = self._select_pressure(table, rows, height)
-        # Drop levels that still lack a usable pressure coordinate (should be rare:
-        # the on-the-fly ISA fallback below is always finite for finite height).
-        pressure_ok = np.isfinite(pressure) & (pressure > 0.0)
-        if not pressure_ok.all():
-            rows = rows[pressure_ok]
-            observation = observation[pressure_ok]
-            pressure = pressure[pressure_ok]
+            rows = np.flatnonzero(valid & half & in_window)
             if not rows.size:
-                return self._empty()
-        count = rows.size
-        arrays = {
-            "Latitude": pa.array(lat[rows], type=pa.float32()),
-            "Longitude": pa.array(np.mod(lon[rows], 360.0), type=pa.float32()),
-            "Absolute_Obs_Time": pa.array(obs_time[rows].astype("datetime64[ns]")),
-            "DA_window": pa.array(
-                np.full(count, window_end.to_datetime64(), dtype="datetime64[ns]")
-            ),
-            "Platform_ID": pa.array(
-                np.full(count, PLATFORM_NAME_TO_ID["gps"], dtype=np.uint16)
-            ),
-            "Observation": pa.array(observation, type=pa.float32()),
-            GLOBAL_CHANNEL_ID.name: pa.array(
-                np.full(
-                    count,
-                    SENSOR_OFFSET["conv"] + GPS_ANGLE_LOCAL_CHANNEL,
-                    dtype=np.uint16,
+                continue
+
+            observation = bending[rows]
+            if self.normalize:
+                if not np.isfinite(stats.stddev) or stats.stddev <= 0:
+                    raise ValueError(f"invalid stddev for gps_angle: {stats.stddev}")
+                observation = (observation - stats.mean) / stats.stddev
+
+            pressure = self._select_pressure(table, rows, height)
+            # Drop levels that still lack a usable pressure coordinate (should be rare:
+            # the on-the-fly ISA fallback below is always finite for finite height).
+            pressure_ok = np.isfinite(pressure) & (pressure > 0.0)
+            if not pressure_ok.all():
+                rows = rows[pressure_ok]
+                observation = observation[pressure_ok]
+                pressure = pressure[pressure_ok]
+                if not rows.size:
+                    continue
+            count = rows.size
+            arrays = {
+                "Latitude": pa.array(lat[rows], type=pa.float32()),
+                "Longitude": pa.array(np.mod(lon[rows], 360.0), type=pa.float32()),
+                "Absolute_Obs_Time": pa.array(obs_time[rows].astype("datetime64[ns]")),
+                "DA_window": pa.array(
+                    np.full(count, window_end.to_datetime64(), dtype="datetime64[ns]")
                 ),
-                type=GLOBAL_CHANNEL_ID.type,
-            ),
-            "Pressure": pa.array(pressure, type=pa.float32()),
-            "Height": pa.array(height[rows], type=pa.float32()),
-            "Observation_Type": pa.array(said[rows], type=pa.uint16()),
-            "Analysis_Use_Flag": pa.array(
-                np.ones(count, dtype=np.int8), type=pa.int8()
-            ),
-            LOCAL_CHANNEL_ID.name: pa.array(
-                np.full(count, GPS_ANGLE_LOCAL_CHANNEL, dtype=np.uint16)
-            ),
-            SENSOR_ID.name: pa.array(
-                np.full(count, SENSOR_NAME_TO_ID["conv"], dtype=np.uint16)
-            ),
-        }
-        for name in NULL_COLUMNS:
-            arrays[name] = pa.nulls(count, type=self.output_schema.field(name).type)
-        return pa.table(
-            [arrays[field.name] for field in self.output_schema],
-            schema=self.output_schema,
-        )
+                "Platform_ID": pa.array(
+                    np.full(count, PLATFORM_NAME_TO_ID["gps"], dtype=np.uint16)
+                ),
+                "Observation": pa.array(observation, type=pa.float32()),
+                GLOBAL_CHANNEL_ID.name: pa.array(
+                    np.full(
+                        count,
+                        SENSOR_OFFSET["conv"] + GPS_ANGLE_LOCAL_CHANNEL,
+                        dtype=np.uint16,
+                    ),
+                    type=GLOBAL_CHANNEL_ID.type,
+                ),
+                "Pressure": pa.array(pressure, type=pa.float32()),
+                "Height": pa.array(height[rows], type=pa.float32()),
+                "Observation_Type": pa.array(said[rows], type=pa.uint16()),
+                "Analysis_Use_Flag": pa.array(
+                    np.ones(count, dtype=np.int8), type=pa.int8()
+                ),
+                LOCAL_CHANNEL_ID.name: pa.array(
+                    np.full(count, GPS_ANGLE_LOCAL_CHANNEL, dtype=np.uint16)
+                ),
+                SENSOR_ID.name: pa.array(
+                    np.full(count, SENSOR_NAME_TO_ID["conv"], dtype=np.uint16)
+                ),
+            }
+            for name in NULL_COLUMNS:
+                arrays[name] = pa.nulls(count, type=self.output_schema.field(name).type)
+            out[positive_half] = pa.table(
+                [arrays[field.name] for field in self.output_schema],
+                schema=self.output_schema,
+            )
+        return out
 
     def _load_cycle(
         self,
@@ -361,10 +363,8 @@ class NNJAGpsroLoader(NNJAArchiveLoader):
     ) -> list[tuple[pd.Timestamp, pa.Table]]:
         by_half: dict[bool, list[pa.Table]] = {half: [] for half in halves}
         for source, candidates in self._cycle_sources(cycle, list(by_half)):
-            for half in candidates:
-                long = self._to_long(source, cycle, half)
-                if long.num_rows:
-                    by_half[half].append(long)
+            for half, long in self._to_long(source, cycle, candidates).items():
+                by_half[half].append(long)
 
         result = []
         for half in halves:

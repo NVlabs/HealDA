@@ -133,14 +133,15 @@ class DAModel:
         """
         times = pd.DatetimeIndex(analysis_times)
         # A None source reads the on-disk archive; a stream not passed is empty instead.
+        # `is None`, not `or`: len() of an analysis_tables source waits for every table.
         loader = build_obs_loader(
             self.loop.obs_config,
             training=False,
             extra_filters=self.extra_filters,
-            satellite_table_source=satellite_tables or {},
-            gpsro_table_source=gpsro_tables or {},
-            satwnd_table_source=satwnd_tables or {},
-            prepbufr_table_source=prepbufr_tables or {},
+            satellite_table_source={} if satellite_tables is None else satellite_tables,
+            gpsro_table_source={} if gpsro_tables is None else gpsro_tables,
+            satwnd_table_source={} if satwnd_tables is None else satwnd_tables,
+            prepbufr_table_source={} if prepbufr_tables is None else prepbufr_tables,
         )
         frame_times = [self.frame_times(t) for t in times]
         loaded = _run_coroutine(self._sel_all(loader, frame_times))
@@ -152,7 +153,7 @@ class DAModel:
             [{"obs_v2": obs["obs_v2"][i]} for i in range(self.loop.time_length)]
             for obs in loaded
         ]
-        batch = self.transform.transform_observations(cftimes, frames)
+        batch = self.transform.transform_observations(cftimes, frames, self.device)
         return self.to_physical(self._forward(batch))
 
     @staticmethod
@@ -165,7 +166,9 @@ class DAModel:
         graphs_before = dynamo_counters["stats"]["unique_graphs"]
         second_of_day = batch["second_of_day"].to(self.device)
         b, t = second_of_day.shape
-        obs_tensors, lengths = batch["unified_obs"]
+        # Popped, so neither the batch nor this frame keeps the packed tensors alive into
+        # the forward: the device transform empties the dict it is handed.
+        obs_tensors, lengths = batch.pop("unified_obs")
         unified_obs = self.transform._device_transform_unified_obs(
             obs_tensors, lengths, self.device
         )

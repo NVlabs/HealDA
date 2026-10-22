@@ -302,13 +302,14 @@ class NNJAConvLoader(NNJAArchiveLoader):
         self,
         table: pa.Table,
         cycle: pd.Timestamp,
-        positive_half: bool,
+        halves: Sequence[bool],
         rng: np.random.Generator | None = None,
         wind_dropout: dict[ObsFamily, float] | None = None,
         surface_pressure_dropout: float = 0.0,
-    ) -> pa.Table:
+    ) -> dict[bool, pa.Table]:
+        """Long rows of each requested half-window that has any, keyed by half."""
         if not table.num_rows:
-            return self._empty()
+            return {}
 
         lon = self._numpy(table, "XOB", np.float32)
         lat = self._numpy(table, "YOB", np.float32)
@@ -324,10 +325,8 @@ class NNJAConvLoader(NNJAArchiveLoader):
             lat = np.where(balloon, self._numpy(table, "YDR", np.float32), lat)
             dhr = np.where(balloon, self._numpy(table, "HRDR", np.float64), dhr)
 
-        half = dhr > 0 if positive_half else dhr <= 0
-        base_valid = (
-            half
-            & np.isfinite(dhr)
+        valid = (
+            np.isfinite(dhr)
             & (np.abs(dhr) <= 3)
             & np.isfinite(lat)
             & (lat >= -90)
@@ -340,17 +339,19 @@ class NNJAConvLoader(NNJAArchiveLoader):
             if "SID" not in table.column_names:
                 raise ValueError("withhold_stations needs the PrepBUFR SID column")
             held_type = np.isin(report_type, tuple(HOLDOUT_REPORT_TYPES))
-            base_valid &= ~(held_type & is_withheld(table["SID"].to_numpy()))
+            valid &= ~(held_type & is_withheld(table["SID"].to_numpy()))
         if self.drop_restricted_aircraft:
-            base_valid = base_valid & ~np.isin(
-                report_type, tuple(RESTRICTED_AIRCRAFT_TYPES)
-            )
-        if not base_valid.any():
-            return self._empty()
+            valid &= ~np.isin(report_type, tuple(RESTRICTED_AIRCRAFT_TYPES))
+        by_half = {
+            positive_half: valid & (dhr > 0 if positive_half else dhr <= 0)
+            for positive_half in halves
+        }
+        by_half = {half: rows for half, rows in by_half.items() if rows.any()}
+        if not by_half:
+            return {}
 
         cycle_ns = np.datetime64(cycle.to_datetime64(), "ns").astype(np.int64)
         time_ns = cycle_ns + np.rint(dhr * 3_600_000_000_000).astype(np.int64)
-        window = cycle + pd.Timedelta(hours=3 if positive_half else 0)
         height = (
             self._numpy(table, "ZOB", np.float32).copy()
             if "ZOB" in table.column_names
@@ -383,21 +384,7 @@ class NNJAConvLoader(NNJAArchiveLoader):
             if "CAT" in table.column_names
             else None
         )
-        wind_dropout_keep = np.ones(table.num_rows, dtype=bool)
-        # Per family, not over one merged set: each carries its own rate, and under
-        # sample scope its own verdict. The families are disjoint, so one draw per row.
-        for family, types in self.dropout_families.items():
-            rate = (wind_dropout or {}).get(family, 0.0)
-            if not rate:
-                continue
-            targeted = np.isin(report_type, tuple(types))
-            # Serves both scopes: `rate` is the configured p under "row", and 0 or 1
-            # under "sample", where this drops all of the family or none of it.
-            if targeted.any():
-                rng = rng or np.random.default_rng()
-                wind_dropout_keep[targeted] = rng.random(int(targeted.sum())) >= rate
-
-        parts = []
+        variables = {}
         for spec in VARIABLES:
             missing = [
                 name
@@ -413,87 +400,121 @@ class NNJAConvLoader(NNJAArchiveLoader):
             quality = self._numpy(table, spec.quality_column, np.float32)
             values = raw * np.float32(spec.scale) + np.float32(spec.offset)
             stats = self.channel_stats[spec.local_channel_id]
-
-            keep = (
-                base_valid
-                & np.isin(report_type, tuple(spec.report_types))
+            usable = (
+                np.isin(report_type, tuple(spec.report_types))
                 & np.isfinite(values)
                 & np.isfinite(quality)
                 & (values >= stats.min_valid)
                 & (values <= stats.max_valid)
             )
             if self.max_quality_mark is not None:
-                keep &= quality <= self.max_quality_mark
-            if spec.local_channel_id in (6, 7):
-                keep &= wind_dropout_keep
+                usable &= quality <= self.max_quality_mark
             if spec.surface_pressure:
                 # Type 120 is a profile report. Only CAT=0 is its surface pressure;
                 # without CAT, exclude it rather than turning every level into ps.
-                type_120 = report_type == 120
                 at_surface = np.zeros(table.num_rows, dtype=bool)
                 if category is not None:
                     at_surface = np.isfinite(category) & (category == 0)
-                keep &= ~type_120 | at_surface
-                if surface_pressure_dropout:
+                usable &= (report_type != 120) | at_surface
+            variables[spec.name] = (values, quality, usable)
+
+        out = {}
+        for positive_half, base_valid in by_half.items():
+            window = cycle + pd.Timedelta(hours=3 if positive_half else 0)
+            wind_dropout_keep = np.ones(table.num_rows, dtype=bool)
+            # Per family, not over one merged set: each carries its own rate, and under
+            # sample scope its own verdict. The families are disjoint, so one draw per row.
+            for family, types in self.dropout_families.items():
+                rate = (wind_dropout or {}).get(family, 0.0)
+                if not rate:
+                    continue
+                targeted = np.isin(report_type, tuple(types))
+                # Serves both scopes: `rate` is the configured p under "row", and 0 or 1
+                # under "sample", where this drops all of the family or none of it.
+                if targeted.any():
+                    rng = rng or np.random.default_rng()
+                    wind_dropout_keep[targeted] = (
+                        rng.random(int(targeted.sum())) >= rate
+                    )
+
+            parts = []
+            for spec in VARIABLES:
+                values, quality, usable = variables[spec.name]
+                stats = self.channel_stats[spec.local_channel_id]
+                keep = base_valid & usable
+                if spec.local_channel_id in (6, 7):
+                    keep &= wind_dropout_keep
+                if spec.surface_pressure and surface_pressure_dropout:
                     # Serves both scopes: the configured p under "row", 0 or 1 under
                     # "sample". Only ps goes; the row's other variables survive.
                     rng = rng or np.random.default_rng()
                     keep &= rng.random(table.num_rows) >= surface_pressure_dropout
 
-            rows = np.flatnonzero(keep)
-            if not rows.size:
-                continue
-            observation = values[rows]
-            if self.normalize:
-                if not np.isfinite(stats.stddev) or stats.stddev <= 0:
-                    raise ValueError(
-                        f"invalid stddev for conv channel {spec.name!r}: {stats.stddev}"
-                    )
-                observation = (observation - stats.mean) / stats.stddev
+                rows = np.flatnonzero(keep)
+                if not rows.size:
+                    continue
+                observation = values[rows]
+                if self.normalize:
+                    if not np.isfinite(stats.stddev) or stats.stddev <= 0:
+                        raise ValueError(
+                            f"invalid stddev for conv channel {spec.name!r}: "
+                            f"{stats.stddev}"
+                        )
+                    observation = (observation - stats.mean) / stats.stddev
 
-            count = rows.size
-            arrays = {
-                "Latitude": pa.array(lat[rows], type=pa.float32()),
-                # PrepBUFR XOB is 0..360; match UFS / nnja_wide_loader convention.
-                "Longitude": pa.array(np.mod(lon[rows], 360.0), type=pa.float32()),
-                "Absolute_Obs_Time": pa.array(time_ns[rows].astype("datetime64[ns]")),
-                "DA_window": pa.array(
-                    np.full(count, window.to_datetime64(), dtype="datetime64[ns]")
-                ),
-                "Platform_ID": pa.array(
-                    np.full(count, PLATFORM_NAME_TO_ID[spec.platform], dtype=np.uint16)
-                ),
-                "Observation": pa.array(observation, type=pa.float32()),
-                GLOBAL_CHANNEL_ID.name: pa.array(
-                    np.full(
-                        count,
-                        SENSOR_OFFSET["conv"] + spec.local_channel_id,
-                        dtype=np.uint16,
+                count = rows.size
+                arrays = {
+                    "Latitude": pa.array(lat[rows], type=pa.float32()),
+                    # PrepBUFR XOB is 0..360; match UFS / nnja_wide_loader convention.
+                    "Longitude": pa.array(np.mod(lon[rows], 360.0), type=pa.float32()),
+                    "Absolute_Obs_Time": pa.array(
+                        time_ns[rows].astype("datetime64[ns]")
                     ),
-                    type=GLOBAL_CHANNEL_ID.type,
-                ),
-                "Pressure": pa.array(pressure[rows], type=pa.float32()),
-                "Height": pa.array(height[rows], type=pa.float32(), from_pandas=True),
-                "Observation_Type": pa.array(report_type[rows], type=pa.uint16()),
-                "Analysis_Use_Flag": pa.array(
-                    (quality[rows] <= 2).astype(np.int8), type=pa.int8()
-                ),
-                LOCAL_CHANNEL_ID.name: pa.array(
-                    np.full(count, spec.local_channel_id, dtype=np.uint16)
-                ),
-                SENSOR_ID.name: pa.array(
-                    np.full(count, SENSOR_NAME_TO_ID["conv"], dtype=np.uint16)
-                ),
-            }
-            for name in NULL_COLUMNS:
-                arrays[name] = pa.nulls(count, type=self.output_schema.field(name).type)
-            parts.append(
-                pa.table(
-                    [arrays[field.name] for field in self.output_schema],
-                    schema=self.output_schema,
+                    "DA_window": pa.array(
+                        np.full(count, window.to_datetime64(), dtype="datetime64[ns]")
+                    ),
+                    "Platform_ID": pa.array(
+                        np.full(
+                            count, PLATFORM_NAME_TO_ID[spec.platform], dtype=np.uint16
+                        )
+                    ),
+                    "Observation": pa.array(observation, type=pa.float32()),
+                    GLOBAL_CHANNEL_ID.name: pa.array(
+                        np.full(
+                            count,
+                            SENSOR_OFFSET["conv"] + spec.local_channel_id,
+                            dtype=np.uint16,
+                        ),
+                        type=GLOBAL_CHANNEL_ID.type,
+                    ),
+                    "Pressure": pa.array(pressure[rows], type=pa.float32()),
+                    "Height": pa.array(
+                        height[rows], type=pa.float32(), from_pandas=True
+                    ),
+                    "Observation_Type": pa.array(report_type[rows], type=pa.uint16()),
+                    "Analysis_Use_Flag": pa.array(
+                        (quality[rows] <= 2).astype(np.int8), type=pa.int8()
+                    ),
+                    LOCAL_CHANNEL_ID.name: pa.array(
+                        np.full(count, spec.local_channel_id, dtype=np.uint16)
+                    ),
+                    SENSOR_ID.name: pa.array(
+                        np.full(count, SENSOR_NAME_TO_ID["conv"], dtype=np.uint16)
+                    ),
+                }
+                for name in NULL_COLUMNS:
+                    arrays[name] = pa.nulls(
+                        count, type=self.output_schema.field(name).type
+                    )
+                parts.append(
+                    pa.table(
+                        [arrays[field.name] for field in self.output_schema],
+                        schema=self.output_schema,
+                    )
                 )
-            )
-        return pa.concat_tables(parts) if parts else self._empty()
+            if parts:
+                out[positive_half] = pa.concat_tables(parts)
+        return out
 
     def _load_cycle(
         self,
@@ -506,12 +527,11 @@ class NNJAConvLoader(NNJAArchiveLoader):
         rng = row_generator(dropout_seed)
         by_half: dict[bool, list[pa.Table]] = {half: [] for half in halves}
         for source, candidates in self._cycle_sources(cycle, list(by_half)):
-            for half in candidates:
-                long = self._to_long(
-                    source, cycle, half, rng, wind_dropout, surface_pressure_dropout
-                )
-                if long.num_rows:
-                    by_half[half].append(long)
+            longs = self._to_long(
+                source, cycle, candidates, rng, wind_dropout, surface_pressure_dropout
+            )
+            for half, long in longs.items():
+                by_half[half].append(long)
 
         result = []
         for half in halves:

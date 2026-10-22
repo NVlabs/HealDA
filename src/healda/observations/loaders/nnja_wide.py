@@ -6,10 +6,12 @@ The archive is wide (one row per footprint, one column per channel); the model-f
 schema in ``schema.py`` is long (one row per footprint-channel). Only the
 columns the unified schema consumes are read.
 
-Pipeline: read, select, transform (gather and normalize), expand. Selecting before
-expanding avoids `channels` times more metadata duplication; it does not avoid reading
-channel pages. Channel metadata is a positional lookup, not a hash join: one column is
-one channel.
+Pipeline: read, select, transform (gather and normalize), mask (denials, dropout).
+The loader stops before expand: it returns footprint blocks (`protocols.Observations`),
+which `TransformV2` expands where it packs, on its device, and `Observations.to_table`
+expands them to long rows. Selecting before expanding avoids `channels` times more
+metadata duplication; it does not avoid reading channel pages. Channel metadata is a
+positional lookup, not a hash join: one column is one channel.
 """
 
 from __future__ import annotations
@@ -35,6 +37,8 @@ from healda.observations.loaders.archive_row_groups import (
     window_rows,
 )
 
+from healda.observations.footprints import FootprintBlock
+from healda.observations.protocols import ObservationBatch, Observations, as_table
 from healda.observations.loaders.threads import configure_arrow_pools, thread_pool
 from healda.observations.sensors import PLATFORM_NAME_TO_ID
 from healda.observations.sensors_nnja import (
@@ -50,8 +54,6 @@ from healda.utils.profiling import cpu_timing_range
 from healda.config.environment import nnja_archive
 from healda.observations.loaders.nnja_base import (
     GLOBAL_CHANNEL_ID,
-    LOCAL_CHANNEL_ID,
-    SENSOR_ID,
     CycleTableSource,
     NNJAArchiveLoader,
     SampleDropout,
@@ -94,6 +96,10 @@ SENSOR_VALUE_PREFIX = {
 
 # Published as radiance, not kelvin; `transform` inverts Planck before the range check.
 RADIANCE_PREFIXES = ("spectral_radiance", "spectral_radiance_code")
+# Radiance-sensor channel columns that hold brightness temperature, declared by the field
+# metadata VALUE_UNIT_KEY = b"K"; `transform` reads them without a Planck inversion.
+KELVIN_PREFIX = "brightness_temperature"
+VALUE_UNIT_KEY = b"nnja.value_unit"
 
 IR_SOUNDERS = tuple(
     name for name, config in SENSOR_CONFIGS.items() if config.sensor_type == "infrared"
@@ -193,24 +199,6 @@ for _code, _said in enumerate(sorted(SAID_TO_PLATFORM_NAME)):
 
 
 # --- arrow helpers ---------------------------------------------------------
-
-
-def _all_null_columns(
-    types: Sequence[pa.DataType], rows: int, values: pa.Buffer
-) -> list[pa.Array]:
-    """All-null fixed-width columns aliasing one values buffer.
-
-    `pa.nulls` zeroes a values buffer per column, ~25 ms per 25M-row float32 column;
-    null values are never read, so only the validity bitmap needs zeroing.
-    """
-    validity = pa.py_buffer(bytearray((rows + 7) // 8))
-    widest = max(type.bit_width // 8 for type in types)
-    if values.size < rows * widest:
-        raise ValueError("shared values buffer is too small")
-    return [
-        pa.Array.from_buffers(type, rows, [validity, values], null_count=rows)
-        for type in types
-    ]
 
 
 def _numpy(column: pa.ChunkedArray) -> np.ndarray:
@@ -395,6 +383,8 @@ class ReadPlan:
     # Set only for the radiance sensors: channel centre wavenumbers in cm^-1, for the kelvin
     # conversion.
     wavenumber: np.ndarray | None = None
+    # The radiance sensor's columns hold kelvin (VALUE_UNIT_KEY), so no Planck inversion.
+    holds_kelvin: bool = False
     # CrIS's `reference` and `scale`, from its column metadata, which reconstruct its integer
     # radiance code. Empty for IASI, which publishes the float, so it splats into
     # `radiance_mw` either way.
@@ -426,23 +416,6 @@ class ReadPlan:
             for name in self.columns
             if name.split(".")[0] in published or name not in self.flag_columns
         ]
-
-
-@dataclass
-class Normalized:
-    """Normalized values with a per-cell validity mask; None means every cell valid.
-
-    A cell is valid when its footprint has finite geometry and its value lies inside the
-    channel's min_valid..max_valid.
-    """
-
-    values: np.ndarray
-    valid: np.ndarray | None
-    footprint_columns: dict[str, np.ndarray]
-
-    @property
-    def footprint_count(self) -> int:
-        return self.values.shape[1]
 
 
 def _resolve_ir_channels(
@@ -497,7 +470,9 @@ class NNJAWideLoader(NNJAArchiveLoader):
 
     Values transformed:
       - Radiance sensors are inverted to brightness temperature under `value_encoding`, unless
-        `ir_units='radiance'`. The range check is in kelvin either way.
+        `ir_units='radiance'`. The range check is in kelvin either way. Columns declaring kelvin
+        (`VALUE_UNIT_KEY`) are read as they are, and take the Planck function only for
+        `ir_units='radiance'`.
       - `Observation` is z-scored per channel against `channel_table`, unless `normalize=False`.
       - `Longitude` moves from the archive's -180..180 to the 0..360 convention (matching UFS)
       - `Sat_Zenith_Angle` gains GSI's sign, negative on the first half of the scan; the archive
@@ -758,8 +733,12 @@ class NNJAWideLoader(NNJAArchiveLoader):
         cached = self._read_plans.get(sensor)
         if cached is not None:
             return cached
+        radiance_sensor = SENSOR_VALUE_PREFIX[sensor].startswith(RADIANCE_PREFIXES)
         prefix = f"{SENSOR_VALUE_PREFIX[sensor]}__ch_"  # align all channels
         published = tuple(name for name in schema.names if name.startswith(prefix))
+        if not published and radiance_sensor:
+            prefix = f"{KELVIN_PREFIX}__ch_"
+            published = tuple(name for name in schema.names if name.startswith(prefix))
         if not published:
             raise ValueError(f"{sensor} {day}: no {prefix} columns")
 
@@ -777,9 +756,17 @@ class NNJAWideLoader(NNJAArchiveLoader):
             )
 
         wavenumber = value_encoding = None
-        if SENSOR_VALUE_PREFIX[sensor].startswith(RADIANCE_PREFIXES):
+        holds_kelvin = False
+        if radiance_sensor:
             # One centre wavenumber per kept channel, ordered like `value_columns`.
             wavenumber = ir_spectral.wavenumber_cm_inverse(sensor, kept_source_ids)
+            units = {
+                (schema.field(name).metadata or {}).get(VALUE_UNIT_KEY)
+                for name in value_columns
+            }
+            if prefix.startswith(KELVIN_PREFIX) and units != {b"K"}:
+                raise ValueError(f"{sensor} {day}: {prefix} columns must declare K")
+            holds_kelvin = units == {b"K"}
             # The encoding is per-column metadata that every channel column of every day repeats
             # identically, so whichever column is read gives the scale all of them decode with.
             any_channel = value_columns[0]
@@ -796,6 +783,7 @@ class NNJAWideLoader(NNJAArchiveLoader):
             min_valid=channel_stat("min_valid"),
             max_valid=channel_stat("max_valid"),
             wavenumber=wavenumber,
+            holds_kelvin=holds_kelvin,
             value_encoding=value_encoding or {},
             scan_columns=tuple(
                 name for name in (SCAN_POSITION_COLUMN.get(sensor),) if name is not None
@@ -1001,14 +989,16 @@ class NNJAWideLoader(NNJAArchiveLoader):
 
     def transform(
         self, table: pa.Table, plan: ReadPlan, sensor: str, keep_rows: np.ndarray | None
-    ) -> Normalized:
+    ) -> FootprintBlock:
         """Gather selected footprints into a normalized channel-by-footprint matrix.
 
         Channel columns are gathered one at a time, so only the output matrix is resident,
         and footprint columns are cast here rather than after expand(), at `channels` times
         fewer values. The range check runs on physical values, radiance sensors having been
         inverted to kelvin first, and doubles as a finite check: NaN radiance propogates to NaN kelvin which gets caught.
-        A footprint missing any of GEOMETRY_COLUMNS is dropped in every channel.
+        A footprint missing any of GEOMETRY_COLUMNS is dropped in every channel; a cell is
+        valid when its footprint has finite geometry and its value lies inside the channel's
+        min_valid..max_valid.
         """
         footprint_count = table.num_rows if keep_rows is None else keep_rows.size
 
@@ -1077,7 +1067,12 @@ class NNJAWideLoader(NNJAArchiveLoader):
 
             # Screened in kelvin whatever the emitted unit
             screened = values
-            if plan.wavenumber is not None:
+            if plan.holds_kelvin and self.ir_units == "radiance":
+                with cpu_timing_range("nnja.transform.planck"):
+                    values = ir_spectral.spectral_radiance_mw(
+                        values, plan.wavenumber[index]
+                    ).astype(np.float32)
+            elif plan.wavenumber is not None and not plan.holds_kelvin:
                 with cpu_timing_range("nnja.transform.planck"):
                     radiance = ir_spectral.radiance_mw(
                         sensor, values, **plan.value_encoding, dtype=np.float32
@@ -1116,87 +1111,14 @@ class NNJAWideLoader(NNJAArchiveLoader):
                     np.multiply(channel_row, 1.0 / plan.stddev[index], out=channel_row)
                 else:
                     channel_row[:] = values
-        return Normalized(observation, valid, footprint_columns)
-
-    def expand(self, normalized: Normalized, plan: ReadPlan, sensor: str) -> pa.Table:
-        """Expand selected footprints to unified long rows.
-
-        Row order within a window carries no meaning, so the matrix is flattened in its
-        own channel-major order. With every cell valid that costs a free `reshape`, one
-        `np.tile` per footprint column and one `np.repeat` run per channel identity; a
-        validity mask turns the tile into a gather and the run into a per-channel count.
-        """
-        footprint_count = normalized.footprint_count
-        arrays: dict[str, pa.Array] = {}
-
-        # Flatten the matrix to one row per surviving cell, dropping invalid ones.
-        with cpu_timing_range("nnja.expand.observation"):
-            if normalized.valid is None:
-                observation = normalized.values.reshape(-1)
-                footprint_rows = None
-                counts = None
-            else:
-                # Per-channel `flatnonzero` gives the footprint index directly; a flat
-                # index would need a division and modulo per surviving cell.
-                kept_per_channel = [np.flatnonzero(row) for row in normalized.valid]
-                counts = np.fromiter(
-                    (kept.size for kept in kept_per_channel),
-                    dtype=np.int64,
-                    count=len(kept_per_channel),
-                )
-                footprint_rows = np.concatenate(kept_per_channel)
-                observation = np.empty(footprint_rows.size, dtype=np.float32)
-                offset = 0
-                for values, kept in zip(normalized.values, kept_per_channel):
-                    np.take(values, kept, out=observation[offset : offset + kept.size])
-                    offset += kept.size
-
-        # Repeat each footprint's metadata once per channel that kept it.
-        with cpu_timing_range("nnja.expand.footprint"):
-            for unified, column in normalized.footprint_columns.items():
-                expanded = (
-                    np.tile(column, plan.channel_count)
-                    if footprint_rows is None
-                    else column[footprint_rows]
-                )
-                arrays[unified] = pa.array(
-                    expanded, type=self.output_schema.field(unified).type
-                )
-
-        # Repeat each channel's ids once per footprint that kept it.
-        with cpu_timing_range("nnja.expand.channel"):
-            repeats = footprint_count if counts is None else counts
-            global_channel_ids = np.repeat(plan.global_channel_id, repeats)
-            local_channel_ids = np.repeat(plan.local_channel_id, repeats)
-
-        # Assemble the unified table: values, ids, and the columns the sat path nulls.
-        with cpu_timing_range("nnja.expand.table"):
-            long_rows = observation.size
-            observation_column = pa.array(observation, type=pa.float32())
-            arrays["Observation"] = observation_column
-            arrays[GLOBAL_CHANNEL_ID.name] = pa.array(
-                global_channel_ids, type=GLOBAL_CHANNEL_ID.type
-            )
-            arrays[LOCAL_CHANNEL_ID.name] = pa.array(
-                local_channel_ids, type=LOCAL_CHANNEL_ID.type
-            )
-            arrays[SENSOR_ID.name] = pa.array(
-                np.full(long_rows, SENSOR_NAME_TO_ID[sensor], dtype=np.uint16),
-                type=SENSOR_ID.type,
-            )
-            null_types = [self.output_schema.field(name).type for name in NULL_COLUMNS]
-            for name, column in zip(
-                NULL_COLUMNS,
-                _all_null_columns(
-                    null_types, long_rows, observation_column.buffers()[1]
-                ),
-            ):
-                arrays[name] = column
-            table = pa.table(
-                [arrays[field.name] for field in self.output_schema],
-                schema=self.output_schema,
-            )
-        return table
+        return FootprintBlock(
+            sensor_id=SENSOR_NAME_TO_ID[sensor],
+            values=observation,
+            valid=valid,
+            footprint_columns=footprint_columns,
+            global_channel_id=plan.global_channel_id,
+            local_channel_id=plan.local_channel_id,
+        )
 
     def _channel_key(
         self, sensor: str, platform: str, raw_channel_id: int
@@ -1213,22 +1135,24 @@ class NNJAWideLoader(NNJAArchiveLoader):
             raise ValueError(f"{sensor} has no raw channel {raw_channel_id}")
         return platform_id, int(get_global_channel_id(sensor, [raw_channel_id])[0])
 
-    def _deny(self, table: pa.Table) -> pa.Table:
-        """Drop each denied channel's observations taken inside its ``[start, end)``."""
-        if not self._denials or not table.num_rows:
-            return table
-        obs_time = _numpy(table["Absolute_Obs_Time"]).astype("datetime64[ns]")
-        platform = _numpy(table["Platform_ID"])
-        channel = _numpy(table[GLOBAL_CHANNEL_ID.name])
-        drop = np.zeros(table.num_rows, dtype=bool)
+    def _deny(self, block: FootprintBlock) -> None:
+        """Clear each denied channel's cells observed inside its ``[start, end)``."""
+        if not self._denials or not block.footprint_count:
+            return
+        obs_time = block.footprint_columns["Absolute_Obs_Time"]
+        platform = block.footprint_columns["Platform_ID"]
         for platform_id, global_channel_id, start, end in self._denials:
-            hit = (platform == platform_id) & (channel == global_channel_id)
+            rows = np.flatnonzero(block.global_channel_id == global_channel_id)
+            if not rows.size:
+                continue
+            hit = platform == platform_id
             if start is not None:
                 hit &= obs_time >= start
             if end is not None:
                 hit &= obs_time < end
-            drop |= hit
-        return table.filter(pa.array(~drop)) if drop.any() else table
+            if hit.any():
+                for row in rows:
+                    block.cell_mask()[row, hit] = False
 
     def _scoped_rules(
         self, sensor: str, dropout: SampleDropout
@@ -1243,34 +1167,42 @@ class NNJAWideLoader(NNJAArchiveLoader):
 
     def _apply_platform_channel_dropout(
         self,
-        table: pa.Table,
+        block: FootprintBlock,
         rng: np.random.Generator | None,
         rules: tuple,
-    ) -> pa.Table:
-        if not rules or not table.num_rows:
-            return table
+    ) -> None:
+        """Clear each rule's cells at its rate, one draw per valid cell it targets.
 
-        platform = _numpy(table["Platform_ID"])
-        channel = _numpy(table[GLOBAL_CHANNEL_ID.name])
-        keep = np.ones(table.num_rows, dtype=bool)
+        Draws run over a channel's cells in footprint order, which is long-row order.
+        """
+        if not rules or not block.footprint_count:
+            return
+        platform = block.footprint_columns["Platform_ID"]
         rng = rng or np.random.default_rng()
         for platform_id, global_channel_id, probability in rules:
-            targeted = (platform == platform_id) & (channel == global_channel_id)
             # Serves both scopes: `probability` is the configured p under "row", and 0
             # or 1 under "sample", where this drops the whole channel or keeps it.
-            if probability > 0.0 and targeted.any():
-                keep[targeted] = rng.random(int(targeted.sum())) >= probability
-        return table if keep.all() else table.filter(pa.array(keep))
+            if probability <= 0.0:
+                continue
+            for row in np.flatnonzero(block.global_channel_id == global_channel_id):
+                targeted = platform == platform_id
+                if block.valid is not None:
+                    targeted &= block.valid[row]
+                footprints = np.flatnonzero(targeted)
+                if footprints.size:
+                    dropped = rng.random(footprints.size) < probability
+                    block.cell_mask()[row, footprints[dropped]] = False
 
-    def to_long(
+    def to_footprints(
         self,
         table: pa.Table,
         plan: ReadPlan,
         sensor: str,
         rng: np.random.Generator | None,
         rules: tuple,
-    ) -> pa.Table:
-        """Convert one wide row group to long rows: select, then transform, then expand.
+    ) -> FootprintBlock:
+        """Convert one wide row group to a footprint block: select, then transform, then
+        clear denied and dropped-out cells.
 
         The retained rows are passed into transform so only those are gathered and
         normalized.
@@ -1281,8 +1213,10 @@ class NNJAWideLoader(NNJAArchiveLoader):
             if not keep.all():
                 table = table.filter(pa.array(keep))
         keep_rows = self.select(table, sensor)
-        long = self.expand(self.transform(table, plan, sensor, keep_rows), plan, sensor)
-        return self._apply_platform_channel_dropout(self._deny(long), rng, rules)
+        block = self.transform(table, plan, sensor, keep_rows)
+        self._deny(block)
+        self._apply_platform_channel_dropout(block, rng, rules)
+        return block
 
     def _row_group_jobs(
         self, sensor: str, windows: pd.DatetimeIndex
@@ -1341,12 +1275,12 @@ class NNJAWideLoader(NNJAArchiveLoader):
         windows: pd.DatetimeIndex,
         dropout_seed: int | None,
         rules: tuple,
-    ) -> list[tuple[pd.Timestamp, pa.Table]]:
-        """Read each window of this sensor and convert to long rows.
+    ) -> list[tuple[pd.Timestamp, FootprintBlock]]:
+        """Read each window of this sensor and convert it to footprint blocks.
 
         `read_ahead` fetches the next row group while the current one converts, overlapping
         I/O and compute. Row groups that survive nothing are
-        dropped: a zero-row table still adds a chunk to every column downstream.
+        dropped.
         """
         jobs = self._row_group_jobs(sensor, windows)
         rng = row_generator(dropout_seed)
@@ -1355,12 +1289,12 @@ class NNJAWideLoader(NNJAArchiveLoader):
             with cpu_timing_range("nnja.read"):
                 return read()
 
-        parts: list[tuple[pd.Timestamp, pa.Table]] = []
+        parts: list[tuple[pd.Timestamp, FootprintBlock]] = []
         if not self.read_ahead or len(jobs) < 2:
             for plan, window, read in jobs:
-                long_table = self.to_long(fetch(read), plan, sensor, rng, rules)
-                if long_table.num_rows:
-                    parts.append((window, long_table))
+                part = self.to_footprints(fetch(read), plan, sensor, rng, rules)
+                if part.num_rows:
+                    parts.append((window, part))
             return parts
 
         # Reads run here, conversion on the calling thread, so the two overlap. Private pool
@@ -1381,17 +1315,17 @@ class NNJAWideLoader(NNJAArchiveLoader):
             while queued:
                 (plan, window, _read), pending = queued.popleft()
                 wide_table = pending.result()  # blocks only if the reader is behind
-                # Refill before converting, so the reader has work during to_long.
+                # Refill before converting, so the reader has work during to_footprints.
                 if issued < len(jobs):
                     queued.append((jobs[issued], submit(jobs[issued])))
                     issued += 1
-                long_table = self.to_long(wide_table, plan, sensor, rng, rules)
-                if long_table.num_rows:
-                    parts.append((window, long_table))
+                part = self.to_footprints(wide_table, plan, sensor, rng, rules)
+                if part.num_rows:
+                    parts.append((window, part))
         return parts
 
-    async def sel_time(self, times: pd.DatetimeIndex) -> dict[str, list[pa.Table]]:
-        """Load unified long observations for each target time.
+    async def sel_time(self, times: pd.DatetimeIndex) -> ObservationBatch:
+        """Load each target time's footprint blocks, as `Observations` with an empty table.
 
         A coroutine so call sites keep UFSUnifiedLoader's `asyncio.run(sel_time(times))`
         form. Sensors read concurrently: one cold Lustre stream saturates at 0.33 GiB/s
@@ -1436,27 +1370,27 @@ class NNJAWideLoader(NNJAArchiveLoader):
             )
         )
         # Adjacent targets' context intervals could overlap, so regroup by window and let each target
-        # reference the ones it spans. `concat_tables` appends chunk lists rather than copying.
-        by_window: dict[pd.Timestamp, list[pa.Table]] = {}
+        # reference the ones it spans.
+        by_window: dict[pd.Timestamp, list[FootprintBlock]] = {}
         for parts in by_sensor:
-            for window, long_table in parts:
-                by_window.setdefault(window, []).append(long_table)
+            for window, part in parts:
+                by_window.setdefault(window, []).append(part)
 
-        # Shared by every target whose windows all came back empty.
-        empty_table = pa.table(
-            [pa.array([], type=field.type) for field in self.output_schema],
-            schema=self.output_schema,
-        )
-
-        def combine(target: datetime) -> pa.Table:
-            parts = [
-                part
-                for window in self._interval_times(target)
-                for part in by_window.get(window, ())
+        # Shared by every target: the satellite path has no rows outside its blocks.
+        empty_table = self._empty()
+        return {
+            "obs_v2": [
+                Observations(
+                    blocks=[
+                        block
+                        for window in self._interval_times(target)
+                        for block in by_window.get(window, ())
+                    ],
+                    table=empty_table,
+                )
+                for target in times
             ]
-            return pa.concat_tables(parts) if parts else empty_table
-
-        return {"obs_v2": [combine(target) for target in times]}
+        }
 
 
 if __name__ == "__main__":
@@ -1487,7 +1421,9 @@ if __name__ == "__main__":
         print(f"  {sensor:20s}  {os.path.getsize(path) / 1e6:6.1f} MB  {path}")
 
     start = time.perf_counter()
-    table = asyncio.run(loader.sel_time(pd.DatetimeIndex([sample_time])))["obs_v2"][0]
+    table = as_table(
+        asyncio.run(loader.sel_time(pd.DatetimeIndex([sample_time])))["obs_v2"][0]
+    )
     elapsed = time.perf_counter() - start
 
     da_col = table.column("DA_window")

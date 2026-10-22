@@ -32,7 +32,17 @@ from healda.observations.sensors import (
 )
 from healda.config.variables import VARIABLE_CONFIGS
 from healda.datasets import static_data
+from healda.observations.footprints import (
+    FootprintBlock,
+    as_tensor,
+    bits,
+    expand_column,
+    long_cells,
+)
+from healda.observations.loaders.nnja_base import LOCAL_CHANNEL_ID
 from healda.observations.packing import pixel_packing
+from healda.observations.protocols import Observations
+from healda.observations.schema import get_combined_observation_schema
 import warnings
 
 warnings.filterwarnings(
@@ -61,6 +71,20 @@ _OBS_TENSOR_COLUMNS = {
 
 # Integer columns, where a null cannot be carried as NaN.
 _OBS_FILL_ZERO = frozenset({"Platform_ID", "Observation_Type"})
+
+
+def _tensor_dtype(field_type: pa.DataType) -> torch.dtype:
+    # Timestamps travel as int64 nanoseconds since the epoch, which features_v2 reads back.
+    if pa.types.is_timestamp(field_type):
+        return torch.int64
+    return torch.from_numpy(np.empty(0, field_type.to_pandas_dtype())).dtype
+
+
+_UNIFIED_SCHEMA = get_combined_observation_schema().append(LOCAL_CHANNEL_ID)
+_OBS_TENSOR_DTYPES = {
+    key: _tensor_dtype(_UNIFIED_SCHEMA.field(column).type)
+    for column, key in _OBS_TENSOR_COLUMNS.items()
+}
 
 # Column names required by the encode function
 ENCODE_REQUIRED_COLUMNS = [
@@ -368,173 +392,113 @@ class TransformV2:
         )
 
     @staticmethod
-    def _sort_by_record_batch(
-        table: pa.Table, column_name: str, key_order: dict | None = None
-    ) -> pa.Table:
-        """Group rows into contiguous blocks by ``column_name`` (assumes each
-        record batch is homogeneous in that column).
+    def _sorted_parts(
+        frames, sensor_rank: dict[int, int]
+    ) -> list[tuple[int, int, int, pa.RecordBatch | FootprintBlock]]:
+        """Every frame's record batches and footprint blocks as ``(rank, b, t, part)``.
 
-        ``key_order`` maps a value to its sort rank; pass it to order blocks by
-        the model's sensor order rather than by raw ascending sensor_id (the two
-        differ, see ``_process_obs``). Without it, blocks sort by raw value.
+        Sorted, stably, into the model's sensor order (``sensor_rank``), which is NOT
+        ascending sensor_id: conv-plevel has the largest id but sits mid-list. lengths_3d
+        uses the model order, and packing recovers each obs's (b, t) by position in
+        lengths, so the rows must match or obs land in the wrong (batch, time) bucket
+        once B*T > 1. A record batch is homogeneous in sensor_id.
         """
-        record_batches_order = []
-        for batch in table.to_batches():
-            if batch.num_rows == 0:
-                continue
-            group_value = batch[column_name][0].as_py()
-            rank = key_order[group_value] if key_order is not None else group_value
-            record_batches_order.append((rank, batch))
-
-        # in empty case, from_batches will raise an error
-        if not record_batches_order:
-            return table
-
-        record_batches_order.sort(key=lambda x: x[0])
-        return pa.Table.from_batches([batch for _, batch in record_batches_order])
-
-    @staticmethod
-    def _append_batch_time_info_chunked(
-        table: pa.Table, b: int, t: int, timestamp: int
-    ) -> pa.Table:
-        """
-        Add batch/time indices and target time while maintaining original chunking.
-        """
-        b_idx_type = pa.int16()
-        t_idx_type = pa.int16()
-        time_type = pa.int64()
-
-        ref_col = table.column(0)
-
-        b_idx_chunks = []
-        t_idx_chunks = []
-        time_chunks = []
-
-        for chunk in ref_col.chunks:
-            L = len(chunk)
-            if L == 0:
-                b_idx_chunks.append(pa.array([], type=b_idx_type))
-                t_idx_chunks.append(pa.array([], type=t_idx_type))
-                time_chunks.append(pa.array([], type=time_type))
-                continue
-
-            # directly creating pa array of int16 not supported so use np first
-            b_idx_arr = np.full(L, b, dtype=np.int16)
-            t_idx_arr = np.full(L, t, dtype=np.int16)
-            times_arr = np.full(L, timestamp, dtype=np.int64)
-
-            b_idx_chunks.append(pa.array(b_idx_arr, type=b_idx_type))
-            t_idx_chunks.append(pa.array(t_idx_arr, type=t_idx_type))
-            time_chunks.append(pa.array(times_arr, type=time_type))
-
-        b_chunked = pa.chunked_array(b_idx_chunks, type=b_idx_type)
-        t_chunked = pa.chunked_array(t_idx_chunks, type=t_idx_type)
-        time_chunked = pa.chunked_array(time_chunks, type=time_type)
-
-        out = table.append_column("batch_idx", b_chunked)
-        out = out.append_column("time_idx", t_chunked)
-        out = out.append_column("target_time", time_chunked)
-        return out
-
-    @staticmethod
-    def _build_observation_lengths_3d(
-        obs_table: pa.Table, frame_times, ordered_sensor_ids: torch.Tensor
-    ):
-        B, T = len(frame_times), len(frame_times[0])
-
-        counts_map = {}  # sensor_id -> (b, t) array of num obs in that sensor, batch, time
-
-        for batch in obs_table.to_batches():
-            if batch.num_rows == 0:
-                continue
-
-            s_id = int(batch["sensor_id"][0].as_py())
-            b_id = int(batch["batch_idx"][0].as_py())
-            t_id = int(batch["time_idx"][0].as_py())
-            n = batch.num_rows
-
-            if s_id not in counts_map:
-                counts_map[s_id] = torch.zeros((B, T), dtype=torch.int32)
-
-            counts_map[s_id][b_id, t_id] += n
-
-        S = int(ordered_sensor_ids.numel())
-        if S == 0:
-            lengths_3d = torch.zeros((0, B, T), dtype=torch.int32)
-            return lengths_3d
-
-        lengths_3d = torch.zeros((S, B, T), dtype=torch.int32)
-        for s_local, s_id in enumerate(ordered_sensor_ids.tolist()):
-            if s_id in counts_map:
-                lengths_3d[s_local] = counts_map[s_id]  # already (B, T) counts
-
-        return lengths_3d
+        parts = []
+        for b, sample_frames in enumerate(frames):
+            for t, frame in enumerate(sample_frames):
+                obs = frame["obs_v2"]
+                if isinstance(obs, Observations):
+                    for block in obs.blocks:
+                        parts.append((sensor_rank[block.sensor_id], b, t, block))
+                    obs = obs.table
+                for batch in obs.to_batches():
+                    if not batch.num_rows:
+                        continue
+                    bounds = pc.min_max(batch["sensor_id"])
+                    if bounds["min"] != bounds["max"]:
+                        raise ValueError("a record batch holds more than one sensor_id")
+                    rank = sensor_rank[bounds["min"].as_py()]
+                    parts.append((rank, b, t, batch))
+        parts.sort(key=lambda part: part[0])
+        return parts
 
     @healda.utils.profiling.nvtx
-    def _process_obs(self, target_times: list[list[cftime.datetime]], frames):
+    def _process_obs(
+        self, target_times: list[list[cftime.datetime]], frames, device="cpu"
+    ):
+        """Packed obs tensors on ``device`` and their (S, B, T) lengths.
+
+        Each frame's ``obs_v2`` is a long table or an `Observations`, whose footprint
+        blocks expand on ``device``.
+        """
         if not self.sensors:
             raise ValueError("TransformV2 requires configured sensors for obs_v2.")
-
-        # Add batch and time indices to each table before concatenation
-        all_obs_with_indices = []
-        for b_idx, sample_frames in enumerate(frames):
-            for t_idx, frame_dict in enumerate(sample_frames):
-                table = frame_dict["obs_v2"]
-                table_with_indices = self._append_batch_time_info_chunked(
-                    table,
-                    b_idx,
-                    t_idx,
-                    _compute_timestamp(target_times[b_idx][t_idx]),
-                )
-                all_obs_with_indices.append(table_with_indices)
-
-        obs = pa.concat_tables(all_obs_with_indices)
-
-        # Sort obs into the model's sensor order (_ordered_sensor_ids), which is
-        # NOT ascending sensor_id: conv-plevel has the largest id but sits mid-list.
-        # lengths_3d uses the model order, and packing recovers each obs's (b, t)
-        # by position in lengths, so the rows must match or obs land in the wrong
-        # (batch, time) bucket once B*T > 1.
-        sensor_rank = {
-            int(sid): rank for rank, sid in enumerate(self._ordered_sensor_ids.tolist())
-        }
-        obs = self._sort_by_record_batch(obs, "sensor_id", key_order=sensor_rank)
-
-        lengths_3d = self._build_observation_lengths_3d(
-            obs, target_times, self._ordered_sensor_ids
+        sensor_ids = self._ordered_sensor_ids.tolist()
+        parts = self._sorted_parts(
+            frames, {int(sid): rank for rank, sid in enumerate(sensor_ids)}
         )
+        lengths_3d = torch.zeros(
+            (len(sensor_ids), len(frames), len(frames[0])), dtype=torch.int32
+        )
+        rows = []
+        for rank, b, t, part in parts:
+            rows.append(part.num_rows)
+            lengths_3d[rank, b, t] += rows[-1]
+        tensors = self._obs_tensors([part for *_, part in parts], rows, device)
+        # Rows run sensor-major, then (b, t), as lengths_3d does.
+        timestamps = torch.tensor(
+            [[_compute_timestamp(time) for time in row] for row in target_times],
+            dtype=torch.int64,
+        )
+        tensors["target_time_sec"] = torch.repeat_interleave(
+            timestamps.reshape(-1).repeat(len(sensor_ids)).to(device),
+            lengths_3d.reshape(-1).to(device),
+            output_size=sum(rows),
+        )
+        return tensors, lengths_3d
 
-        return (self._obs_tensors(obs), lengths_3d)
+    def _obs_tensors(self, parts, rows: list[int], device) -> dict[str, torch.Tensor]:
+        """Materialize the obs columns the model consumes, one tensor each, on ``device``.
 
-    def _obs_tensors(self, obs: pa.Table) -> dict[str, torch.Tensor]:
-        """Materialize the obs columns the model consumes, one tensor each.
-
-        A tensor needs one buffer but columns arrive chunked, so each is gathered with
-        `to_numpy`. Copying chunk by chunk into a preallocated array is marginally
-        faster on a few chunks and much slower on highly fragmented input, where every
-        per-chunk GIL release hands off to a waiting copy thread. The filter upstream
-        avoids that by materializing its mask instead of running Acero, and `to_numpy`
-        is flat in chunk count if it ever regresses.
+        Footprint blocks expand into their slice of each tensor. Consecutive record
+        batches are gathered by one `to_numpy` per column: copying chunk by chunk is much
+        slower on highly fragmented input, where every per-chunk GIL release hands off to
+        a waiting copy thread. Columns fill in parallel on the obs thread pool.
         """
+        runs: list[tuple[pa.Table | FootprintBlock, int]] = []
+        batches: list[pa.RecordBatch] = []
+        for part, count in zip(parts, rows):
+            if isinstance(part, FootprintBlock):
+                if batches:
+                    table = pa.Table.from_batches(batches)
+                    runs.append((table, table.num_rows))
+                    batches = []
+                runs.append((part, count))
+            else:
+                batches.append(part)
+        if batches:
+            table = pa.Table.from_batches(batches)
+            runs.append((table, table.num_rows))
 
-        def build(item: tuple[str, str]) -> tuple[str, torch.Tensor]:
-            column, key = item
-            values = obs[column]
-            # to_numpy promotes an integer column with nulls to float64; fill first.
-            if column in _OBS_FILL_ZERO:
-                values = pc.fill_null(values, 0)
-            out = values.to_numpy(zero_copy_only=False)
-            # Kind "M" is datetime64: torch has no datetime dtype, so store int64
-            # nanoseconds since the epoch, which is what features_v2 reads back. A view,
-            # not astype, since datetime64[ns] already is int64 ns.
-            if out.dtype.kind == "M":
-                out = out.view(np.int64)
-            # from_numpy views the buffer; no copy.
-            return key, torch.from_numpy(out)
-
+        tensors = {
+            key: torch.empty(sum(rows), dtype=_OBS_TENSOR_DTYPES[key], device=device)
+            for key in _OBS_TENSOR_COLUMNS.values()
+        }
         pool = threads.thread_pool()
-        tensors = dict(pool.map(build, _OBS_TENSOR_COLUMNS.items()))
-        tensors["target_time_sec"] = torch.from_numpy(obs["target_time"].to_numpy())
+        offset = 0
+        for run, count in runs:
+            out = {
+                column: tensors[key][offset : offset + count]
+                for column, key in _OBS_TENSOR_COLUMNS.items()
+            }
+            if isinstance(run, FootprintBlock):
+                fill = functools.partial(
+                    _fill_from_block, run, long_cells(run, device), out
+                )
+            else:
+                fill = functools.partial(_fill_from_table, run, out)
+            list(pool.map(fill, _OBS_TENSOR_COLUMNS))
+            offset += count
         return tensors
 
     def _get_packed_field(self, frames, key: str) -> torch.Tensor:
@@ -616,17 +580,17 @@ class TransformV2:
         out["labels"] = torch.empty([len(frames), 0])
         return out
 
-    def transform_observations(self, times, frames):
+    def transform_observations(self, times, frames, device="cpu"):
         """``transform`` without state or condition, for observation-only inference.
 
-        frames: [[{obs_v2: pa.Table}]] and times: [[cftime]], both (batch, time). Returns
-        ``unified_obs`` as ``transform`` does plus the time encodings;
-        ``_device_transform_unified_obs`` finishes the observations on the device.
+        frames: [[{obs_v2: ...}]] and times: [[cftime]], both (batch, time). Returns
+        ``unified_obs`` as ``transform`` does, packed on ``device``, plus the time
+        encodings; ``_device_transform_unified_obs`` finishes the observations there.
         ``transform`` cannot serve this caller: it always packs the state and requires a
         static condition.
         """
         return {
-            "unified_obs": self._process_obs(times, frames),
+            "unified_obs": self._process_obs(times, frames, device),
             **_time_encodings(times),
         }
 
@@ -649,7 +613,7 @@ class TransformV2:
             if key == "unified_obs":
                 obs_tensors, lengths = batch["unified_obs"]
                 out[key] = self._device_transform_unified_obs(
-                    obs_tensors, lengths, device
+                    dict(obs_tensors), lengths, device
                 )
             elif key == "target":
                 out[key] = self._device_field(
@@ -674,21 +638,30 @@ class TransformV2:
         key = ("condition", b, t, str(device), condition.shape, condition.dtype)
         return self._device.get(
             key,
-            lambda: condition.to(device, non_blocking=True)
-            .expand(b, -1, t, -1)
-            .contiguous(),
+            lambda: (
+                condition.to(device, non_blocking=True)
+                .expand(b, -1, t, -1)
+                .contiguous()
+            ),
         )
 
     @healda.utils.profiling.nvtx
     def _device_transform_unified_obs(self, obs_tensors, lengths, device):
-        # Move all tensors to device efficiently
+        """Featurize packed obs on ``device`` into a ``UnifiedObservation``.
+
+        Takes the tensors out of ``obs_tensors``, leaving it empty, so the caller holds no
+        reference to tensors packed on ``device`` once they are reordered or replaced.
+        """
+
         def _to_device(tensor, non_blocking=True):
             if isinstance(tensor, torch.Tensor):
                 return tensor.to(device, non_blocking=non_blocking)
             else:
                 return torch.from_numpy(tensor).to(device, non_blocking=non_blocking)
 
-        obs_tensors = {key: _to_device(val) for key, val in obs_tensors.items()}
+        obs_tensors = {
+            key: _to_device(obs_tensors.pop(key)) for key in list(obs_tensors)
+        }
         lengths = _to_device(lengths)
         pix = self._grid.ang2pix(
             obs_tensors["longitude"], obs_tensors["latitude"]
@@ -812,3 +785,23 @@ def _time_encodings(times) -> dict[str, torch.Tensor]:
 
 def collate(obj):
     return obj
+
+
+def _fill_from_block(block: FootprintBlock, cells, out, column: str) -> None:
+    if block.has_column(column):
+        expand_column(block, column, cells, out[column])
+    else:
+        # The columns a satellite row leaves null, as a long table's to_numpy gives them.
+        out[column].fill_(0 if column in _OBS_FILL_ZERO else float("nan"))
+
+
+def _fill_from_table(table: pa.Table, out, column: str) -> None:
+    values = table[column]
+    # to_numpy promotes an integer column with nulls to float64; fill first.
+    if column in _OBS_FILL_ZERO:
+        values = pc.fill_null(values, 0)
+    source = as_tensor(values.to_numpy(zero_copy_only=False), "cpu")
+    target = bits(out[column])
+    if source.dtype != target.dtype:
+        raise TypeError(f"{column} is {source.dtype}, its tensor {target.dtype}")
+    target.copy_(source)

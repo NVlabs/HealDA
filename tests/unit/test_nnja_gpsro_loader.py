@@ -222,7 +222,7 @@ def test_v3_prefers_blended_pressure_and_corrected_height(tmp_path):
         pa.array([3100.0, np.nan, 4100.0, 6100.0], type=pa.float64()),
     )
 
-    table = loader._to_long(source, TARGET, positive_half=False)
+    table = loader._to_long(source, TARGET, (False,))[False]
 
     # Rows 0/1 survive the existing QC. Blended pressure wins over dry
     # pressure; corrected height wins where present and falls back per row.
@@ -251,7 +251,7 @@ def test_invalid_stored_isa_pressure_falls_back_per_row(tmp_path):
         pa.array([650.0, np.nan, 0.0, -1.0], type=pa.float64()),
     )
 
-    table = loader._to_long(source, TARGET, positive_half=False)
+    table = loader._to_long(source, TARGET, (False,))[False]
 
     assert table.num_rows == 2
     expected = np.array(

@@ -172,6 +172,20 @@ def test_sort_and_pack_invariants(device):
     assert torch.all(sorted_flat[1:] >= sorted_flat[:-1])
 
 
+@pytest.mark.parametrize("device", _DEVICES)
+def test_sort_and_pack_is_deterministic_and_stable(device):
+    # Many observations per pixel, so within-pixel order is exercised.
+    torch.manual_seed(0)
+    flat_idx = torch.randint(0, 8, (100_000,), dtype=torch.int32).to(device)
+    first, _ = sort_and_pack(flat_idx, 8)
+    second, _ = sort_and_pack(flat_idx, 8)
+    assert torch.equal(first, second)
+    order = first.cpu().long()
+    pixel = flat_idx.cpu().long()[order]
+    same_pixel = pixel[1:] == pixel[:-1]
+    assert torch.all(order[1:][same_pixel] > order[:-1][same_pixel])
+
+
 def test_attention_packing_no_sorted_order():
     # sorted_order is transient (applied in the packer) and must not be retained.
     fields = {f.name for f in dataclasses.fields(AttentionPacking)}

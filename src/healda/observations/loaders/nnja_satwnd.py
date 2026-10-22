@@ -675,17 +675,29 @@ class NNJASatwndLoader(NNJAArchiveLoader):
         dropout = self._dropout()
         wind_dropout = dropout.rate(self.wind_obs_dropout)
         dropout_seeds = dropout.seeds(needed)
+        # A day's windows share one dropout draw sequence; without dropout there are no
+        # draws, so table-source windows load concurrently.
+        per_window = self.table_source is not None and not wind_dropout
+        jobs = [
+            (day, group)
+            for day, windows in sorted(needed.items())
+            for group in (
+                [(window,) for window in sorted(windows)]
+                if per_window
+                else [tuple(sorted(windows))]
+            )
+        ]
         loaded = await asyncio.gather(
             *(
                 loop.run_in_executor(
                     thread_pool(),
                     self._load_day,
                     day,
-                    tuple(sorted(windows)),
+                    windows,
                     dropout_seeds[day],
                     wind_dropout,
                 )
-                for day, windows in sorted(needed.items())
+                for day, windows in jobs
             )
         )
         by_window = {

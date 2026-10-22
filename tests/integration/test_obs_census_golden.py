@@ -20,6 +20,7 @@ import healda.config.environment as config
 from healda.config.models import ObsConfig
 from healda.datasets.da.tasks import build_obs_loader
 from healda.observations.loaders.combined import SENSOR_NAME_TO_ID
+from healda.observations.protocols import as_table
 
 pytestmark = pytest.mark.skipif(
     not os.path.isdir(config.NNJA_ROOT),
@@ -77,6 +78,10 @@ def _report(table, keys, out):
 AMV_REPORT_TYPES = tuple(range(240, 261))
 
 
+def _first_table(loader, times) -> pa.Table:
+    return as_table(asyncio.run(loader.sel_time(times))["obs_v2"][0])
+
+
 def _amv_rows(table) -> int:
     types = table["Observation_Type"].to_numpy(zero_copy_only=False)
     return int(numpy.isin(types, AMV_REPORT_TYPES).sum())
@@ -86,15 +91,13 @@ def test_denying_amvs_reaches_the_dedicated_archive_too():
     """The recipe reads AMVs from the SATWND archive as well as PrepBUFR, so a filter
     applied per-source would leave the archive's untouched."""
     loader = build_obs_loader(LIVE_OBS_CONFIG, training=False)
-    kept = asyncio.run(loader.sel_time(WINDOW))["obs_v2"][0]
+    kept = _first_table(loader, WINDOW)
     assert _amv_rows(kept) > 0, "no AMVs to deny; the fixture cannot detect a no-op"
 
     denied_config = dataclasses.replace(
         LIVE_OBS_CONFIG, drop_report_types=AMV_REPORT_TYPES
     )
-    denied = asyncio.run(
-        build_obs_loader(denied_config, training=False).sel_time(WINDOW)
-    )["obs_v2"][0]
+    denied = _first_table(build_obs_loader(denied_config, training=False), WINDOW)
     assert _amv_rows(denied) == 0
     assert denied.num_rows < kept.num_rows
 
@@ -106,7 +109,7 @@ def test_denying_the_amv_family_matches_naming_its_report_types():
 
     def load(config):
         loader = build_obs_loader(config, training=False)
-        return asyncio.run(loader.sel_time(WINDOW))["obs_v2"][0]
+        return _first_table(loader, WINDOW)
 
     family_rows, type_rows = load(by_family), load(by_type)
     assert _amv_rows(family_rows) == 0
@@ -118,9 +121,7 @@ EARLY = pd.DatetimeIndex([pd.Timestamp("2005-01-15T00:00:00")])
 
 
 def _early_rows(config):
-    table = asyncio.run(build_obs_loader(config, training=False).sel_time(EARLY))[
-        "obs_v2"
-    ][0]
+    table = _first_table(build_obs_loader(config, training=False), EARLY)
     types = table["Observation_Type"].to_numpy(zero_copy_only=False)
     return table.num_rows, int(numpy.isin(types, PRE_ASCAT).sum())
 
@@ -145,7 +146,7 @@ def test_ascat_only_reproduces_the_pre_fix_observing_system():
 
 
 def _rows(loader):
-    return asyncio.run(loader.sel_time(WINDOW))["obs_v2"][0].num_rows
+    return _first_table(loader, WINDOW).num_rows
 
 
 def test_per_row_dropout_follows_the_ambient_worker_stream():
@@ -182,7 +183,7 @@ def test_evaluation_draws_nothing():
 
 def test_live_recipe(regtest):
     loader = build_obs_loader(LIVE_OBS_CONFIG, training=False)
-    table = asyncio.run(loader.sel_time(WINDOW))["obs_v2"][0]
+    table = _first_table(loader, WINDOW)
 
     print(f"total rows: {table.num_rows}", file=regtest)
     print(file=regtest)
@@ -236,9 +237,7 @@ def test_sample_scope_agrees_across_ranks_and_differs_across_samples():
     def wind_rows(ambient, slice_index):
         numpy.random.seed(ambient)
         loader = build_obs_loader(sample_scope, training=True)
-        table = asyncio.run(
-            loader.sel_time(frames[slice_index * 2 : slice_index * 2 + 2])
-        )["obs_v2"][0]
+        table = _first_table(loader, frames[slice_index * 2 : slice_index * 2 + 2])
         types = table["Observation_Type"].to_numpy(zero_copy_only=False)
         return bool(numpy.isin(types, AMV_REPORT_TYPES).any())
 
@@ -253,12 +252,10 @@ def test_sample_scope_is_all_or_nothing_not_a_fraction():
     def amvs(config, ambient):
         numpy.random.seed(ambient)
         loader = build_obs_loader(config, training=True)
-        return _amv_rows(asyncio.run(loader.sel_time(WINDOW))["obs_v2"][0])
+        return _amv_rows(_first_table(loader, WINDOW))
 
     full = _amv_rows(
-        asyncio.run(build_obs_loader(LIVE_OBS_CONFIG, training=False).sel_time(WINDOW))[
-            "obs_v2"
-        ][0]
+        _first_table(build_obs_loader(LIVE_OBS_CONFIG, training=False), WINDOW)
     )
     seen = {amvs(sample_scope, ambient) for ambient in range(12)}
     assert seen <= {0, full}, f"sample scope produced partial counts: {sorted(seen)}"
@@ -317,7 +314,7 @@ def _conv_channels(config, ambient=0):
     """
     numpy.random.seed(ambient)
     loader = build_obs_loader(config, training=True).conventional._loader
-    table = asyncio.run(loader.sel_time(WINDOW))["obs_v2"][0]
+    table = _first_table(loader, WINDOW)
     local = table["local_channel_id"].to_numpy(zero_copy_only=False)
     channels, counts = numpy.unique(local, return_counts=True)
     return dict(zip(channels.tolist(), counts.tolist()))

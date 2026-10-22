@@ -407,7 +407,9 @@ def build_obs_loader(
             )
         return combined.CombinedObsLoader(
             satellite=_get_sat_loader(
-                obs_config, pipeline, table_source=satellite_table_source
+                obs_config,
+                pipeline,
+                table_source=satellite_table_source,
             ),
             conventional=_get_conv_loader(
                 obs_config,

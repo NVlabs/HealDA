@@ -3,6 +3,6 @@
 
 """Observation schemas, loaders, preprocessing, and model-facing types."""
 
-from healda.observations.protocols import ObservationLoader
+from healda.observations.protocols import ObservationLoader, Observations, as_table
 
-__all__ = ["ObservationLoader"]
+__all__ = ["ObservationLoader", "Observations", "as_table"]

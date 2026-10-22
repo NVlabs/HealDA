@@ -47,6 +47,13 @@ follow semantic versioning starting with its first tagged release.
 - The fused FiLM tokenizer indexes rows in int64; int32 row addresses overflowed past
   2**31 / feature-dim rows, which one unsharded analysis window exceeds.
 - earth2grid is pinned to a git revision instead of the `main` tarball.
+- `ObservationBatch["obs_v2"]` holds, per analysis time, a long table or an
+  `Observations`: satellite footprint blocks (`healda.observations.footprints`) plus a
+  long table. `NNJAWideLoader` and `CombinedObsLoader` return `Observations`;
+  `as_table` and `Observations.to_table` give the long table. `TransformV2` expands
+  the blocks in torch straight into the packed tensors, on the GPU in
+  `DAModel.run_analysis`. Channel denials and platform/channel dropout clear cells of
+  the block. `_device_transform_unified_obs` empties the dict it is given.
 - Active configuration, dataset, observation, model, training, checkpoint, and
   utility modules are organized under the package namespace.
 

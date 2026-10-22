@@ -230,7 +230,7 @@ class HourlyLatlonTransform(torch.nn.Module):
         if self._obs is not None and "unified_obs" in batch:
             obs_tensors, lengths = batch["unified_obs"]
             out["unified_obs"] = self._obs._device_transform_unified_obs(
-                obs_tensors, lengths, device
+                dict(obs_tensors), lengths, device
             )
         return out
 

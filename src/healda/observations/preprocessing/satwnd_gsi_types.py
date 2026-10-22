@@ -111,6 +111,9 @@ _RULES: tuple[tuple[str, tuple[int, ...], tuple[int, ...], int, int, str], ...] 
 _MAX_SAID = 1023
 
 
+TIER_NAMES = (DIRECT, DIRECT_UNUSED, PRE_REFACTOR, PREPDATA)
+
+
 class GsiTypes(NamedTuple):
     """Per-row resolution; ``report_type``/``tier`` are -1/None where untyped."""
 
@@ -119,31 +122,27 @@ class GsiTypes(NamedTuple):
     tier: np.ndarray  # object, route name or None
 
 
+class GsiTypeCodes(NamedTuple):
+    """``GsiTypes`` with the route as an index into ``TIER_NAMES``, -1 where untyped."""
+
+    report_type: np.ndarray
+    internal_subtype: np.ndarray
+    tier_index: np.ndarray
+
+
 @functools.cache
-def _lookup() -> (
-    tuple[
-        dict[str, np.ndarray],
-        dict[str, np.ndarray],
-        dict[str, np.ndarray],
-        tuple[str, ...],
-    ]
-):
-    """Per-subset dense arrays indexed by ``(said << 3) | swcm``."""
+def _lookup() -> tuple[dict[str, int], np.ndarray]:
+    """Row per rule subset, and a (subset row, field, ``(said << 3) | swcm``) table of
+    report type, processing case and route index, -1 where no rule applies."""
     size = (_MAX_SAID + 1) << 3
-    tier_names = (DIRECT, DIRECT_UNUSED, PRE_REFACTOR, PREPDATA)
-    types: dict[str, np.ndarray] = {}
-    subtypes: dict[str, np.ndarray] = {}
-    tiers: dict[str, np.ndarray] = {}
+    rows: dict[str, int] = {}
+    for subset, *_ in _RULES:
+        rows.setdefault(subset, len(rows))
+    table = np.full((len(rows), 3, size), -1, dtype=np.int64)
     for subset, methods, saids, report_type, case, tier in _RULES:
-        if subset not in types:
-            types[subset] = np.full(size, -1, dtype=np.int64)
-            subtypes[subset] = np.full(size, -1, dtype=np.int64)
-            tiers[subset] = np.full(size, -1, dtype=np.int64)
         keys = [(said << 3) | swcm for said in saids for swcm in methods]
-        types[subset][keys] = report_type
-        subtypes[subset][keys] = case
-        tiers[subset][keys] = tier_names.index(tier)
-    return types, subtypes, tiers, tier_names
+        table[rows[subset], :, keys] = (report_type, case, TIER_NAMES.index(tier))
+    return rows, table
 
 
 def resolve(
@@ -159,34 +158,47 @@ def resolve(
     NCEP-local ``swcm_local`` (CMCM), as the ETL does per template; the
     fallback is never applied row by row.
     """
-    types, subtypes, tier_codes, tier_names = _lookup()
-    n = len(said)
-    said = np.asarray(said, dtype=np.float64)
-    swcm = np.array(swcm, dtype=np.float64)
     # Integer codes per subset name: hashing, not sorting, millions of Python strings.
     codes, names = pd.factorize(np.asarray(subset, dtype=object), use_na_sentinel=True)
-    report_type = np.full(n, -1, dtype=np.int64)
-    internal = np.full(n, -1, dtype=np.int64)
-    tier_index = np.full(n, -1, dtype=np.int64)
-    for code, name in enumerate(names):
-        rows = codes == code
-        if swcm_local is not None and not np.isfinite(swcm[rows]).any():
-            swcm[rows] = np.asarray(swcm_local, dtype=np.float64)[rows]
-        if name not in types:
-            continue
-        usable = (
-            rows
-            & np.isfinite(said)
-            & np.isfinite(swcm)
-            & (said >= 0)
-            & (said <= _MAX_SAID)
-            & (swcm >= 1)
-            & (swcm <= 7)
+    types = resolve_codes(codes, list(names), said, swcm, swcm_local)
+    tier = np.array([None, *TIER_NAMES], dtype=object)[types.tier_index + 1]
+    return GsiTypes(types.report_type, types.internal_subtype, tier)
+
+
+def resolve_codes(
+    codes: np.ndarray,
+    names: list[str | None],
+    said: np.ndarray,
+    swcm: np.ndarray,
+    swcm_local: np.ndarray | None = None,
+) -> GsiTypeCodes:
+    """``resolve`` with the subset of each wind as ``names[codes]``, -1 for none."""
+    rows, table = _lookup()
+    codes = np.asarray(codes, dtype=np.int64)
+    said = np.asarray(said, dtype=np.float64)
+    swcm = np.array(swcm, dtype=np.float64)
+    known = codes >= 0
+    code = np.where(known, codes, 0)
+    if swcm_local is not None and len(names):
+        has_swcm = np.bincount(
+            code[known], weights=np.isfinite(swcm[known]), minlength=len(names)
         )
-        index = np.flatnonzero(usable)
-        keys = (said[index].astype(np.int64) << 3) | swcm[index].astype(np.int64)
-        report_type[index] = types[name][keys]
-        internal[index] = subtypes[name][keys]
-        tier_index[index] = tier_codes[name][keys]
-    tier = np.array([None, *tier_names], dtype=object)[tier_index + 1]
-    return GsiTypes(report_type, internal, tier)
+        fallback = known & (has_swcm[code] == 0)
+        swcm[fallback] = np.asarray(swcm_local, dtype=np.float64)[fallback]
+    rule_row = np.array([rows.get(name, -1) for name in names] + [-1])[
+        np.where(known, codes, len(names))
+    ]
+    usable = (
+        (rule_row >= 0)
+        & np.isfinite(said)
+        & np.isfinite(swcm)
+        & (said >= 0)
+        & (said <= _MAX_SAID)
+        & (swcm >= 1)
+        & (swcm <= 7)
+    )
+    index = np.flatnonzero(usable)
+    keys = (said[index].astype(np.int64) << 3) | swcm[index].astype(np.int64)
+    found = np.full((3, codes.size), -1, dtype=np.int64)
+    found[:, index] = table[rule_row[index], :, keys].T
+    return GsiTypeCodes(*found)

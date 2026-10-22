@@ -4,6 +4,7 @@
 """earth2studio NNJA frames restated as archive tables and read by the archive loaders."""
 
 import asyncio
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -19,6 +20,7 @@ from healda.observations.loaders.nnja_wide import NNJAWideLoader
 from healda.observations.preprocessing import ir_spectral, satwnd_gsi_types
 from healda.observations.preprocessing.gpsro_pressure import derive_level_coordinates
 from healda.observations.preprocessing.sat_helpers import hpx_nest_pixels
+from healda.observations.protocols import as_table
 
 CYCLE = pd.Timestamp("2022-01-01T00")
 ELRC = 6_371_000.0
@@ -354,22 +356,17 @@ def test_sat_tables_pivot_footprints_into_channel_columns():
     assert rows["hpx2048_nest"].tolist() == pixels.tolist()
 
 
-def test_cris_tables_store_the_archive_code_and_detector():
+def test_cris_tables_hold_kelvin_and_the_detector():
     channel = max(ir_spectral.ir_channel_preset("ir32")["cris"])
     frame = _sat_frame("cris", sorted(ir_spectral.ir_channel_preset("ir32")["cris"]), 4)
     (table,) = e2s_nnja.sat_tables(frame, "cris").values()
     rows = table.to_pandas()
     assert rows["field_of_view"].tolist() == [4, 4, 4]
     assert rows["field_of_regard"].tolist() == [5, 6, 7]
-    field = table.schema.field(f"spectral_radiance_code__ch_{channel:05d}")
-    assert field.type == pa.int32()
-    encoding = ir_spectral.archive_value_encoding(field)
-    assert encoding == {"reference": -100000, "scale": 7}
-    radiance = ir_spectral.radiance_mw("cris", rows[field.name], **encoding)
-    kelvin = ir_spectral.brightness_temperature(
-        radiance, ir_spectral.wavenumber_cm_inverse("cris", [channel])
-    )
-    np.testing.assert_allclose(kelvin, [231.0, 232.0, 233.0], atol=0.05)
+    field = table.schema.field(f"brightness_temperature__ch_{channel:05d}")
+    assert field.type == pa.float32()
+    assert field.metadata == {b"nnja.value_unit": b"K"}
+    assert rows[field.name].tolist() == [231.0, 232.0, 233.0]
     with pytest.raises(ValueError, match="detector"):
         e2s_nnja.sat_tables(frame.drop(columns="detector"), "cris")
 
@@ -434,7 +431,9 @@ def test_wide_loader_reads_tables_like_an_archive_file(tmp_path):
 
     def load(**source):
         loader = NNJAWideLoader(["atms"], thin_nside=1, normalize=False, **source)
-        return asyncio.run(loader.sel_time(pd.DatetimeIndex([CYCLE])))["obs_v2"][0]
+        return as_table(
+            asyncio.run(loader.sel_time(pd.DatetimeIndex([CYCLE])))["obs_v2"][0]
+        )
 
     from_tables = load(table_source={"atms": tables})
     assert from_tables.num_rows > 0
@@ -475,5 +474,142 @@ def test_analysis_tables_equal_the_per_stream_adapters():
             assert got[cycle].equals(expected[cycle])
 
 
+def test_analysis_tables_read_and_pickle_as_dicts():
+    tables = e2s_nnja.analysis_tables(
+        satwnd=_wind_frame(), sensors=(), ir_channels="ir32"
+    )["satwnd_tables"]
+    assert tables.get(pd.Timestamp("1990-01-01")) is None
+    copy = pickle.loads(pickle.dumps(tables))
+    assert type(copy) is dict and copy.keys() == tables.keys() and copy
+    for cycle in copy:
+        assert copy[cycle].equals(tables.get(cycle))
+
+
 def test_gpsro_tables_of_a_frame_without_gps_rows_are_empty():
     assert e2s_nnja.gpsro_tables(_gps_frame(CYCLE).assign(variable="t")) == {}
+
+
+def _wide_conv(frame: pd.DataFrame) -> pd.DataFrame:
+    # NNJAObsConv(output_format="wide"): one row per level, observation_/quality_<variable>.
+    keys = [c for c in frame.columns if c not in ("variable", "observation", "quality")]
+    rows: dict = {}
+    for record in frame.to_dict("records"):
+        key = tuple(None if pd.isna(record[c]) else record[c] for c in keys)
+        row = rows.setdefault(key, {c: record[c] for c in keys})
+        row[f"observation_{record['variable']}"] = record["observation"]
+        row[f"quality_{record['variable']}"] = record["quality"]
+    wide = pd.DataFrame(list(rows.values()))
+    for column in wide.columns:
+        if column.startswith("quality_"):
+            wide[column] = wide[column].astype("UInt16")
+    return wide
+
+
+def _wide_satwnd(frame: pd.DataFrame) -> pd.DataFrame:
+    u, v = frame[frame["variable"] == "u"], frame[frame["variable"] == "v"]
+    wide = u.drop(columns=["variable", "observation"]).reset_index(drop=True)
+    wide["observation_u"] = u["observation"].to_numpy()
+    wide["observation_v"] = v["observation"].to_numpy()
+    return wide
+
+
+def _wide_sat(frame: pd.DataFrame, sensor: str) -> pd.DataFrame:
+    # NNJAObsSat(layout="wide") of one sensor: one row per footprint, its channels as
+    # fixed-size lists over the sensor's channel axis, null where a footprint lacks one.
+    variable = e2s_nnja.SAT_VARIABLE.get(sensor, sensor)
+    axis = sorted(int(c) for c in frame["sensor_index"].unique())
+    slot = {channel: i for i, channel in enumerate(axis)}
+    keys = ["time", "lat", "lon", "satellite", "scan_position"]
+    footprints = [group for _, group in frame.groupby(keys, sort=False)]
+    table = pa.Table.from_pandas(
+        pd.DataFrame([group.iloc[0] for group in footprints]).drop(
+            columns=["sensor_index", "observation", "quality", "variable"],
+            errors="ignore",
+        ),
+        preserve_index=False,
+    )
+
+    def matrix(column: str, arrow_type: pa.DataType) -> pa.Array:
+        rows = []
+        for group in footprints:
+            row = [None] * len(axis)
+            for channel, value in zip(group["sensor_index"], group[column]):
+                row[slot[int(channel)]] = None if pd.isna(value) else value
+            rows.append(row)
+        return pa.array(rows, pa.list_(arrow_type, len(axis)))
+
+    table = table.append_column(
+        f"observation_{variable}", matrix("observation", pa.float32())
+    )
+    if "quality" in frame.columns:
+        table = table.append_column("quality", matrix("quality", pa.uint32()))
+    wide = table.to_pandas(types_mapper=pd.ArrowDtype)
+    wide.attrs["channels"] = {sensor: axis}
+    return wide
+
+
+def _assert_same_tables(a: dict, b: dict) -> None:
+    assert a.keys() == b.keys()
+    for argument in a:
+        nested = argument == "satellite_tables"
+        x = (
+            a[argument]
+            if not nested
+            else {(s, c): t for s in a[argument] for c, t in a[argument][s].items()}
+        )
+        y = (
+            b[argument]
+            if not nested
+            else {(s, c): t for s in b[argument] for c, t in b[argument][s].items()}
+        )
+        assert x.keys() == y.keys() and x
+        for key in x:
+            assert x[key].equals(y[key], check_metadata=True), (argument, key)
+
+
+def test_wide_frames_give_the_tables_of_long_frames():
+    conv = pd.concat(
+        [_conv_frame(), _gps_frame(CYCLE - pd.Timedelta(minutes=30))], ignore_index=True
+    )
+    # The second ATMS footprint lacks its first channel: a null slot.
+    atms = _sat_frame("atms", np.arange(1, 23)).assign(quality=0)
+    atms.loc[atms.index[3], "quality"] = 2
+    cris = _sat_frame("cris", sorted(ir_spectral.ir_channel_preset("ir32")["cris"]), 4)
+    cris = cris[cris["lat"] != 11.0].assign(quality=1 << 14)
+    cris.loc[cris.index[0], "observation"] = np.nan
+    sat = pd.concat([atms, cris], ignore_index=True)
+    wide_sat = {"atms": _wide_sat(atms, "atms"), "cris": _wide_sat(cris, "cris")}
+    kwargs = dict(sensors=["atms", "cris"], ir_channels="ir32")
+    long = e2s_nnja.analysis_tables(conv, _wind_frame(), sat, layout="long", **kwargs)
+    gps = _gps_frame(CYCLE - pd.Timedelta(minutes=30))
+    wide = e2s_nnja.analysis_tables(
+        satwnd=_wide_satwnd(_wind_frame()),
+        sat=wide_sat,
+        prepbufr=_wide_conv(_conv_frame()),
+        gpsro=_wide_conv(gps),
+        layout="wide",
+        **kwargs,
+    )
+    _assert_same_tables(long, wide)
+    (atms_table,) = wide["satellite_tables"]["atms"].values()
+    assert atms_table["channel_auxiliary"].to_pylist() == [2, 0, 0]
+    (cris_table,) = wide["satellite_tables"]["cris"].values()
+    assert cris_table["fov_quality_bad"].to_pylist() == [1, 1]
+
+
+def test_the_layout_must_be_the_frames():
+    kwargs = dict(sensors=["atms"], ir_channels="ir32")
+    with pytest.raises(ValueError, match="prepbufr and gpsro frames"):
+        e2s_nnja.analysis_tables(
+            conv=_wide_conv(_conv_frame()), layout="wide", **kwargs
+        )
+    with pytest.raises(ValueError, match="sat as {sensor: frame}"):
+        e2s_nnja.analysis_tables(sat=pd.DataFrame(), layout="wide", **kwargs)
+    with pytest.raises(ValueError, match="one sat frame"):
+        e2s_nnja.analysis_tables(sat={"atms": pd.DataFrame()}, layout="long", **kwargs)
+    with pytest.raises(ValueError, match="layout must be one of"):
+        e2s_nnja.analysis_tables(satwnd=_wind_frame(), layout="tall", **kwargs)
+    with pytest.raises(ValueError, match="pass the layout"):
+        e2s_nnja.analysis_tables(satwnd=_wind_frame(), layout="wide", **kwargs)
+    with pytest.raises(ValueError, match="pass the layout"):
+        e2s_nnja.analysis_tables(satwnd=_wide_satwnd(_wind_frame()), **kwargs)

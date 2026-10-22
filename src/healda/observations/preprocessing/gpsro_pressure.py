@@ -7,6 +7,7 @@ same archive columns."""
 
 from __future__ import annotations
 
+import numba
 import numpy as np
 from numpy.typing import NDArray
 
@@ -91,228 +92,223 @@ def standard_atmosphere_pressure_hpa(
     return output
 
 
-def normal_gravity_m_s2(
-    latitude_degrees: float, height_m: NDArray[np.float64]
-) -> NDArray[np.float64]:
-    height = np.asarray(height_m, dtype=np.float64)
+@numba.njit(cache=True, nogil=True)
+def _dry_pressure_profile_kernel(
+    height, refractivity, latitude_degrees, top_fit_levels, output
+):
+    count = 0
+    for k in range(height.size):
+        if (
+            np.isfinite(height[k])
+            and np.isfinite(refractivity[k])
+            and refractivity[k] > 0.0
+        ):
+            count += 1
+    if count < 2:
+        return
+    source = np.empty(count, dtype=np.int64)
+    count = 0
+    for k in range(height.size):
+        if (
+            np.isfinite(height[k])
+            and np.isfinite(refractivity[k])
+            and refractivity[k] > 0.0
+        ):
+            source[count] = k
+            count += 1
+    order = source[np.argsort(height[source], kind="mergesort")]
+    keep = np.empty(order.size, dtype=np.bool_)
+    keep[0] = True
+    for k in range(1, order.size):
+        keep[k] = height[order[k]] - height[order[k - 1]] > 0.0
+    order = order[keep]
+    m = order.size
+    if m < 2:
+        return
+    sorted_height = height[order]
+    sorted_refractivity = refractivity[order]
     sin_squared = np.sin(np.deg2rad(latitude_degrees)) ** 2
     surface = (
         _EQUATORIAL_GRAVITY_M_S2
         * (1.0 + _SOMIGLIANA_K * sin_squared)
         / np.sqrt(1.0 - _EARTH_ECCENTRICITY_SQUARED * sin_squared)
     )
-    return surface * (_EARTH_SEMI_MAJOR_M / (_EARTH_SEMI_MAJOR_M + height)) ** 2
+    weight = np.empty(m)
+    for k in range(m):
+        gravity = (
+            surface
+            * (_EARTH_SEMI_MAJOR_M / (_EARTH_SEMI_MAJOR_M + sorted_height[k])) ** 2
+        )
+        density = (
+            100.0
+            * sorted_refractivity[k]
+            / (_REFRACTIVITY_CONSTANT_K_HPA * _DRY_AIR_GAS_CONSTANT_J_KG_K)
+        )
+        weight[k] = density * gravity
+    # Least-squares slope of log N on height over the top levels (np.polyfit degree 1, closed form).
+    take = min(top_fit_levels, m)
+    x = sorted_height[m - take :]
+    y = np.log(sorted_refractivity[m - take :])
+    x_mean = x.mean()
+    y_mean = y.mean()
+    sxy = 0.0
+    sxx = 0.0
+    for k in range(take):
+        sxy += (x[k] - x_mean) * (y[k] - y_mean)
+        sxx += (x[k] - x_mean) * (x[k] - x_mean)
+    slope = sxy / sxx
+    scale_height = _DEFAULT_TOP_SCALE_HEIGHT_M
+    if np.isfinite(slope) and slope < 0.0:
+        candidate = -1.0 / slope
+        if _MIN_TOP_SCALE_HEIGHT_M <= candidate <= _MAX_TOP_SCALE_HEIGHT_M:
+            scale_height = candidate
+    top_pressure_pa = weight[m - 1] * scale_height
+    tail = 0.0
+    output[order[m - 1]] = (top_pressure_pa + tail) / 100.0
+    for k in range(m - 2, -1, -1):
+        tail += (
+            0.5
+            * (sorted_height[k + 1] - sorted_height[k])
+            * (weight[k] + weight[k + 1])
+        )
+        output[order[k]] = (top_pressure_pa + tail) / 100.0
 
 
-def dry_density_kg_m3(refractivity_n_units: NDArray[np.float64]) -> NDArray[np.float64]:
-    refractivity = np.asarray(refractivity_n_units, dtype=np.float64)
-    return (
-        100.0
-        * refractivity
-        / (_REFRACTIVITY_CONSTANT_K_HPA * _DRY_AIR_GAS_CONSTANT_J_KG_K)
-    )
+@numba.njit(cache=True, nogil=True)
+def _interp_sorted(impact, abscissa, ordinate, log_scale, output):
+    """np.interp of `impact` onto strictly increasing `abscissa`, inside its range only; exp() back when `log_scale`.
 
-
-def _top_scale_height_m(
-    height_m: NDArray[np.float64],
-    refractivity_n_units: NDArray[np.float64],
-    *,
-    top_fit_levels: int,
-) -> float:
-    if top_fit_levels < 2:
-        raise ValueError("top_fit_levels must be at least 2")
-    take = min(top_fit_levels, height_m.size)
-    slope = np.polyfit(height_m[-take:], np.log(refractivity_n_units[-take:]), 1)[0]
-    if not np.isfinite(slope) or slope >= 0.0:
-        return _DEFAULT_TOP_SCALE_HEIGHT_M
-    scale_height = -1.0 / slope
-    if not _MIN_TOP_SCALE_HEIGHT_M <= scale_height <= _MAX_TOP_SCALE_HEIGHT_M:
-        return _DEFAULT_TOP_SCALE_HEIGHT_M
-    return float(scale_height)
-
-
-def dry_pressure_profile_hpa(
-    height_m: NDArray[np.float64],
-    refractivity_n_units: NDArray[np.float64],
-    *,
-    latitude_degrees: float,
-    top_fit_levels: int = 8,
-) -> NDArray[np.float64]:
-    height = np.asarray(height_m, dtype=np.float64)
-    refractivity = np.asarray(refractivity_n_units, dtype=np.float64)
-    if height.shape != refractivity.shape:
-        raise ValueError("height and refractivity must have identical shapes")
-    output = np.full(height.shape, np.nan, dtype=np.float64)
-    valid = np.isfinite(height) & np.isfinite(refractivity) & (refractivity > 0.0)
-    if np.count_nonzero(valid) < 2:
-        return output
-
-    source_indices = np.flatnonzero(valid)
-    order = source_indices[np.argsort(height[source_indices], kind="stable")]
-    sorted_height = height[order]
-    sorted_refractivity = refractivity[order]
-    unique = np.concatenate(([True], np.diff(sorted_height) > 0.0))
-    order = order[unique]
-    sorted_height = sorted_height[unique]
-    sorted_refractivity = sorted_refractivity[unique]
-    if sorted_height.size < 2:
-        return output
-
-    gravity = normal_gravity_m_s2(latitude_degrees, sorted_height)
-    density = dry_density_kg_m3(sorted_refractivity)
-    scale_height = _top_scale_height_m(
-        sorted_height, sorted_refractivity, top_fit_levels=top_fit_levels
-    )
-    weight = density * gravity
-    segment = 0.5 * np.diff(sorted_height) * (weight[:-1] + weight[1:])
-    top_pressure_pa = weight[-1] * scale_height
-    tail_sum = np.concatenate((np.cumsum(segment[::-1])[::-1], [0.0]))
-    output[order] = (top_pressure_pa + tail_sum) / 100.0
-    return output
-
-
-def refractive_radius_m(
-    height_m: NDArray[np.float64],
-    refractivity_n_units: NDArray[np.float64],
-    *,
-    earth_radius_of_curvature_m: float,
-    geoid_undulation_m: float,
-) -> NDArray[np.float64]:
-    height = np.asarray(height_m, dtype=np.float64)
-    refractivity = np.asarray(refractivity_n_units, dtype=np.float64)
-    geometric_radius = earth_radius_of_curvature_m + geoid_undulation_m + height
-    return (1.0 + 1.0e-6 * refractivity) * geometric_radius
-
-
-def dry_pressure_at_impact_hpa(
-    impact_parameter_m: NDArray[np.float64],
-    refractive_radius_profile_m: NDArray[np.float64],
-    dry_pressure_profile: NDArray[np.float64],
-) -> NDArray[np.float64]:
-    impact = np.asarray(impact_parameter_m, dtype=np.float64)
-    radius = np.asarray(refractive_radius_profile_m, dtype=np.float64)
-    pressure = np.asarray(dry_pressure_profile, dtype=np.float64)
-    if radius.shape != pressure.shape:
-        raise ValueError("refractive radius and pressure must have identical shapes")
-    valid = np.isfinite(radius) & np.isfinite(pressure) & (pressure > 0.0)
-    output = np.full(impact.shape, np.nan, dtype=np.float64)
-    if np.count_nonzero(valid) < 2:
-        return output
-    order = np.argsort(radius[valid], kind="stable")
-    sorted_radius = radius[valid][order]
-    sorted_pressure = pressure[valid][order]
-    unique = np.concatenate(([True], np.diff(sorted_radius) > 0.0))
-    sorted_radius = sorted_radius[unique]
-    sorted_pressure = sorted_pressure[unique]
-    inside = (
-        np.isfinite(impact)
-        & (impact >= sorted_radius[0])
-        & (impact <= sorted_radius[-1])
-    )
-    output[inside] = np.exp(
-        np.interp(impact[inside], sorted_radius, np.log(sorted_pressure))
-    )
-    return output
-
-
-def heit_at_impact_m(
-    impact_parameter_m: NDArray[np.float64],
-    height_m: NDArray[np.float64],
-    refractivity_n_units: NDArray[np.float64],
-    *,
-    earth_radius_of_curvature_m: float,
-    geoid_undulation_m: float,
-) -> NDArray[np.float64]:
-    """True geometric HEIT interpolated to each bending level's impact parameter.
-
-    Bouguer's rule ties impact parameter to refractive radius, x = (1+N*1e-6)*r
-    (see ``refractive_radius_m``). ``impact_parameter_m - earth_radius_of_curvature_m``
-    (the GSI-convention "impact height") is a ray-geometric quantity, not the true
-    tangent-point height; it diverges from HEIT by ~2 km at the surface because it
-    has no refraction correction. This inverts the same mapping ``dry_pressure_at_impact_hpa``
-    uses for pressure, but for height, so the returned value is the physically correct
-    geometric height at the exact impact parameter (not a same-index-paired approximation).
+    Same arithmetic as numpy's interp: binary search, slope * (x - xp[j]) + fp[j], the last point returned exactly.
     """
-    impact = np.asarray(impact_parameter_m, dtype=np.float64)
-    height = np.asarray(height_m, dtype=np.float64)
-    refractivity = np.asarray(refractivity_n_units, dtype=np.float64)
-    output = np.full(impact.shape, np.nan, dtype=np.float64)
-    valid = np.isfinite(height) & np.isfinite(refractivity) & (refractivity > 0.0)
-    if np.count_nonzero(valid) < 2:
-        return output
-    order = np.argsort(height[valid], kind="stable")
-    sorted_height = height[valid][order]
-    sorted_refractivity = refractivity[valid][order]
-    radius = refractive_radius_m(
-        sorted_height,
-        sorted_refractivity,
-        earth_radius_of_curvature_m=earth_radius_of_curvature_m,
-        geoid_undulation_m=geoid_undulation_m,
-    )
-    unique = np.concatenate(([True], np.diff(radius) > 0.0))
-    radius = radius[unique]
-    sorted_height = sorted_height[unique]
-    if radius.size < 2:
-        return output
-    inside = np.isfinite(impact) & (impact >= radius[0]) & (impact <= radius[-1])
-    output[inside] = np.interp(impact[inside], radius, sorted_height)
-    return output
+    last = abscissa.size - 1
+    for k in range(impact.size):
+        x = impact[k]
+        if not (np.isfinite(x) and abscissa[0] <= x <= abscissa[last]):
+            continue
+        if x == abscissa[last]:
+            value = ordinate[last]
+        else:
+            j = np.searchsorted(abscissa, x, side="right") - 1
+            slope = (ordinate[j + 1] - ordinate[j]) / (abscissa[j + 1] - abscissa[j])
+            value = slope * (x - abscissa[j]) + ordinate[j]
+            if np.isnan(value):
+                value = slope * (x - abscissa[j + 1]) + ordinate[j + 1]
+                if np.isnan(value) and ordinate[j] == ordinate[j + 1]:
+                    value = ordinate[j]
+        output[k] = np.exp(value) if log_scale else value
 
 
-def derive_level_coordinates(
+@numba.njit(cache=True, nogil=True)
+def _derive_kernel(
+    impact, impact_offsets, height, refractivity, profile_offsets,
+    latitude, radius_of_curvature, geoid, top_fit_levels, dry_out, heit_out,
+):  # fmt: skip
+    for o in range(impact_offsets.size - 1):
+        i0, i1 = impact_offsets[o], impact_offsets[o + 1]
+        p0, p1 = profile_offsets[o], profile_offsets[o + 1]
+        lat, curvature = latitude[o], radius_of_curvature[o]
+        if i1 == i0 or p1 - p0 < 2 or np.isnan(curvature) or not np.isfinite(lat):
+            continue
+        h = height[p0:p1]
+        n = refractivity[p0:p1]
+        x = impact[i0:i1]
+        pressure = np.full(h.size, np.nan)
+        _dry_pressure_profile_kernel(h, n, lat, top_fit_levels, pressure)
+        radius = (1.0 + 1.0e-6 * n) * (curvature + geoid[o] + h)
+        # Dry pressure at impact: levels with a finite radius and positive pressure, sorted by radius.
+        count = 0
+        for k in range(h.size):
+            if (
+                np.isfinite(radius[k])
+                and np.isfinite(pressure[k])
+                and pressure[k] > 0.0
+            ):
+                count += 1
+        if count >= 2:
+            valid = np.empty(count, dtype=np.int64)
+            count = 0
+            for k in range(h.size):
+                if (
+                    np.isfinite(radius[k])
+                    and np.isfinite(pressure[k])
+                    and pressure[k] > 0.0
+                ):
+                    valid[count] = k
+                    count += 1
+            order = valid[np.argsort(radius[valid], kind="mergesort")]
+            sorted_radius = radius[order]
+            keep = np.empty(order.size, dtype=np.bool_)
+            keep[0] = True
+            for k in range(1, order.size):
+                keep[k] = sorted_radius[k] - sorted_radius[k - 1] > 0.0
+            _interp_sorted(
+                x,
+                sorted_radius[keep],
+                np.log(pressure[order][keep]),
+                True,
+                dry_out[i0:i1],
+            )
+        # HEIT at impact: valid refractivity levels sorted by height, then mapped to refractive radius.
+        count = 0
+        for k in range(h.size):
+            if np.isfinite(h[k]) and np.isfinite(n[k]) and n[k] > 0.0:
+                count += 1
+        if count >= 2:
+            valid = np.empty(count, dtype=np.int64)
+            count = 0
+            for k in range(h.size):
+                if np.isfinite(h[k]) and np.isfinite(n[k]) and n[k] > 0.0:
+                    valid[count] = k
+                    count += 1
+            order = valid[np.argsort(h[valid], kind="mergesort")]
+            sorted_h = h[order]
+            level_radius = (1.0 + 1.0e-6 * n[order]) * (curvature + geoid[o] + sorted_h)
+            keep = np.empty(order.size, dtype=np.bool_)
+            keep[0] = True
+            for k in range(1, order.size):
+                keep[k] = level_radius[k] - level_radius[k - 1] > 0.0
+            if keep.sum() >= 2:
+                _interp_sorted(
+                    x, level_radius[keep], sorted_h[keep], False, heit_out[i0:i1]
+                )
+
+
+def derive_level_coordinates_batch(
     impact_parameter_m: NDArray[np.float64],
+    impact_offsets: NDArray[np.int64],
     height_m: NDArray[np.float64],
     refractivity_n_units: NDArray[np.float64],
+    profile_offsets: NDArray[np.int64],
     *,
-    latitude_degrees: float | None,
-    earth_radius_of_curvature_m: float | None,
-    geoid_undulation_m: float | None,
+    latitude_degrees: NDArray[np.float64],
+    earth_radius_of_curvature_m: NDArray[np.float64],
+    geoid_undulation_m: NDArray[np.float64],
     top_fit_levels: int = 8,
 ) -> dict[str, NDArray[np.float64]]:
-    """Vertical coordinates of one occultation's bending-angle levels.
+    """Vertical coordinates of the bending-angle levels of many occultations at once.
 
-    ``height_m``/``refractivity_n_units`` are the occultation's refractivity
-    profile as decoded; levels without a finite HEIT and a positive ARFR are
-    screened out by the functions above, so callers pass it raw. Returns the
-    archive columns ``impact_height_m``, ``heit_at_impact_m``,
-    ``dry_pressure_hpa``, ``standard_atmosphere_pressure_hpa`` and
-    ``blended_pressure_5km_hpa``, aligned to ``impact_parameter_m``.
+    Occultation ``o`` owns ``impact_parameter_m[impact_offsets[o]:impact_offsets[o + 1]]`` and the refractivity
+    profile ``height_m`` / ``refractivity_n_units`` over ``profile_offsets[o]:profile_offsets[o + 1]``, both raw
+    as decoded. Per occultation, a NaN radius of curvature means none was reported and a NaN latitude skips the
+    profile derivation; geoid undulation is used as given (callers pass 0.0 when none was reported). Returns the
+    archive columns ``impact_height_m``, ``heit_at_impact_m``, ``dry_pressure_hpa``,
+    ``standard_atmosphere_pressure_hpa`` and ``blended_pressure_5km_hpa``, aligned to ``impact_parameter_m``.
     """
-    impact = np.asarray(impact_parameter_m, dtype=np.float64)
+    if top_fit_levels < 2:
+        raise ValueError("top_fit_levels must be at least 2")
+    impact = np.ascontiguousarray(impact_parameter_m, dtype=np.float64)
+    impact_offsets = np.ascontiguousarray(impact_offsets, dtype=np.int64)
+    curvature = np.ascontiguousarray(earth_radius_of_curvature_m, dtype=np.float64)
     dry = np.full(impact.shape, np.nan, dtype=np.float64)
     heit = dry.copy()
-    if (
-        impact.size
-        and np.asarray(height_m).size >= 2
-        and earth_radius_of_curvature_m is not None
-        and latitude_degrees is not None
-        and np.isfinite(latitude_degrees)
-    ):
-        geoid = 0.0 if geoid_undulation_m is None else float(geoid_undulation_m)
-        pressure_profile = dry_pressure_profile_hpa(
-            height_m,
-            refractivity_n_units,
-            latitude_degrees=float(latitude_degrees),
-            top_fit_levels=top_fit_levels,
-        )
-        radius_profile = refractive_radius_m(
-            height_m,
-            refractivity_n_units,
-            earth_radius_of_curvature_m=float(earth_radius_of_curvature_m),
-            geoid_undulation_m=geoid,
-        )
-        dry = dry_pressure_at_impact_hpa(impact, radius_profile, pressure_profile)
-        heit = heit_at_impact_m(
-            impact,
-            height_m,
-            refractivity_n_units,
-            earth_radius_of_curvature_m=float(earth_radius_of_curvature_m),
-            geoid_undulation_m=geoid,
-        )
-    if earth_radius_of_curvature_m is not None:
-        impact_height = impact - float(earth_radius_of_curvature_m)
-    else:
-        impact_height = np.full(impact.shape, np.nan, dtype=np.float64)
+    _derive_kernel(
+        impact, impact_offsets,
+        np.ascontiguousarray(height_m, dtype=np.float64), np.ascontiguousarray(refractivity_n_units, dtype=np.float64),
+        np.ascontiguousarray(profile_offsets, dtype=np.int64),
+        np.ascontiguousarray(latitude_degrees, dtype=np.float64), curvature,
+        np.ascontiguousarray(geoid_undulation_m, dtype=np.float64), top_fit_levels, dry, heit,
+    )  # fmt: skip
+    impact_height = impact - np.repeat(curvature, np.diff(impact_offsets))
     isa = standard_atmosphere_pressure_hpa(heit)
     low = impact_height < BLEND_HEIGHT_M
     weighted = BLEND_LOW_STD_WEIGHT * isa + (1.0 - BLEND_LOW_STD_WEIGHT) * dry
@@ -330,3 +326,41 @@ def derive_level_coordinates(
         "standard_atmosphere_pressure_hpa": isa,
         "blended_pressure_5km_hpa": blended,
     }
+
+
+def derive_level_coordinates(
+    impact_parameter_m: NDArray[np.float64],
+    height_m: NDArray[np.float64],
+    refractivity_n_units: NDArray[np.float64],
+    *,
+    latitude_degrees: float | None,
+    earth_radius_of_curvature_m: float | None,
+    geoid_undulation_m: float | None,
+    top_fit_levels: int = 8,
+) -> dict[str, NDArray[np.float64]]:
+    """One occultation through ``derive_level_coordinates_batch``; ``None`` means not reported."""
+    impact = np.asarray(impact_parameter_m, dtype=np.float64)
+    height = np.asarray(height_m, dtype=np.float64)
+    return derive_level_coordinates_batch(
+        impact,
+        np.array([0, impact.size]),
+        height,
+        np.asarray(refractivity_n_units, dtype=np.float64),
+        np.array([0, height.size]),
+        latitude_degrees=np.array(
+            [np.nan if latitude_degrees is None else latitude_degrees], dtype=np.float64
+        ),
+        earth_radius_of_curvature_m=np.array(
+            [
+                np.nan
+                if earth_radius_of_curvature_m is None
+                else earth_radius_of_curvature_m
+            ],
+            dtype=np.float64,
+        ),
+        geoid_undulation_m=np.array(
+            [0.0 if geoid_undulation_m is None else geoid_undulation_m],
+            dtype=np.float64,
+        ),
+        top_fit_levels=top_fit_levels,
+    )

@@ -21,6 +21,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from healda.config.models import ModelConfigV1, ObsConfig
+from healda.observations.footprints import FootprintBlock, expand
 from healda.observations.loaders import nnja_wide as wide
 from healda.observations.loaders.nnja_wide import NNJAWideLoader, winner_hash
 from healda.observations.sensors import PLATFORM_NAME_TO_ID
@@ -29,6 +30,7 @@ from healda.observations.sensors_nnja import (
     SENSOR_NAME_TO_ID,
     get_global_channel_id,
 )
+from healda.observations.protocols import Observations, as_table
 from healda.observations.schema import GLOBAL_CHANNEL_ID
 from healda.observations.system import ChannelDenial
 from healda.observations.preprocessing import ir_spectral, scan_geometry
@@ -290,6 +292,10 @@ def plan_for(
     )
 
 
+def as_long(loader: NNJAWideLoader, block: FootprintBlock) -> pa.Table:
+    return expand(block, loader.output_schema)
+
+
 def read_window(
     loader: NNJAWideLoader, group: int = 0, sensor: str = "atms"
 ) -> pa.Table:
@@ -410,7 +416,9 @@ def test_screening_every_footprint_out_selects_nothing(nulls):
     )
     assert loader.select(read_window(loader), "atms").size == 0
 
-    combined = asyncio.run(loader.sel_time(pd.DatetimeIndex([TARGET])))["obs_v2"][0]
+    combined = as_table(
+        asyncio.run(loader.sel_time(pd.DatetimeIndex([TARGET])))["obs_v2"][0]
+    )
     assert combined.num_rows == 0
     assert combined.schema == loader.output_schema
 
@@ -436,7 +444,7 @@ def test_expansion_reproduces_the_wide_values():
     plan = plan_for(loader)
     table = read_window(loader)
     kept = loader.select(table, "atms")
-    long = loader.expand(loader.transform(table, plan, "atms", kept), plan, "atms")
+    long = as_long(loader, loader.transform(table, plan, "atms", kept))
     footprint_count = kept.size
     assert long.schema == loader.output_schema
     assert long.num_rows == footprint_count * plan.channel_count
@@ -486,7 +494,7 @@ def test_a_denial_targets_metop_b_amsua_only():
         pa.array(source_platform, type=pa.uint16()),
     )
 
-    long = loader.to_long(table, plan, "amsua", None, ())
+    long = as_long(loader, loader.to_footprints(table, plan, "amsua", None, ()))
 
     channel = np.asarray(long[GLOBAL_CHANNEL_ID.name])
     platform = np.asarray(long["Platform_ID"])
@@ -513,23 +521,27 @@ def test_dated_denial_drops_its_channel_only_inside_its_span():
     ch4, ch5 = get_global_channel_id("amsua", [4, 5])
 
     def kept(obs_time):
-        table = pa.table(
-            {
-                "Platform_ID": pa.array([metop_c, metop_c, metop_b], type=pa.uint16()),
-                GLOBAL_CHANNEL_ID.name: pa.array(
-                    [ch4, ch5, ch4], type=GLOBAL_CHANNEL_ID.type
+        # Channels (4, 5) x footprints (metop-c, metop-b), every cell valid.
+        block = FootprintBlock(
+            sensor_id=SENSOR_NAME_TO_ID["amsua"],
+            values=np.zeros((2, 2), dtype=np.float32),
+            valid=None,
+            footprint_columns={
+                "Platform_ID": np.array([metop_c, metop_b], dtype=np.uint16),
+                "Absolute_Obs_Time": np.full(
+                    2, np.datetime64(pd.Timestamp(obs_time), "ns")
                 ),
-                "Absolute_Obs_Time": pa.array(
-                    [pd.Timestamp(obs_time)] * 3, type=pa.timestamp("ns")
-                ),
-            }
+            },
+            global_channel_id=np.array([ch4, ch5], dtype=np.uint16),
+            local_channel_id=np.array([3, 4], dtype=np.uint16),
         )
-        return loader._deny(table).num_rows
+        loader._deny(block)
+        return block.num_rows
 
-    assert kept("2026-03-16T23:59") == 3
-    assert kept("2026-03-17T00:00") == 2
-    assert kept("2026-03-17T00:59") == 2
-    assert kept("2026-03-17T01:00") == 3
+    assert kept("2026-03-16T23:59") == 4
+    assert kept("2026-03-17T00:00") == 3
+    assert kept("2026-03-17T00:59") == 3
+    assert kept("2026-03-17T01:00") == 4
 
 
 def test_a_denial_for_an_unloaded_sensor_is_skipped_and_an_unknown_one_rejected():
@@ -560,7 +572,7 @@ def test_source_flags_honour_bit_masks_and_per_channel_structs():
 
 
 def long_rows(loader, plan, sensor, table):
-    return loader.to_long(table, plan, sensor, None, ()).num_rows
+    return as_long(loader, loader.to_footprints(table, plan, sensor, None, ())).num_rows
 
 
 @pytest.mark.parametrize("sensor", ["iasi", "cris", "atms"])
@@ -770,7 +782,7 @@ def test_a_footprint_without_geometry_is_dropped_in_every_channel(column):
     assert not result.valid[:, :2].any()
     assert result.valid[:, 2:].all()
 
-    long = loader.expand(result, plan, "atms")
+    long = as_long(loader, result)
     assert long.num_rows == (table.num_rows - 2) * plan.channel_count
     for name in ("Latitude", "Sat_Zenith_Angle", "Sol_Zenith_Angle", "Scan_Angle"):
         assert np.isfinite(np.asarray(long[name])).all()
@@ -838,7 +850,7 @@ def test_cris_screens_and_angles_on_field_of_regard():
     assert kept.size
     assert ((regard >= keep[0]) & (regard <= keep[1])).all()
 
-    long = loader.expand(loader.transform(table, plan, "cris", kept), plan, "cris")
+    long = as_long(loader, loader.transform(table, plan, "cris", kept))
     expected = scan_geometry.scan_angle(
         "cris", wide._numpy(table["field_of_view"])[kept], regard
     )
@@ -860,7 +872,7 @@ def test_zenith_is_emitted_signed_by_scan_side():
     plan = plan_for(loader)
     table = read_window(loader)
     kept = loader.select(table, "atms")
-    long = loader.expand(loader.transform(table, plan, "atms", kept), plan, "atms")
+    long = as_long(loader, loader.transform(table, plan, "atms", kept))
 
     source = wide._numpy(table["satellite_zenith_angle"])[kept]
     assert (source > 0).all(), "the archive stores an unsigned magnitude"
@@ -879,7 +891,7 @@ def test_out_of_range_cells_are_dropped_and_the_rest_normalized():
     plan = plan_for(loader)
     table = read_window(loader)
     kept = loader.select(table, "atms")
-    long = loader.expand(loader.transform(table, plan, "atms", kept), plan, "atms")
+    long = as_long(loader, loader.transform(table, plan, "atms", kept))
     source = np.stack([wide._numpy(table[name])[kept] for name in plan.value_columns])
     valid = (source >= MIN_VALID) & (source <= MAX_VALID)
     assert not valid.all(), "the archive should exercise the masked path"
@@ -894,10 +906,12 @@ def test_out_of_range_cells_are_dropped_and_the_rest_normalized():
 
 def test_sel_time_returns_the_context_windows():
     loader = loader_for()
-    tables = asyncio.run(loader.sel_time(pd.DatetimeIndex([TARGET])))["obs_v2"]
-    assert len(tables) == 1
+    loaded = asyncio.run(loader.sel_time(pd.DatetimeIndex([TARGET])))["obs_v2"]
+    assert len(loaded) == 1
+    assert isinstance(loaded[0], Observations)
 
-    combined = tables[0]
+    combined = loaded[0].to_table()
+    assert loaded[0].num_rows == combined.num_rows
     assert combined.schema == loader.output_schema
     assert set(np.asarray(combined["DA_window"])) == {
         window.to_datetime64() for window in WINDOWS
@@ -918,15 +932,17 @@ def test_read_ahead_agrees_with_the_serial_path():
     jobs = len(pipelined._row_group_jobs("atms", pipelined._interval_times(TARGET)))
     assert jobs > 2, "the queue should have to refill past what priming covers"
 
-    expected = asyncio.run(serial.sel_time(times))["obs_v2"][0]
+    expected = as_table(asyncio.run(serial.sel_time(times))["obs_v2"][0])
     assert expected.num_rows, "the archive should produce rows on both paths"
-    assert expected.equals(asyncio.run(pipelined.sel_time(times))["obs_v2"][0])
+    assert expected.equals(
+        as_table(asyncio.run(pipelined.sel_time(times))["obs_v2"][0])
+    )
 
 
 def test_sensors_fan_out_into_one_table():
     times = pd.DatetimeIndex([TARGET])
     loader = loader_for(build_archive("atms", "amsua"), sensors=MICROWAVE)
-    combined = asyncio.run(loader.sel_time(times))["obs_v2"][0]
+    combined = as_table(asyncio.run(loader.sel_time(times))["obs_v2"][0])
 
     assert combined.schema == loader.output_schema
     assert set(np.asarray(combined["sensor_id"])) == {
@@ -943,3 +959,71 @@ def test_sensors_fan_out_into_one_table():
         for sensor in MICROWAVE
     )
     assert combined.num_rows == alone
+
+
+def test_flat_atms_flag_flags_the_footprints_the_per_channel_flags_do():
+    rng = np.random.default_rng(0)
+    # Mostly clean, some Moon-only (512, not a flag), some flagged in one channel.
+    per_channel = rng.choice(
+        [0, 512, 2, 256], p=[0.97, 0.01, 0.01, 0.01], size=(200, 22)
+    )
+    quality = pa.struct([("channel_quality", pa.uint16())])
+    nested = pa.FixedSizeListArray.from_arrays(
+        pa.StructArray.from_arrays(
+            [pa.array(per_channel.ravel().astype(np.uint16))], ["channel_quality"]
+        ),
+        22,
+    )
+    assert nested.type.value_type == quality
+    flat = pa.array(np.bitwise_or.reduce(per_channel, axis=1).astype(np.uint16))
+    flags = wide.SOURCE_QUALITY_FLAGS["atms"]
+    by_channel = wide.source_flagged(pa.table({"channel_auxiliary": nested}), flags)
+    assert 0 < by_channel.sum() < 200
+    flagged = wide.source_flagged(pa.table({"channel_auxiliary": flat}), flags)
+    np.testing.assert_array_equal(flagged, by_channel)
+
+
+def test_kelvin_columns_skip_planck_and_match_the_radiance_columns():
+    radiance_loader, plan, table = sensor_window("cris")
+    assert plan.wavenumber is not None and not plan.holds_kelvin
+    kelvin_columns = []
+    for index, name in enumerate(plan.value_columns):
+        radiance = ir_spectral.radiance_mw("cris", table[name], **CRIS_ENCODING)
+        kelvin = ir_spectral.brightness_temperature(radiance, plan.wavenumber[index])
+        field = pa.field(
+            f"{wide.KELVIN_PREFIX}__ch_{name[-5:]}",
+            pa.float32(),
+            metadata={wide.VALUE_UNIT_KEY: b"K"},
+        )
+        kelvin_columns.append((field, pa.array(kelvin.astype(np.float32))))
+    kelvin_table = table.drop_columns(list(plan.value_columns))
+    for field, values in kelvin_columns:
+        kelvin_table = kelvin_table.append_column(field, values)
+
+    kelvin_loader = loader_for(
+        build_archive("cris"), sensors=("cris",), normalize=False, thin_nside=None
+    )
+    kelvin_plan = kelvin_loader.read_plan("cris", DAY, kelvin_table.schema)
+    assert kelvin_plan.holds_kelvin
+    assert kelvin_plan.global_channel_id.tolist() == plan.global_channel_id.tolist()
+    from_radiance = as_long(
+        radiance_loader, radiance_loader.to_footprints(table, plan, "cris", None, ())
+    )
+    from_kelvin = as_long(
+        kelvin_loader,
+        kelvin_loader.to_footprints(kelvin_table, kelvin_plan, "cris", None, ()),
+    )
+    assert from_kelvin.num_rows == from_radiance.num_rows > 0
+    np.testing.assert_allclose(
+        from_kelvin["Observation"].to_numpy(),
+        from_radiance["Observation"].to_numpy(),
+        rtol=0,
+        atol=1e-3,
+    )
+    undeclared = kelvin_table.cast(
+        pa.schema([field.remove_metadata() for field in kelvin_table.schema])
+    )
+    with pytest.raises(ValueError, match="must declare K"):
+        loader_for(build_archive("cris"), sensors=("cris",), normalize=False).read_plan(
+            "cris", DAY, undeclared.schema
+        )

@@ -14,43 +14,49 @@ from healda.datasets.da.transform import TransformV2, _map_platform_to_local
 from healda.varlen import lengths_to_idx
 
 
-def _sensor_batch(sensor_id, b, t, payloads):
+def _sensor_batch(sensor_id, payloads):
     # One record batch per (sensor, b, t); unique payloads stay traceable.
     n = len(payloads)
     return pa.record_batch(
         {
             "sensor_id": pa.array([sensor_id] * n, type=pa.int16()),
-            "batch_idx": pa.array([b] * n, type=pa.int16()),
-            "time_idx": pa.array([t] * n, type=pa.int16()),
             "payload": pa.array(payloads, type=pa.int64()),
         }
     )
 
 
-def _assemble_bt(obs_by_window, ordered_sensor_ids, B, T, split=None):
+def _pack(frames, sensor_rank, ordered_sensor_ids, B, T):
     # Mirror _process_obs's sort + lengths build; return (window_of_obs, payloads)
-    # with window = batch_idx*T + time_idx. obs_by_window: (b,t) -> {sensor_id: [..]}.
-    # split cuts each group into batches of that many rows.
-    batches = []
+    # with window = batch_idx*T + time_idx.
+    parts = TransformV2._sorted_parts(frames, sensor_rank)
+    model_rank = {int(s): r for r, s in enumerate(ordered_sensor_ids.tolist())}
+    lengths = torch.zeros((len(model_rank), B, T), dtype=torch.int32)
+    for _, b, t, part in parts:
+        lengths[model_rank[part["sensor_id"][0].as_py()], b, t] += part.num_rows
+    payloads = torch.cat(
+        [torch.from_numpy(part["payload"].to_numpy().copy()) for *_, part in parts]
+    )
+    window_of_obs = lengths_to_idx(lengths) % (B * T)
+    return window_of_obs, payloads
+
+
+def _assemble_bt(obs_by_window, ordered_sensor_ids, B, T, split=None):
+    # obs_by_window: (b,t) -> {sensor_id: [..]}; split cuts each group into batches of
+    # that many rows.
+    frames = []
     for b in range(B):
+        frames.append([])
         for t in range(T):
+            batches = []
             for sensor_id, payloads in obs_by_window[(b, t)].items():
                 step = split or len(payloads)
                 for start in range(0, len(payloads), step):
                     batches.append(
-                        _sensor_batch(sensor_id, b, t, payloads[start : start + step])
+                        _sensor_batch(sensor_id, payloads[start : start + step])
                     )
-    table = pa.Table.from_batches(batches)
-
+            frames[b].append({"obs_v2": pa.Table.from_batches(batches)})
     sensor_rank = {int(s): r for r, s in enumerate(ordered_sensor_ids.tolist())}
-    table = TransformV2._sort_by_record_batch(table, "sensor_id", key_order=sensor_rank)
-    lengths = TransformV2._build_observation_lengths_3d(
-        table, [[None] * T for _ in range(B)], ordered_sensor_ids
-    )
-
-    payloads = torch.from_numpy(table["payload"].to_numpy().copy())
-    window_of_obs = lengths_to_idx(lengths) % (B * T)
-    return window_of_obs, payloads
+    return _pack(frames, sensor_rank, ordered_sensor_ids, B, T)
 
 
 def _assemble(per_sample, ordered_sensor_ids):
@@ -147,25 +153,37 @@ def test_a_window_split_across_record_batches_lands_in_one_frame():
     torch.testing.assert_close(whole[1], split[1])
 
 
+def test_a_record_batch_mixing_sensors_raises():
+    mixed = pa.record_batch(
+        {
+            "sensor_id": pa.array([0, 1], type=pa.int16()),
+            "payload": pa.array([100, 300], type=pa.int64()),
+        }
+    )
+    frames = [[{"obs_v2": pa.Table.from_batches([mixed])}]]
+    with pytest.raises(ValueError, match="more than one sensor_id"):
+        TransformV2._sorted_parts(frames, {0: 0, 1: 1})
+
+
 def test_raw_ascending_sort_would_leak_across_batch():
-    # Negative control: the old ascending-sensor_id sort must still leak.
+    # Negative control: sorting by ascending sensor_id against lengths in model order
+    # must still leak.
     ordered_sensor_ids = torch.tensor([0, 9, 1], dtype=torch.int32)
     per_sample = [
         {0: [100, 101], 9: [200, 201, 202], 1: [300]},
         {0: [110], 9: [210], 1: [310, 311]},
     ]
-    B, T = 2, 1
-    batches = []
-    for b in range(B):
-        for sensor_id, payloads in per_sample[b].items():
-            batches.append(_sensor_batch(sensor_id, b, 0, payloads))
-    table = pa.Table.from_batches(batches)
-
-    table_bad = TransformV2._sort_by_record_batch(table, "sensor_id", key_order=None)
-    lengths = TransformV2._build_observation_lengths_3d(
-        table_bad, [[None]] * B, ordered_sensor_ids
-    )
-    payloads = torch.from_numpy(table_bad["payload"].to_numpy().copy())
-    window_of_obs = lengths_to_idx(lengths) % (B * T)
+    frames = [
+        [
+            {
+                "obs_v2": pa.Table.from_batches(
+                    [_sensor_batch(s, p) for s, p in sample.items()]
+                )
+            }
+        ]
+        for sample in per_sample
+    ]
+    ascending = {s: r for r, s in enumerate(sorted(ordered_sensor_ids.tolist()))}
+    window_of_obs, payloads = _pack(frames, ascending, ordered_sensor_ids, B=2, T=1)
     got0 = set(payloads[window_of_obs == 0].tolist())
     assert got0 != {100, 101, 200, 201, 202, 300}

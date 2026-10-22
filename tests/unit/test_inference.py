@@ -23,6 +23,7 @@ from healda.observations.adapters import e2s_nnja
 from healda.observations import sensors, sensors_nnja
 from healda.observations.system import ChannelDenial, load_denials
 from healda.observations.loaders import combined
+from healda.observations.protocols import as_table
 from healda.observations.schema import GLOBAL_CHANNEL_ID, SENSOR_ID
 from tests.unit.test_e2s_nnja_adapter import CYCLE, _gps_frame, _wind_frame
 
@@ -45,7 +46,10 @@ LATLON_OBS = ObsConfig(
 
 
 def _sel(loader, times):
-    return asyncio.run(loader.sel_time(pd.DatetimeIndex(times)))["obs_v2"]
+    return [
+        as_table(obs)
+        for obs in asyncio.run(loader.sel_time(pd.DatetimeIndex(times)))["obs_v2"]
+    ]
 
 
 def test_tables_load_in_the_combined_vocabulary():
