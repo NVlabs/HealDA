@@ -810,9 +810,11 @@ def pca_kernel_long(
 
         # --- cross-CTA combine for split chunks ---
         # Each chunk publishes its own (m, l, O) state; whichever chunk retires
-        # last (the one that sees the slot counter hit zero) reads the siblings
-        # back and folds them in with the stable merge
+        # last (the one that sees the slot counter hit zero) reloads chunk 0 and
+        # folds chunks 1.. in order with the stable merge
         #     m = max(m_a, m_b),  l = l_a 2**(m_a-m) + l_b 2**(m_b-m),  likewise O.
+        # The fold order is fixed, so the result does not depend on which chunk
+        # retires last.
         if const_expr(sched):
           sch = sidx // Int32(MAXCH)
           sb = sidx * Int32(SCR_PER_CH)
@@ -839,26 +841,30 @@ def pca_kernel_long(
                 if sidx >= Int32(0):
                     cute.arch.fence_acq_rel_gpu()
                     nch = mMeta[8 + MAXSLOT + sch]
-                    myc = sidx - sch * Int32(MAXCH)
                     oth = cute.make_fragment_like(acc_O, Float32)
                     oth_mn = acc_mn_view_long(oth)
-                    for c in cutlass.range(nch):
-                        if c != myc:
-                            ob = (sch * Int32(MAXCH) + c) * Int32(SCR_PER_CH)
-                            for i in cutlass.range_constexpr(n_E):
-                                oth[i] = mScr[ob + Int32(i * nthread) + tidx]
-                            for r in cutlass.range_constexpr(n_rows):
-                                l2 = mScr[ob + Int32(2048 + r * nthread) + tidx]
-                                m2 = mScr[ob + Int32(2048 + (n_rows + r) * nthread)
-                                          + tidx]
-                                mn = m2 if m2 > row_max[r] else row_max[r]
-                                s1 = cute.math.exp2(row_max[r] - mn, fastmath=True)
-                                s2 = cute.math.exp2(m2 - mn, fastmath=True)
-                                row_max[r] = mn
-                                row_sum[r] = row_sum[r] * s1 + l2 * s2
-                                acc_O_mn[r, None].store(
-                                    acc_O_mn[r, None].load() * s1
-                                    + oth_mn[r, None].load() * s2)
+                    ob = sch * Int32(MAXCH * SCR_PER_CH)
+                    for i in cutlass.range_constexpr(n_E):
+                        acc_O[i] = mScr[ob + Int32(i * nthread) + tidx]
+                    for r in cutlass.range_constexpr(n_rows):
+                        row_sum[r] = mScr[ob + Int32(2048 + r * nthread) + tidx]
+                        row_max[r] = mScr[ob + Int32(2048 + (n_rows + r) * nthread) + tidx]
+                    for c in cutlass.range(1, nch):
+                        ob = (sch * Int32(MAXCH) + c) * Int32(SCR_PER_CH)
+                        for i in cutlass.range_constexpr(n_E):
+                            oth[i] = mScr[ob + Int32(i * nthread) + tidx]
+                        for r in cutlass.range_constexpr(n_rows):
+                            l2 = mScr[ob + Int32(2048 + r * nthread) + tidx]
+                            m2 = mScr[ob + Int32(2048 + (n_rows + r) * nthread)
+                                      + tidx]
+                            mn = m2 if m2 > row_max[r] else row_max[r]
+                            s1 = cute.math.exp2(row_max[r] - mn, fastmath=True)
+                            s2 = cute.math.exp2(m2 - mn, fastmath=True)
+                            row_max[r] = mn
+                            row_sum[r] = row_sum[r] * s1 + l2 * s2
+                            acc_O_mn[r, None].store(
+                                acc_O_mn[r, None].load() * s1
+                                + oth_mn[r, None].load() * s2)
 
             # --- epilogue: normalize, apply W_v + B_v, store ---
             for r in cutlass.range_constexpr(n_rows):
@@ -1643,9 +1649,11 @@ def pca_kernel_uniform(
 
         # --- cross-CTA combine for split chunks ---
         # Each chunk publishes its own (m, l, O) state; whichever chunk retires
-        # last (the one that sees the slot counter hit zero) reads the siblings
-        # back and folds them in with the stable merge
+        # last (the one that sees the slot counter hit zero) reloads chunk 0 and
+        # folds chunks 1.. in order with the stable merge
         #     m = max(m_a, m_b),  l = l_a 2**(m_a-m) + l_b 2**(m_b-m),  likewise O.
+        # The fold order is fixed, so the result does not depend on which chunk
+        # retires last.
         if const_expr(sched):
           sch = sidx // Int32(MAXCH)
           sb = sidx * Int32(SCR_PER_CH)
@@ -1672,26 +1680,30 @@ def pca_kernel_uniform(
                 if sidx >= Int32(0):
                     cute.arch.fence_acq_rel_gpu()
                     nch = mMeta[8 + MAXSLOT + sch]
-                    myc = sidx - sch * Int32(MAXCH)
                     oth = cute.make_fragment_like(acc_O, Float32)
                     oth_mn = acc_mn_view_uniform(oth)
-                    for c in cutlass.range(nch):
-                        if c != myc:
-                            ob = (sch * Int32(MAXCH) + c) * Int32(SCR_PER_CH)
-                            for i in cutlass.range_constexpr(n_E):
-                                oth[i] = mScr[ob + Int32(i * nthread) + tidx]
-                            for r in cutlass.range_constexpr(n_rows):
-                                l2 = mScr[ob + Int32(2048 + r * nthread) + tidx]
-                                m2 = mScr[ob + Int32(2048 + (n_rows + r) * nthread)
-                                          + tidx]
-                                mn = m2 if m2 > row_max[r] else row_max[r]
-                                s1 = cute.math.exp2(row_max[r] - mn, fastmath=True)
-                                s2 = cute.math.exp2(m2 - mn, fastmath=True)
-                                row_max[r] = mn
-                                row_sum[r] = row_sum[r] * s1 + l2 * s2
-                                acc_O_mn[r, None].store(
-                                    acc_O_mn[r, None].load() * s1
-                                    + oth_mn[r, None].load() * s2)
+                    ob = sch * Int32(MAXCH * SCR_PER_CH)
+                    for i in cutlass.range_constexpr(n_E):
+                        acc_O[i] = mScr[ob + Int32(i * nthread) + tidx]
+                    for r in cutlass.range_constexpr(n_rows):
+                        row_sum[r] = mScr[ob + Int32(2048 + r * nthread) + tidx]
+                        row_max[r] = mScr[ob + Int32(2048 + (n_rows + r) * nthread) + tidx]
+                    for c in cutlass.range(1, nch):
+                        ob = (sch * Int32(MAXCH) + c) * Int32(SCR_PER_CH)
+                        for i in cutlass.range_constexpr(n_E):
+                            oth[i] = mScr[ob + Int32(i * nthread) + tidx]
+                        for r in cutlass.range_constexpr(n_rows):
+                            l2 = mScr[ob + Int32(2048 + r * nthread) + tidx]
+                            m2 = mScr[ob + Int32(2048 + (n_rows + r) * nthread)
+                                      + tidx]
+                            mn = m2 if m2 > row_max[r] else row_max[r]
+                            s1 = cute.math.exp2(row_max[r] - mn, fastmath=True)
+                            s2 = cute.math.exp2(m2 - mn, fastmath=True)
+                            row_max[r] = mn
+                            row_sum[r] = row_sum[r] * s1 + l2 * s2
+                            acc_O_mn[r, None].store(
+                                acc_O_mn[r, None].load() * s1
+                                + oth_mn[r, None].load() * s2)
 
             # --- epilogue: normalize, apply W_v + B_v, store ---
             for r in cutlass.range_constexpr(n_rows):
