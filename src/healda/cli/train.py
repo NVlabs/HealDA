@@ -1813,8 +1813,11 @@ LOOPS[NNJA_LATLON_DENSE_POS] = dataclasses.replace(
 # Short names.
 LOOPS["v2-ufs-hpx64"] = LOOPS[UFS_HPX64]
 LOOPS["v2-nnja-hpx64"] = LOOPS[NNJA_HPX64]
+LOOPS["v2-nnja-latlon-dense"] = LOOPS[NNJA_LATLON_DENSE_POS]  # HealDA v2, released
+LOOPS["v2-nnja-latlon-beta"] = LOOPS[NNJA_LATLON]  # HealDA v2 beta
+# Earlier name of v2-nnja-latlon-beta. Runs launched under it keep their run directory,
+# which is named after --name.
 LOOPS["v2-nnja-latlon-final"] = LOOPS[NNJA_LATLON]
-LOOPS["v2-nnja-latlon-dense"] = LOOPS[NNJA_LATLON_DENSE_POS]
 
 # End-to-end single-GPU training smoke test.
 LOOPS["debug-single-gpu"] = dataclasses.replace(

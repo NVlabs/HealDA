@@ -115,14 +115,12 @@ Multi-process and multi-node configurations require CUDA/NCCL.
 
 ## Hardware
 
-The checkpoints come from the 0.25 degree recipe `v2-nnja-latlon-final` in
-`healda.cli.train`. It has been trained on GB300 nodes with `time_parallel=8`,
-eight GPUs per video sample. `time_parallel=4` also trains without changes.
-Training it on H100-class GPUs needs further memory savings, such as more
-activation checkpointing, and has not been validated.
-`v2-nnja-latlon-dense` is that recipe with denser observations, observation position features
-and corrected radiosonde placement; its settings are listed beside it in
-`healda.cli.train`. It reads more observations per sample, so inference with it needs
+The released HealDA v2 checkpoint comes from the 0.25 degree recipe
+`v2-nnja-latlon-dense` in `healda.cli.train`; its settings are listed beside it. It has
+been trained on GB300 nodes with `time_parallel=8`, eight GPUs per video sample.
+`time_parallel=4` also trains without changes. Training on H100-class GPUs needs further
+memory savings, such as more activation checkpointing, and has not been validated. It reads
+many observations per sample, so inference with it needs
 `healda-inference-local --prefetch-factor 2` to stay within host memory.
 As a reference for a new setup, that recipe trains at about 126 seconds per thousand
 samples (`Timing/sec_per_kimg` in the log) on 32 GB300 GPUs (batch 4, `time_parallel=8`),

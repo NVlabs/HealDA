@@ -30,7 +30,8 @@ follow semantic versioning starting with its first tagged release.
   (`cycle_time`).
 - NNJA loaders take in-memory cycle tables (`table_source`, `gpsro_table_source`,
   `satwnd_table_source`, `prepbufr_table_source`) in place of the archive.
-- `v2-nnja-latlon-dense` training preset: `v2-nnja-latlon-final` with denser
+- `v2-nnja-latlon-dense` training preset, the recipe of the released HealDA v2
+  checkpoint: `v2-nnja-latlon-beta` with denser
   observations, observation position features and corrected radiosonde placement. Its
   settings are listed beside it in `healda.cli.train`; its input differences in
   `docs/observations.md`.
@@ -43,6 +44,8 @@ follow semantic versioning starting with its first tagged release.
 
 ### Changed
 
+- The default wandb project is `ufs-da`, the project every HealDA run so far logged to.
+- `v2-nnja-latlon-final` is renamed `v2-nnja-latlon-beta`; the old name remains an alias.
 - Training is launched through the packaged CLI.
 - The fused FiLM tokenizer indexes rows in int64; int32 row addresses overflowed past
   2**31 / feature-dim rows, which one unsharded analysis window exceeds.

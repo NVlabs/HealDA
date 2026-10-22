@@ -183,7 +183,7 @@ def test_latlon_decode_without_a_latlon_task_raises():
     # __post_init__ resolves the task, so construction is what raises.
     with pytest.raises(ValueError, match="era5_99ch_latlon"):
         dataclasses.replace(
-            LOOPS["v2-nnja-latlon-final"],
+            LOOPS["v2-nnja-latlon-beta"],
             dataset="era5_99ch",
         )
 
@@ -191,7 +191,7 @@ def test_latlon_decode_without_a_latlon_task_raises():
 def test_latlon_decode_refuses_a_condition_it_would_discard():
     """Hpx256LatlonModel.forward drops the assembled condition, so a config that puts
     anything in it would size pos_embed for a tensor the backbone never sees."""
-    latlon = LOOPS["v2-nnja-latlon-final"]
+    latlon = LOOPS["v2-nnja-latlon-beta"]
     # mask_training is use_obs=False with no background, which is how it is reached.
     no_obs = dataclasses.replace(
         latlon, obs_config=dataclasses.replace(latlon.obs_config, use_obs=False)

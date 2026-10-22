@@ -189,7 +189,7 @@ class TrainingLoopBase(abc.ABC):
     # wandb
     wandb_id: str | None = None  # will be read from checkpoint if not provided
     wandb_enabled: bool = True
-    wandb_project: str = "healda"
+    wandb_project: str = "ufs-da"
     wandb_entity: str | None = None
 
     # logging

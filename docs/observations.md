@@ -55,21 +55,17 @@ validity bounds and its normalization statistics all ship with the package.
 
 ## Matching a trained checkpoint
 
-The checkpoints were trained on the NNJA archive, built from the NNJA BUFR feeds,
-with the `v2-nnja-latlon-final` configuration in `healda/cli/train.py`. Settings
-named below take that configuration's values.
+The released HealDA v2 checkpoint was trained on the NNJA archive, built from the
+NNJA BUFR feeds, with the `v2-nnja-latlon-dense` configuration in
+`healda/cli/train.py`. Settings named below take that configuration's values, among them:
 
-`v2-nnja-latlon-dense` reads the same inputs with these differences
-(`v2-nnja-latlon-final` in brackets):
-
-- Satellite sounders are thinned at HEALPix nside 128 (64), `nnja_thin_nside`.
-- Satellite winds are thinned at HEALPix level 6 (5), `nnja_satwnd_thin_hpx_level`.
-- PrepBUFR reports with quality marks up to 3 (2) are kept, `nnja_max_quality_mark`.
-- Radiosonde levels sit at their drifted position and time (launch position),
-  `nnja_balloon_drift`. Conventional files then also need `XDR`, `YDR` and `HRDR`.
+- Satellite sounders are thinned at HEALPix nside 128, `nnja_thin_nside`.
+- Satellite winds are thinned at HEALPix level 6, `nnja_satwnd_thin_hpx_level`.
+- PrepBUFR reports with quality marks up to 3 are kept, `nnja_max_quality_mark`.
+- Radiosonde levels sit at their drifted position and time, `nnja_balloon_drift`.
+  Conventional files then also need `XDR`, `YDR` and `HRDR`.
 - Radiosonde and pibal winds without `ZOB` take the standard-atmosphere height of their
-  `POB` in training as well as at inference (at inference only),
-  `nnja_pressure_height_fill="sonde"`.
+  `POB`, in training and at inference, `nnja_pressure_height_fill="sonde"`.
 
 A checkpoint gives its intended results only on data prepared the same way. Data
 from another source, such as a near-real-time feed, has to reproduce the
@@ -208,7 +204,8 @@ on by default (`inference_filters` in `observations/system.py`):
   range. The list is `observations/denials.csv`.
 - **Radiosonde and pibal wind heights**: winds of report types 220 and 221 without
   `ZOB` get the standard-atmosphere height of their `POB` instead of being dropped
-  (`PRESSURE_HEIGHT_FILL` in `inference.py`).
+  (`PRESSURE_HEIGHT_FILL` in `inference.py`). The released checkpoint was trained
+  with the same fill.
 
 ## Invariants
 
