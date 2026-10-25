@@ -799,19 +799,18 @@ be divisible by <code>time_parallel * space_parallel</code>; the video length mu
 compatible with time sharding. FSDP with <code>space_parallel &gt; 1</code> is not wired.
 Multi-process and multi-node configurations require CUDA/NCCL.</p>
 <h2 id="hardware">Hardware<a class="headerlink" href="#hardware" title="Permanent link">&para;</a></h2>
-<p>The checkpoints come from the 0.25 degree recipe <code>v2-nnja-latlon-final</code> in
-<code>healda.cli.train</code>. It has been trained on GB300 nodes with <code>time_parallel=8</code>,
-eight GPUs per video sample. <code>time_parallel=4</code> also trains without changes.
-Training it on H100-class GPUs needs further memory savings, such as more
-activation checkpointing, and has not been validated.
-<code>v2-nnja-latlon-dense</code> is that recipe with denser observations, observation position features
-and corrected radiosonde placement; its settings are listed beside it in
-<code>healda.cli.train</code>. It reads more observations per sample, so inference with it needs
+<p>The released HealDA v2 checkpoint comes from the 0.25 degree recipe
+<code>v2-nnja-latlon-dense</code> in <code>healda.cli.train</code>; its settings are listed beside it. It has
+been trained on GB300 nodes with <code>time_parallel=8</code>, eight GPUs per video sample.
+<code>time_parallel=4</code> also trains without changes. Training on H100-class GPUs needs further
+memory savings, such as more activation checkpointing, and has not been validated. It reads
+many observations per sample, so inference with it needs
 <code>healda-inference-local --prefetch-factor 2</code> to stay within host memory.
-As a reference for a new setup, that recipe trains at about 126 seconds per thousand
+As a reference for a new setup, that recipe trains at about 155 seconds per thousand
 samples (<code>Timing/sec_per_kimg</code> in the log) on 32 GB300 GPUs (batch 4, <code>time_parallel=8</code>),
-about 110k samples in a 4-hour job. A much slower run usually lacks the CuTe DSL kernels or
-reads data from a slow filesystem.
+about 90k samples in a 4-hour job. A much slower run usually lacks the CuTe DSL kernels or
+reads data from a slow filesystem. For extra speed on GB300, also enable <code>fused_qk_norm=True</code>
+and <code>sensor_embedder_config.film_bwd_impl=2</code>.
 Inference currently needs about 40 GB of GPU memory and has been run on H100 and
 Blackwell GPUs.</p>
 <h2 id="prepared-observation-input">Prepared observation input<a class="headerlink" href="#prepared-observation-input" title="Permanent link">&para;</a></h2>

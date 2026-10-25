@@ -733,20 +733,17 @@ occultation files require <code>bending_angle</code>, <code>qfro</code>, <code>o
 <p>An NNJA run needs only <code>NNJA_ROOT</code>. The conventional channel vocabulary, its
 validity bounds and its normalization statistics all ship with the package.</p>
 <h2 id="matching-a-trained-checkpoint">Matching a trained checkpoint<a class="headerlink" href="#matching-a-trained-checkpoint" title="Permanent link">&para;</a></h2>
-<p>The checkpoints were trained on the NNJA archive, built from the NNJA BUFR feeds,
-with the <code>v2-nnja-latlon-final</code> configuration in <code>healda/cli/train.py</code>. Settings
-named below take that configuration's values.</p>
-<p><code>v2-nnja-latlon-dense</code> reads the same inputs with these differences
-(<code>v2-nnja-latlon-final</code> in brackets):</p>
+<p>The released HealDA v2 checkpoint was trained on the NNJA archive, built from the
+NNJA BUFR feeds, with the <code>v2-nnja-latlon-dense</code> configuration in
+<code>healda/cli/train.py</code>. Settings named below take that configuration's values, among them:</p>
 <ul>
-<li>Satellite sounders are thinned at HEALPix nside 128 (64), <code>nnja_thin_nside</code>.</li>
-<li>Satellite winds are thinned at HEALPix level 6 (5), <code>nnja_satwnd_thin_hpx_level</code>.</li>
-<li>PrepBUFR reports with quality marks up to 3 (2) are kept, <code>nnja_max_quality_mark</code>.</li>
-<li>Radiosonde levels sit at their drifted position and time (launch position),
-  <code>nnja_balloon_drift</code>. Conventional files then also need <code>XDR</code>, <code>YDR</code> and <code>HRDR</code>.</li>
+<li>Satellite sounders are thinned at HEALPix nside 128, <code>nnja_thin_nside</code>.</li>
+<li>Satellite winds are thinned at HEALPix level 6, <code>nnja_satwnd_thin_hpx_level</code>.</li>
+<li>PrepBUFR reports with quality marks up to 3 are kept, <code>nnja_max_quality_mark</code>.</li>
+<li>Radiosonde levels sit at their drifted position and time, <code>nnja_balloon_drift</code>.
+  Conventional files then also need <code>XDR</code>, <code>YDR</code> and <code>HRDR</code>.</li>
 <li>Radiosonde and pibal winds without <code>ZOB</code> take the standard-atmosphere height of their
-  <code>POB</code> in training as well as at inference (at inference only),
-  <code>nnja_pressure_height_fill="sonde"</code>.</li>
+  <code>POB</code>, in training and at inference, <code>nnja_pressure_height_fill="sonde"</code>.</li>
 </ul>
 <p>A checkpoint gives its intended results only on data prepared the same way. Data
 from another source, such as a near-real-time feed, has to reproduce the
@@ -888,7 +885,8 @@ on by default (<code>inference_filters</code> in <code>observations/system.py</c
   range. The list is <code>observations/denials.csv</code>.</li>
 <li><strong>Radiosonde and pibal wind heights</strong>: winds of report types 220 and 221 without
   <code>ZOB</code> get the standard-atmosphere height of their <code>POB</code> instead of being dropped
-  (<code>PRESSURE_HEIGHT_FILL</code> in <code>inference.py</code>).</li>
+  (<code>PRESSURE_HEIGHT_FILL</code> in <code>inference.py</code>). The released checkpoint was trained
+  with the same fill.</li>
 </ul>
 <h2 id="invariants">Invariants<a class="headerlink" href="#invariants" title="Permanent link">&para;</a></h2>
 <ul>
