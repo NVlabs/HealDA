@@ -41,12 +41,19 @@ follow semantic versioning starting with its first tagged release.
 - GitHub Actions `license-check` workflow running `ci/check_licenses.py` and
   `pre-commit` workflow running the ruff hooks.
 - `.license-info/` third-party dependency license inventory.
+- `fused_qk_norm` (training loop and model config): the disk-attention q/k RMSNorm and
+  the split into flex_attention's layout run as one CuTe DSL kernel.
+- `SensorEmbedderConfig.film_bwd_impl=2`: CuTe DSL backward for the fused FiLM tokenizer.
 
 ### Changed
 
 - The default wandb project is `ufs-da`, the project every HealDA run so far logged to.
 - `v2-nnja-latlon-final` is renamed `v2-nnja-latlon-beta`; the old name remains an alias.
 - Training is launched through the packaged CLI.
+- Under time parallelism only the temporal-attention branch is all-to-all'd, in bf16;
+  the residual stream stays time-sharded.
+- The DiT block stack is compiled with a dynamic observation count, so it no longer
+  recompiles when the count first changes.
 - The fused FiLM tokenizer indexes rows in int64; int32 row addresses overflowed past
   2**31 / feature-dim rows, which one unsharded analysis window exceeds.
 - earth2grid is pinned to a git revision instead of the `main` tarball.

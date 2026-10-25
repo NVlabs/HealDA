@@ -296,6 +296,9 @@ class TrainingLoop(loop.TrainingLoopBase):
     # Temporal-attention body: 0 einsum, 2 CuTe DSL kernels. Configurations the CuTe DSL kernels
     # cannot serve warn and fall back to einsum.
     fused_temporal_attn: int = 0
+    # Disk spatial attention: q/k RMSNorm + head split as one CuTe DSL kernel. Configurations
+    # the kernel cannot serve warn and fall back.
+    fused_qk_norm: bool = False
     # Pixel-attention backend: 1 Triton (baseline), 2 CuTe DSL.
     pixel_attn_impl: int = 1
     dit_qk_rms_norm: bool = False
@@ -1452,6 +1455,7 @@ class TrainingLoop(loop.TrainingLoopBase):
             temporal_attn_legacy_scaling_bug=self.temporal_attn_legacy_scaling_bug,
             temporal_causal_window=self.dit_temporal_attention_window,
             fused_temporal_attn=self.fused_temporal_attn,
+            fused_qk_norm=self.fused_qk_norm,
             pixel_attn_impl=self.pixel_attn_impl,
             attention_backend=self.attention_backend,
             level_in=self.resolved_hpx_in_level if self.latlon_decode else None,

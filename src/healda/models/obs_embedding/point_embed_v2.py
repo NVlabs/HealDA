@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import math
+import warnings
+
 import torch
 
 import healda.utils.profiling
@@ -14,10 +16,13 @@ from healda.models.obs_embedding.scatter_infill_aggregators import ScatterAggreg
 
 try:
     from healda.models.obs_embedding.fused_film_triton import (
+        FILM_BWD_CUTEDSL,
+        FILM_BWD_TRITON,
         fused_film_tokenizer_triton,
     )
 except (ImportError, OSError):
     fused_film_tokenizer_triton = None
+    FILM_BWD_TRITON, FILM_BWD_CUTEDSL = 0, 2
 
 
 def _prod(shape):
@@ -190,6 +195,7 @@ class ObsTokenizerFiLM(torch.nn.Module):
         use_global_channel_platform_ids: bool = False,
         hidden_dim: int | None = None,
         max_global_channels: int = GLOBAL_MAX_CHANNELS,
+        film_bwd_impl: int = 0,
     ):
         super().__init__()
         self.out_dim = out_dim
@@ -231,6 +237,44 @@ class ObsTokenizerFiLM(torch.nn.Module):
             torch.nn.SiLU(),
             torch.nn.Linear(hidden_dim, 2 * out_dim),
         )
+        self.film_bwd_impl = self._resolve_film_bwd_impl(
+            film_bwd_impl, meta_dim, out_dim
+        )
+
+    def _resolve_film_bwd_impl(
+        self, film_bwd_impl: int, meta_dim: int, out_dim: int
+    ) -> int:
+        if film_bwd_impl not in (FILM_BWD_TRITON, FILM_BWD_CUTEDSL):
+            raise ValueError(f"film_bwd_impl must be 0 or 2; got {film_bwd_impl!r}")
+        if film_bwd_impl != FILM_BWD_CUTEDSL:
+            return film_bwd_impl
+        from healda.models.kernels import film_bwd_unsupported_reasons
+
+        blockers = film_bwd_unsupported_reasons(
+            meta_dim=meta_dim,
+            obs_embed_dim=self.obs_type_embed_dim,
+            chan_embed_dim=self.channel_embed_dim,
+            platform_embed_dim=self.platform_embed_dim,
+            hidden_dim=self.hidden_dim,
+            out_dim=out_dim,
+            table_rows=(
+                self.embed_table.num_embeddings,
+                self.channel_embedding.num_embeddings,
+                self.platform_embedding.num_embeddings
+                if self.platform_embedding
+                else 0,
+            ),
+        )
+        if not self.use_fused_mlp:
+            blockers.insert(0, "use_fused_mlp=True")
+        if blockers:
+            warnings.warn(
+                f"cutedsl FiLM backward disabled: it requires {', '.join(blockers)}. "
+                "Falling back to the Triton backward.",
+                stacklevel=3,
+            )
+            return FILM_BWD_TRITON
+        return FILM_BWD_CUTEDSL
 
     # --- Pure-PyTorch reference path (used when use_fused_mlp=False) -----------
     # The two helpers below + the else-branch of forward() spell out the tokenizer
@@ -292,6 +336,7 @@ class ObsTokenizerFiLM(torch.nn.Module):
                 self.cond_mlp[1],
                 self.cond_mlp[3],
                 eps=self.cond_mlp[1].eps,
+                bwd_impl=self.film_bwd_impl,
             )
 
         # Pure-PyTorch reference path (identical results to the fused kernel).

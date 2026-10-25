@@ -65,7 +65,9 @@ def normalize_attention_backend(attention_backend: str) -> str:
     return attention_backend
 
 
-def _spatial_attention_cls(attention_backend: str, pixel_order: str):
+def _spatial_attention_cls(
+    attention_backend: str, pixel_order: str, fused_qk_norm: bool = False
+):
     attention_backend = normalize_attention_backend(attention_backend)
     if attention_backend == "te":
         return TESpatialAttention
@@ -78,6 +80,7 @@ def _spatial_attention_cls(attention_backend: str, pixel_order: str):
             DiskSpatialAttention,
             radius_deg=float(radius),
             pixel_order=pixel_order,
+            fused_qk_norm=fused_qk_norm,
         )
     raise ValueError(f"Unknown attention_backend '{attention_backend}'")
 
@@ -264,6 +267,7 @@ class TransformerBlock(nn.Module):
         temporal_attn_legacy_scaling_bug: bool = False,
         temporal_causal_window: int | None = None,
         fused_temporal_attn: int = TEMPORAL_ATTN_EINSUM,
+        fused_qk_norm: bool = False,
         attention_backend: str = "diffusers",
         pixel_order: str = "hpxpadxy",
         obs_cross_attention: bool = False,
@@ -298,7 +302,9 @@ class TransformerBlock(nn.Module):
 
         self.temporal_attn = None
         if temporal_attention:
-            attn_cls = _spatial_attention_cls(attention_backend, pixel_order)
+            attn_cls = _spatial_attention_cls(
+                attention_backend, pixel_order, fused_qk_norm
+            )
             self.temporal_attn_norm = AdaLayerNormTemporalAttn(dim, emb_channels)
             self.temporal_attn = TemporalAttention(
                 embed_dim=dim,
@@ -407,6 +413,27 @@ class TransformerBlock(nn.Module):
         self._chunk_size = chunk_size
         self._chunk_dim = dim
 
+    def _apply_temporal_attention(self, hidden_states, emb, is_causal):
+        """Temporal attention needs every frame of a pixel on one rank. With time parallelism
+        only the attention branch changes layout: its input goes out x-sharded and its output
+        comes back t-sharded, so the fp32 residual stream never leaves its t-sharded layout."""
+        norm_hidden_states, gate = self.temporal_attn_norm(hidden_states, emb)
+        group = self._parallel_group
+        if group is None:
+            attn_output = self.temporal_attn(norm_hidden_states, is_causal)
+        else:
+            # The qkv projection casts to the autocast dtype anyway; casting before the
+            # all-to-all halves the bytes moved.
+            if torch.is_autocast_enabled("cuda"):
+                norm_hidden_states = norm_hidden_states.to(
+                    torch.get_autocast_dtype("cuda")
+                )
+            attn_output = self.temporal_attn(
+                shard_x(norm_hidden_states, group), is_causal
+            )
+            attn_output = shard_t(attn_output, group)
+        return torch.addcmul(hidden_states, self.drop_path(gate), attn_output)
+
     def _apply_obs_attention(
         self,
         hidden_states: torch.Tensor,
@@ -458,7 +485,6 @@ class TransformerBlock(nn.Module):
         emb: torch.Tensor,
         obs_tokens,
         attention_packing,
-        input_t_sharded: bool,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_hidden_states: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
@@ -467,8 +493,7 @@ class TransformerBlock(nn.Module):
         is_causal: bool = False,  # if temporal attn is causal
         checkpoint_ff: bool = False,
     ) -> torch.Tensor:
-        # input_t_sharded is carried through to the return rather than acted on: the caller
-        # shards before the block so every block traces at one shape.
+        # Input and output are t-sharded under time parallelism.
 
         # 0. Self-Attention
         norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.norm1(
@@ -532,14 +557,8 @@ class TransformerBlock(nn.Module):
         # temporal attention
         if self.temporal_attn is not None:
             with healda.utils.profiling.nvtx_range("temporal_attn"):
-                if self._parallel_group is not None:
-                    hidden_states = shard_x(hidden_states, self._parallel_group)
-                    input_t_sharded = False
-
-                norm_hidden_states, gate = self.temporal_attn_norm(hidden_states, emb)
-                attn_output = self.temporal_attn(norm_hidden_states, is_causal)
-                hidden_states = torch.addcmul(
-                    hidden_states, self.drop_path(gate), attn_output
+                hidden_states = self._apply_temporal_attention(
+                    hidden_states, emb, is_causal
                 )
 
         # 4. Feed-forward
@@ -557,7 +576,7 @@ class TransformerBlock(nn.Module):
             hidden_states = torch.addcmul(
                 hidden_states, self.drop_path(gate_mlp), ff_output
             )
-        return hidden_states, input_t_sharded
+        return hidden_states
 
     def set_domain_parallel_group(self, group):
         self.attn1.set_domain_parallel_group(group)
@@ -683,6 +702,8 @@ class DiT(torch.nn.Module):
         temporal_causal_window: int | None = None,
         # Temporal-attention implementation; see attention.TEMPORAL_ATTN_*.
         fused_temporal_attn: int = TEMPORAL_ATTN_EINSUM,
+        # Fused q/k RMSNorm + head split in disk spatial attention; see DiskSpatialAttention.
+        fused_qk_norm: bool = False,
         attention_backend: str = "diffusers",
         add_calendar: bool = True,
         backbone_pixel_attention: bool = False,
@@ -777,6 +798,7 @@ class DiT(torch.nn.Module):
                 channel_embed_dim=sensor_embedder_config.channel_embed_dim,
                 platform_embed_dim=sensor_embedder_config.platform_embed_dim,
                 use_fused_mlp=sensor_embedder_config.use_fused_mlp,
+                film_bwd_impl=sensor_embedder_config.film_bwd_impl,
                 use_global_channel_platform_ids=True,
                 hidden_dim=sensor_embedder_config.film_hidden_dim,
                 max_global_channels=sensor_embedder_config.max_global_channels,
@@ -852,6 +874,7 @@ class DiT(torch.nn.Module):
                     temporal_attn_legacy_scaling_bug=temporal_attn_legacy_scaling_bug,
                     temporal_causal_window=temporal_causal_window,
                     fused_temporal_attn=fused_temporal_attn,
+                    fused_qk_norm=fused_qk_norm,
                     attention_backend=attention_backend,
                     pixel_order=self.spatial_token_order,
                     obs_cross_attention=backbone_pixel_attention,
@@ -1010,38 +1033,25 @@ class DiT(torch.nn.Module):
             )
         else:
             checkpointed = set(range(n_blocks))
+        # Blocks run t-sharded: shard once here rather than at a block's entry, so every block
+        # is traced at one shape (a second shape makes dynamo treat t and x as symbolic, and
+        # the DDP graph splitter then passes symints where AOTAutograd wants ints).
+        if self._parallel_group is not None and not input_t_sharded:
+            hidden_states = shard_t(hidden_states, self._parallel_group)
         for i, block in enumerate(blocks):
             block_checkpointing = gradient_checkpointing if i in checkpointed else 0
             with healda.utils.profiling.nvtx_range(f"dit:block{i}"):
-                # Time-shard here, not at the block's own entry, so every block is traced
-                # at one shape: a second shape makes dynamo treat t and x as symbolic, and
-                # the DDP graph splitter then passes symints where AOTAutograd wants ints.
-                if self._parallel_group is not None and not input_t_sharded:
-                    hidden_states = shard_t(hidden_states, self._parallel_group)
-                    input_t_sharded = True
                 args = (hidden_states, emb, obs_tokens, attention_packing)
                 if block_checkpointing > 1:
-                    hidden_states, input_t_sharded = torch.utils.checkpoint.checkpoint(
-                        partial(
-                            block,
-                            input_t_sharded=input_t_sharded,
-                        ),
-                        *args,
-                        use_reentrant=False,
-                        is_causal=is_causal,
+                    hidden_states = torch.utils.checkpoint.checkpoint(
+                        block, *args, use_reentrant=False, is_causal=is_causal
                     )
-
                 else:
-                    hidden_states, input_t_sharded = block(
+                    hidden_states = block(
                         *args,
-                        input_t_sharded=input_t_sharded,
                         is_causal=is_causal,
                         checkpoint_ff=block_checkpointing == 1,
                     )
-
-        # the output should be sharded in time
-        if self._parallel_group is not None and not input_t_sharded:
-            hidden_states = shard_t(hidden_states, self._parallel_group)
 
         # 3. Output
         shift, scale = self.proj_out_1(emb).chunk(2, dim=1)

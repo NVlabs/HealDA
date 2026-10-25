@@ -559,6 +559,30 @@ FLEX_KERNEL_OPTIONS = {
 }
 
 
+def _rms_norm_eps(norm: torch.nn.RMSNorm) -> float:
+    # RMSNorm(eps=None) uses the machine epsilon of its compute dtype, fp32 under autocast.
+    return torch.finfo(torch.float32).eps if norm.eps is None else norm.eps
+
+
+def _fused_qk_norm_available(
+    qk_norm: str | None, heads: int, dim_head: int, elementwise_affine: bool
+) -> bool:
+    from healda.models.kernels import qk_norm_unsupported_reasons
+
+    blockers = qk_norm_unsupported_reasons(
+        num_heads=heads, head_dim=dim_head, norm_has_weight=elementwise_affine
+    )
+    if qk_norm != "rms_norm":
+        blockers.insert(0, "qk_norm='rms_norm'")
+    if blockers:
+        warnings.warn(
+            f"fused q/k norm disabled: it requires {', '.join(blockers)}. "
+            "Falling back to the unfused path.",
+            stacklevel=3,
+        )
+    return not blockers
+
+
 class DiskSpatialAttention(torch.nn.Module):
     """Spatial self-attention over HEALPix tokens, restricted to a geodesic disk per query.
 
@@ -582,7 +606,10 @@ class DiskSpatialAttention(torch.nn.Module):
         out_bias: bool = True,
         qk_norm: str | None = None,
         elementwise_affine: bool = True,
+        fused_qk_norm: bool = False,
     ):
+        """``fused_qk_norm`` runs the q/k RMSNorm and the split into flex_attention's layout
+        as one CuTe DSL kernel. A request the kernel cannot serve warns and falls back."""
         super().__init__()
         del upcast_attention
         if cross_attention_dim is not None:
@@ -606,12 +633,31 @@ class DiskSpatialAttention(torch.nn.Module):
             if qk_norm == "rms_norm"
             else None
         )
+        self.fused_qk_norm = fused_qk_norm and _fused_qk_norm_available(
+            qk_norm, heads, dim_head, elementwise_affine
+        )
         self._block_mask = None
 
     def prepare_block_mask(self, num_tokens: int, device) -> None:
         self._block_mask = healpix_disk_block_mask(
             num_tokens, self.radius_deg, str(device), self.pixel_order
         )
+
+    def _split_heads(self, qkv):
+        """(bt, x, 3 * h * d) -> q, k, v of (bt, h, x, d), with q and k normalised."""
+        if self.fused_qk_norm and qkv.dtype == torch.bfloat16:
+            from healda.models.kernels import qk_norm_split_heads
+
+            return qk_norm_split_heads(qkv, _rms_norm_eps(self.norm_q))
+        bt, x, _ = qkv.shape
+        # Strided views in flex_attention's (bt, h, x, d) order.
+        q, k, v = qkv.view(bt, x, 3, self.num_heads, self.head_dim).permute(
+            2, 0, 3, 1, 4
+        )
+        if self.norm_q is not None:
+            q = self.norm_q(q).to(v.dtype)
+            k = self.norm_k(k).to(v.dtype)
+        return q, k, v
 
     def forward(
         self,
@@ -632,18 +678,7 @@ class DiskSpatialAttention(torch.nn.Module):
             )
 
         b, t, x, c = hidden_states.shape
-        qkv = self.qkv(hidden_states.reshape(b * t, x, c))
-        # (bt, x, 3, h, d) -> three of (bt, h, x, d), the layout flex_attention wants.
-        q, k, v = qkv.view(b * t, x, 3, self.num_heads, self.head_dim).permute(
-            2, 0, 3, 1, 4
-        )
-
-        if self.norm_q is not None:
-            q = self.norm_q(q)
-            k = self.norm_k(k)
-            if q.dtype != v.dtype:
-                q = q.to(v.dtype)
-                k = k.to(v.dtype)
+        q, k, v = self._split_heads(self.qkv(hidden_states.reshape(b * t, x, c)))
 
         # On q, not on the input: under autocast the input stays fp32 while the projections
         # produce bf16. FLEX_KERNEL_OPTIONS is a 16-bit-only tile and fp32 fails inside

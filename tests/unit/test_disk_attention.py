@@ -138,3 +138,46 @@ def test_fp32_is_rejected_with_a_readable_message():
     ).cuda()
     with pytest.raises(TypeError, match="bf16"):
         module(torch.randn(1, 1, 12 * 4**3, 128, device="cuda"))
+
+
+@requires_gpu
+def test_fused_qk_norm_matches_unfused_path():
+    from healda.models.kernels import qk_norm_unsupported_reasons
+
+    if qk_norm_unsupported_reasons(num_heads=12, head_dim=128, norm_has_weight=False):
+        pytest.skip("fused q/k norm kernel unsupported here")
+    attn = DiskSpatialAttention(
+        query_dim=12 * 128, heads=12, dim_head=128, radius_deg=21.0, pixel_order="nest",
+        qk_norm="rms_norm", elementwise_affine=False, fused_qk_norm=True,
+    ).cuda()  # fmt: skip
+    qkv = torch.randn(2, 96, 3 * 12 * 128, device="cuda", dtype=torch.bfloat16)
+    grads = [torch.randn(2, 12, 96, 128, device="cuda", dtype=torch.bfloat16)] * 3
+
+    results = []
+    for fused in (False, True):
+        attn.fused_qk_norm = fused
+        x = qkv.clone().requires_grad_()
+        out = attn._split_heads(x)
+        torch.autograd.backward(out, grads)
+        results.append([o.float() for o in out] + [x.grad.float()])
+    for ref, got in zip(*results):
+        torch.testing.assert_close(got, ref, rtol=2e-2, atol=2e-2)
+
+
+def test_fused_qk_norm_falls_back_for_a_weighted_norm():
+    with pytest.warns(UserWarning, match="fused q/k norm disabled"):
+        attn = DiskSpatialAttention(
+            query_dim=12 * 128, heads=12, dim_head=128, radius_deg=21.0, pixel_order="nest",
+            qk_norm="rms_norm", elementwise_affine=True, fused_qk_norm=True,
+        )  # fmt: skip
+    assert not attn.fused_qk_norm
+
+
+def test_fused_qk_norm_falls_back_without_cuda(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    with pytest.warns(UserWarning, match="a CUDA device"):
+        attn = DiskSpatialAttention(
+            query_dim=12 * 128, heads=12, dim_head=128, radius_deg=21.0, pixel_order="nest",
+            qk_norm="rms_norm", elementwise_affine=False, fused_qk_norm=True,
+        )  # fmt: skip
+    assert not attn.fused_qk_norm

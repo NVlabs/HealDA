@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the fused FiLM tokenizer Triton kernel vs the pure-PyTorch reference."""
 
+import importlib
+
 import pytest
 import torch
 
@@ -271,3 +273,60 @@ def test_hidden_dim_must_be_power_of_two():
             ln,
             lin2,
         )
+
+
+# Metadata widths 54 (with position features) and 50 (without), the edges of the supported
+# range, several row chunks, and no rows at all.
+@pytest.mark.parametrize(
+    "meta_dim, nobs, chunk",
+    [
+        (54, 5003, None),
+        (54, 5003, 2048),
+        (50, 5003, None),
+        (32, 1003, None),
+        (64, 1003, None),
+        (54, 0, None),
+    ],
+)
+def test_cutedsl_backward_matches_triton(meta_dim, nobs, chunk, monkeypatch):
+    tok = ObsTokenizerFiLM(
+        meta_dim=meta_dim, out_dim=32, n_embed=1024, obs_type_embed_dim=4,
+        channel_embed_dim=16, platform_embed_dim=8, use_fused_mlp=True,
+        max_global_channels=2048, film_bwd_impl=2,
+    ).cuda()  # fmt: skip
+    if tok.film_bwd_impl != 2:
+        pytest.skip("cutedsl FiLM backward unsupported here")
+    if chunk is not None:
+        kernel = importlib.import_module("healda.models.kernels.cutedsl_film_bwd")
+        monkeypatch.setattr(kernel, "CHUNK", chunk)
+    with torch.no_grad():
+        for p in tok.parameters():
+            p.add_(0.05 * torch.randn_like(p))
+    # Runs of equal ids, as observations arrive after packing; the row count is not a
+    # multiple of the 16-row tile.
+    obs = _make_obs(nobs, meta_dim, with_platform=True)
+    obs.obs_type = torch.sort(torch.randint(0, 3, (nobs,), device="cuda"))[0]
+    obs.local_platform = torch.sort(torch.randint(0, 12, (nobs,), device="cuda"))[0]
+    obs.local_channel = torch.randint(0, 2048, (nobs,), device="cuda")
+
+    def grads(bwd_impl):
+        tok.zero_grad(set_to_none=True)
+        out = fused_film_tokenizer_triton(
+            obs.obs, obs.float_metadata, obs.obs_type, obs.local_channel, obs.local_platform,
+            tok.embed_table, tok.channel_embedding, tok.platform_embedding, tok.cond_mlp[0],
+            tok.cond_mlp[1], tok.cond_mlp[3], eps=tok.cond_mlp[1].eps, bwd_impl=bwd_impl,
+        )  # fmt: skip
+        weight = torch.linspace(0.5, 1.5, out.shape[1], device=out.device)
+        (out.float() * weight).sum().backward()
+        return {name: p.grad.detach().clone() for name, p in tok.named_parameters()}
+
+    ref, got = grads(0), grads(2)
+    for name in ref:
+        scale = ref[name].abs().max().clamp_min(1e-6)
+        assert (got[name] - ref[name]).abs().max() <= 5e-3 * scale, name
+
+
+def test_cutedsl_backward_falls_back_for_other_layouts():
+    with pytest.warns(UserWarning, match="Falling back to the Triton backward"):
+        tok = ObsTokenizerFiLM(meta_dim=24, out_dim=32, film_bwd_impl=2)
+    assert tok.film_bwd_impl == 0

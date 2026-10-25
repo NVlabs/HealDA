@@ -59,6 +59,11 @@ import triton
 import triton.language as tl
 
 
+# Backward implementations of the fused tokenizer.
+FILM_BWD_TRITON = 0
+FILM_BWD_CUTEDSL = 2
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 
@@ -714,8 +719,11 @@ def fused_film_fwd(
     platform_embed_dim: int,
     out_dim: int,
     force_fp32: bool,
+    bwd_impl: int = 0,
 ) -> torch.Tensor:
-    """Forward custom op that launches the fused FiLM Triton kernel."""
+    """Forward custom op that launches the fused FiLM Triton kernel. ``bwd_impl`` picks the
+    backward: ``FILM_BWD_TRITON`` or ``FILM_BWD_CUTEDSL``."""
+    del bwd_impl
     return _launch_fused_film_fwd(
         obs,
         float_meta,
@@ -764,6 +772,7 @@ def _fake_fused_film_fwd(
     platform_embed_dim,
     out_dim,
     force_fp32,
+    bwd_impl=0,
 ):
     N = obs.shape[0]
     return obs.new_empty(
@@ -1056,6 +1065,7 @@ def _setup_context(ctx, inputs, output):
         platform_embed_dim,
         out_dim,
         force_fp32,
+        bwd_impl,
     ) = inputs
     # Save exactly the tensors needed to replay the FiLM computation in backward.
     ctx.save_for_backward(
@@ -1081,6 +1091,7 @@ def _setup_context(ctx, inputs, output):
     ctx.platform_embed_dim = platform_embed_dim
     ctx.out_dim = out_dim
     ctx.force_fp32 = force_fp32
+    ctx.bwd_impl = bwd_impl
 
 
 def _backward(ctx, grad_out):
@@ -1101,30 +1112,21 @@ def _backward(ctx, grad_out):
         b2,
     ) = ctx.saved_tensors
 
-    ge, gce, gpe, dw1, db1, dln_w, dln_b, dw2, db2 = fused_film_bwd(
-        grad_out,
-        obs,
-        float_meta,
-        obs_type_id,
-        channel,
-        platform,
-        embed_weight,
-        chan_embed_weight,
-        platform_embed_weight,
-        w1,
-        b1,
-        ln_w,
-        ln_b,
-        w2,
-        b2,
-        ctx.eps,
-        ctx.meta_dim,
-        ctx.obs_embed_dim,
-        ctx.chan_embed_dim,
-        ctx.platform_embed_dim,
-        ctx.out_dim,
-        ctx.force_fp32,
-    )
+    tensors = (
+        grad_out, obs, float_meta, obs_type_id, channel, platform, embed_weight,
+        chan_embed_weight, platform_embed_weight, w1, b1, ln_w, ln_b, w2, b2,
+    )  # fmt: skip
+    # The CuTe backward is bf16-only; force_fp32 keeps the Triton backward.
+    if ctx.bwd_impl == FILM_BWD_CUTEDSL and not ctx.force_fp32:
+        from healda.models.kernels import cutedsl_film_bwd
+
+        grads = cutedsl_film_bwd(*tensors, ctx.eps)
+    else:
+        grads = fused_film_bwd(
+            *tensors, ctx.eps, ctx.meta_dim, ctx.obs_embed_dim, ctx.chan_embed_dim,
+            ctx.platform_embed_dim, ctx.out_dim, ctx.force_fp32,
+        )  # fmt: skip
+    ge, gce, gpe, dw1, db1, dln_w, dln_b, dw2, db2 = grads
     # The inputs are metadata, indices, and scalar observations; gradients are
     # exposed for the learned tables and dense FiLM MLP parameters only.
     return (
@@ -1149,6 +1151,7 @@ def _backward(ctx, grad_out):
         None,  # platform_embed_dim
         None,  # out_dim
         None,  # force_fp32
+        None,  # bwd_impl
     )
 
 
@@ -1174,6 +1177,7 @@ def fused_film_tokenizer_triton(
     linear2: "torch.nn.Linear",
     eps: float = 1e-5,
     force_fp32: bool = False,
+    bwd_impl: int = 0,
 ) -> torch.Tensor:
     """Fused 2-layer FiLM observation tokenizer (Triton backend).
 
@@ -1257,4 +1261,5 @@ def fused_film_tokenizer_triton(
         platform_embed_dim,
         out_dim,
         force_fp32,
+        bwd_impl,
     )

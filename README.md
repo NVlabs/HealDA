@@ -122,10 +122,11 @@ been trained on GB300 nodes with `time_parallel=8`, eight GPUs per video sample.
 memory savings, such as more activation checkpointing, and has not been validated. It reads
 many observations per sample, so inference with it needs
 `healda-inference-local --prefetch-factor 2` to stay within host memory.
-As a reference for a new setup, that recipe trains at about 126 seconds per thousand
+As a reference for a new setup, that recipe trains at about 155 seconds per thousand
 samples (`Timing/sec_per_kimg` in the log) on 32 GB300 GPUs (batch 4, `time_parallel=8`),
-about 110k samples in a 4-hour job. A much slower run usually lacks the CuTe DSL kernels or
-reads data from a slow filesystem.
+about 90k samples in a 4-hour job. A much slower run usually lacks the CuTe DSL kernels or
+reads data from a slow filesystem. For extra speed on GB300, also enable `fused_qk_norm=True`
+and `sensor_embedder_config.film_bwd_impl=2`.
 Inference currently needs about 40 GB of GPU memory and has been run on H100 and
 Blackwell GPUs.
 

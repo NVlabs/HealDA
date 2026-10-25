@@ -11,7 +11,7 @@ MIN_CAPABILITY = (10, 0)
 
 def unsupported_arch_reasons() -> list[str]:
     if not torch.cuda.is_available():
-        return []
+        return ["a CUDA device"]
     cap = torch.cuda.get_device_capability()
     if cap >= MIN_CAPABILITY:
         return []

@@ -228,6 +228,9 @@ class SensorEmbedderConfig:
     use_channel_platform_embedding_table: bool = False
     tokenizer_type: str = "concat"  # "concat" or "film"
     use_fused_mlp: bool = False
+    # Backward of the fused FiLM tokenizer: 0 Triton, 2 CuTe DSL. Layouts the CuTe DSL kernel
+    # cannot serve warn and fall back to Triton.
+    film_bwd_impl: int = 0
     features_v2: bool = False  # expanded features
     # Append each observation's offset within its HEALPix pixel and sin/cos longitude
     # (features_v2 only).
@@ -318,6 +321,8 @@ class ModelConfigV1:
     linear_temporal_attention: bool = True
     # Temporal-attention implementation: 0 einsum, 2 CuTe DSL kernels.
     fused_temporal_attn: int = 0
+    # Disk spatial attention: q/k RMSNorm + head split as one CuTe DSL kernel.
+    fused_qk_norm: bool = False
     # When True, linear temporal attention scales by sequence length instead of head
     temporal_attn_legacy_scaling_bug: bool = False
     # Sliding causal lookback (in frames) for temporal attention; None = unbounded.
