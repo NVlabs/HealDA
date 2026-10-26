@@ -53,8 +53,12 @@ def _sel(loader, times):
 
 
 def test_tables_load_in_the_combined_vocabulary():
-    gps = e2s_nnja.gpsro_tables(_gps_frame(CYCLE - pd.Timedelta(minutes=30)))
-    winds = e2s_nnja.satwnd_tables(_wind_frame())
+    tables = e2s_nnja.analysis_tables_long(
+        conv=_gps_frame(CYCLE - pd.Timedelta(minutes=30)),
+        satwnd=_wind_frame(),
+        ir_channels="ir32",
+    )
+    gps, winds = tables["gpsro_tables"], tables["satwnd_tables"]
     loader = build_obs_loader(
         LATLON_OBS,
         training=False,

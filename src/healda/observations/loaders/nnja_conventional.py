@@ -37,6 +37,7 @@ from healda.observations.loaders.nnja_base import (
     row_generator,
 )
 
+from healda.observations.schema import long_table
 from healda.observations.loaders.threads import configure_arrow_pools, thread_pool
 from healda.observations.loaders.nnja_gpsro import GPS_LEGACY_SAIDS, NNJAGpsroLoader
 from healda.observations.loaders.nnja_satwnd import (
@@ -151,7 +152,6 @@ SONDE_WIND_REPORT_TYPES = (220, 221)
 
 CORE_COLUMNS = ("XOB", "YOB", "DHR", "POB", "TYP")
 OPTIONAL_METADATA_COLUMNS = ("ZOB", "CAT", "ELV")
-NULL_COLUMNS = ("Sat_Zenith_Angle", "Sol_Zenith_Angle", "Scan_Angle", "QC_Flag")
 
 
 @dataclass(frozen=True)
@@ -502,16 +502,7 @@ class NNJAConvLoader(NNJAArchiveLoader):
                         np.full(count, SENSOR_NAME_TO_ID["conv"], dtype=np.uint16)
                     ),
                 }
-                for name in NULL_COLUMNS:
-                    arrays[name] = pa.nulls(
-                        count, type=self.output_schema.field(name).type
-                    )
-                parts.append(
-                    pa.table(
-                        [arrays[field.name] for field in self.output_schema],
-                        schema=self.output_schema,
-                    )
-                )
+                parts.append(long_table(arrays, self.output_schema))
             if parts:
                 out[positive_half] = pa.concat_tables(parts)
         return out
@@ -525,21 +516,9 @@ class NNJAConvLoader(NNJAArchiveLoader):
         surface_pressure_dropout: float = 0.0,
     ) -> list[tuple[pd.Timestamp, pa.Table]]:
         rng = row_generator(dropout_seed)
-        by_half: dict[bool, list[pa.Table]] = {half: [] for half in halves}
-        for source, candidates in self._cycle_sources(cycle, list(by_half)):
-            longs = self._to_long(
-                source, cycle, candidates, rng, wind_dropout, surface_pressure_dropout
-            )
-            for half, long in longs.items():
-                by_half[half].append(long)
-
-        result = []
-        for half in halves:
-            parts = by_half[half]
-            if parts:
-                window = cycle + pd.Timedelta(hours=3 if half else 0)
-                result.append((window, pa.concat_tables(parts)))
-        return result
+        return super()._load_cycle(
+            cycle, halves, rng, wind_dropout, surface_pressure_dropout
+        )
 
     def _cycle_sources(self, cycle: pd.Timestamp, halves: list[bool]):
         """Yield ``(table, halves it may serve)`` for one cycle."""

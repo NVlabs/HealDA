@@ -468,7 +468,13 @@ def test_expansion_reproduces_the_wide_values():
         ),
     )
     assert set(np.asarray(long["sensor_id"])) == {SENSOR_NAME_TO_ID["atms"]}
-    for name in wide.NULL_COLUMNS:
+    for name in (
+        "Pressure",
+        "Height",
+        "Observation_Type",
+        "QC_Flag",
+        "Analysis_Use_Flag",
+    ):
         assert long[name].null_count == long.num_rows
 
 

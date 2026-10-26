@@ -44,22 +44,6 @@ def sort_and_pack(flat_idx: torch.Tensor, total_pixels: int):
     return sorted_order, counts
 
 
-# Per-observation fields of UnifiedObservation that must be reordered together so
-# each token's payload stays attached to its pixel. All are required and length
-# ``n_obs``.
-_PER_OBS_FIELDS = (
-    "obs",
-    "time",
-    "float_metadata",
-    "pix",
-    "local_channel",
-    "local_platform",
-    "obs_type",
-    "global_channel",
-    "global_platform",
-)
-
-
 def build_pixel_group_map(
     cu_seqlens_k: torch.Tensor, thresh_mult: float = 2.0
 ) -> types.PixelGroupMap:
@@ -152,11 +136,20 @@ def pack_observations_by_pixel(
         pixel_order,
         build_group_map=build_group_map,
     )
-    packed = obs
-    if order is not None:
-        reordered = {name: getattr(obs, name)[order] for name in _PER_OBS_FIELDS}
-        packed = dataclasses.replace(obs, **reordered)
-    return dataclasses.replace(packed, attention_packing=packing)
+    # Every per-observation field moves together, so each payload stays with its pixel
+    return dataclasses.replace(
+        obs,
+        obs=obs.obs[order],
+        time=obs.time[order],
+        float_metadata=obs.float_metadata[order],
+        pix=obs.pix[order],
+        local_channel=obs.local_channel[order],
+        local_platform=obs.local_platform[order],
+        obs_type=obs.obs_type[order],
+        global_channel=obs.global_channel[order],
+        global_platform=obs.global_platform[order],
+        attention_packing=packing,
+    )
 
 
 def pixel_packing(
@@ -166,12 +159,12 @@ def pixel_packing(
     pixel_order: str,
     *,
     build_group_map: bool,
-) -> tuple[torch.Tensor | None, "types.AttentionPacking"]:
+) -> tuple[torch.Tensor, "types.AttentionPacking"]:
     """The order that makes each pixel's observations contiguous, and the attention
     layout of the sorted observations.
 
-    ``pix`` and ``lengths`` describe the observations in their incoming order; the order
-    is None when there are none. Returned rather than applied so a caller can reorder
+    ``pix`` and ``lengths`` describe the observations in their incoming order. Returned
+    rather than applied so a caller can reorder
     raw per-row inputs before deriving per-row features: the result equals reordering
     the features, without holding both orders of them. ``TransformV2`` does this for
     ``float_metadata``, (n_obs, meta_dim).
@@ -179,16 +172,12 @@ def pixel_packing(
     npix = 12 * 4**hpx_level
     _, batch_size, time_size = lengths.shape
     total_pixels = batch_size * time_size * npix
-    if pix.shape[0] == 0:
-        order = None
-        counts = torch.zeros(total_pixels, dtype=torch.int64, device=pix.device)
-    else:
-        batch_idx = lengths_to_idx(lengths, output_size=pix.shape[0]) % (
-            batch_size * time_size
-        )
-        flat_idx = (batch_idx * npix + pix.long()).int()
-        sorted_order, counts = sort_and_pack(flat_idx, total_pixels)
-        order = sorted_order.long()
+    batch_idx = lengths_to_idx(lengths, output_size=pix.shape[0]) % (
+        batch_size * time_size
+    )
+    flat_idx = (batch_idx * npix + pix.long()).int()
+    sorted_order, counts = sort_and_pack(flat_idx, total_pixels)
+    order = sorted_order.long()
     cu_seqlens_k = torch.zeros(
         counts.shape[0] + 1, dtype=torch.int32, device=counts.device
     )

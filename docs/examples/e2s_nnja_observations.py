@@ -28,12 +28,13 @@ def main(target: pd.Timestamp) -> None:
     )
     winds = NNJAObsSatwnd(time_tolerance=tolerance)(target.to_pydatetime(), ["u", "v"])
 
+    tables = e2s_nnja.analysis_tables_long(conv=gps, satwnd=winds, ir_channels="ir32")
     loader = NNJAConventionalLoader(
         obs_context_hours=(-3, 3),
         gpsro_saids="full",
         include_satwnd=True,
-        gpsro_table_source=e2s_nnja.gpsro_tables(gps),
-        satwnd_table_source=e2s_nnja.satwnd_tables(winds),
+        gpsro_table_source=tables["gpsro_tables"],
+        satwnd_table_source=tables["satwnd_tables"],
     )
     obs = asyncio.run(loader.sel_time(pd.DatetimeIndex([target])))
     for name, tables in obs.items():

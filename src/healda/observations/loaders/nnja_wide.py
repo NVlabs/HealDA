@@ -23,7 +23,6 @@ import warnings
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Callable, Collection, Mapping, Sequence
 
 import numpy as np
@@ -176,16 +175,6 @@ GEOMETRY_COLUMNS = (
 
 # Read for selection only; never emitted.
 SELECTION_COLUMNS = ("hpx2048_nest",)
-
-# Unified columns the sat path leaves null.
-NULL_COLUMNS = (
-    "Pressure",
-    "Height",
-    "Observation_Type",
-    "QC_Flag",
-    "Analysis_Use_Flag",
-)
-
 
 # Dense SAID-indexed lookups for selection keys; the vocabulary is fixed, so both come
 # from an array instead of a dict get or a sort over every footprint's SAID.
@@ -481,7 +470,8 @@ class NNJAWideLoader(NNJAArchiveLoader):
       - `Platform_ID` is the unified vocabulary's, not BUFR SAID.
       - IR sounders contribute only what `ir_channels` selects, by default a preset drawn from
         `ir_spectral.ir_channel_sets` rather than the published axis.
-      - NULL_COLUMNS are filled with nulls, being conventional-only fields.
+      - The conventional-only columns (Pressure, Height, Observation_Type, QC_Flag,
+        Analysis_Use_Flag) are null.
 
     Read only with `drop_source_flagged` or `only_source_flagged`: `SOURCE_QUALITY_FLAGS`, a footprint dropped if any is
     set (in `SOURCE_FLAG_BITS` where given), a flag a day does not publish read as unflagged.
@@ -571,7 +561,7 @@ class NNJAWideLoader(NNJAArchiveLoader):
             only_source_flagged: The inverse: keep only the flagged footprints, to inspect
                 what the flags remove.
             table_source: Per sensor, archive-schema tables of each cycle file
-                (`adapters.e2s_nnja.sat_tables`), read instead of `archive_root`. A sensor
+                (`adapters.e2s_nnja.analysis_tables`), read instead of `archive_root`. A sensor
                 it omits contributes no rows.
         """
         for sensor in sensors:
@@ -830,16 +820,6 @@ class NNJAWideLoader(NNJAArchiveLoader):
         if os.path.exists(path):
             return path
         return os.path.join(self.archive_root, sensor, f"{day}.parquet")
-
-    def _interval_times(self, target: datetime) -> pd.DatetimeIndex:
-        start, end = self.obs_context_hours
-        # DA windows are end-aligned, matching UFSUnifiedLoader.
-        start += self.data_spacing
-        return pd.date_range(
-            target + pd.Timedelta(hours=start),
-            target + pd.Timedelta(hours=end),
-            freq=f"{self.data_spacing}h",
-        )
 
     @property
     def _winner_mode(self) -> int:

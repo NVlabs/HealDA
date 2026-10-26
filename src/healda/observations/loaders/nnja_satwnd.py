@@ -41,6 +41,7 @@ from healda.observations.loaders.archive_row_groups import (
     window_row_groups,
     window_rows,
 )
+from healda.observations.schema import long_table
 from healda.observations.loaders.threads import configure_arrow_pools, thread_pool
 from healda.observations.sensors import (
     CONV_CHANNELS,
@@ -66,9 +67,6 @@ SATWND_TYPE_MAX = max(SATWND_REPORT_TYPES)
 ARCHIVE_HPX_LEVEL = 12
 U_LOCAL_CHANNEL_ID = 6
 V_LOCAL_CHANNEL_ID = 7
-# Sat_Zenith_Angle is kept, and SIGNED: negatives are a real off-nadir angle
-# for cross-track scanners, and GSI screens on it.
-NULL_COLUMNS = ("Sol_Zenith_Angle", "Scan_Angle")
 REQUIRED_COLUMNS = (
     "time_utc",
     "da_window",
@@ -504,16 +502,14 @@ class NNJASatwndLoader(NNJAArchiveLoader):
             "Height": pa.array(height, type=pa.float32()),
             "Observation_Type": pa.array(report_type[rows], type=pa.uint16()),
             "Analysis_Use_Flag": pa.array(assimilable.astype(np.int8), type=pa.int8()),
+            # Signed: negatives are a real off-nadir angle for cross-track scanners, and
+            # GSI screens on it.
             "Sat_Zenith_Angle": pa.array(zenith, type=pa.float32()),
             "QC_Flag": pa.array(tier_code, type=pa.int32()),
             SENSOR_ID.name: pa.array(
                 np.full(count, SENSOR_NAME_TO_ID["conv"], dtype=np.uint16)
             ),
         }
-        for name in NULL_COLUMNS:
-            shared_arrays[name] = pa.nulls(
-                count, type=self.output_schema.field(name).type
-            )
 
         parts = []
         for local_id, values, stats in (
@@ -539,12 +535,7 @@ class NNJASatwndLoader(NNJAArchiveLoader):
                     np.full(count, local_id, dtype=np.uint16)
                 ),
             }
-            parts.append(
-                pa.table(
-                    [arrays[field.name] for field in self.output_schema],
-                    schema=self.output_schema,
-                )
-            )
+            parts.append(long_table(arrays, self.output_schema))
         return pa.concat_tables(parts)
 
     @staticmethod

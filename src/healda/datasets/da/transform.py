@@ -3,6 +3,8 @@
 import dataclasses
 import datetime
 import functools
+from collections.abc import Callable, Hashable
+from typing import Any
 import healda.utils.profiling
 import cftime
 from earth2grid import healpix
@@ -34,23 +36,16 @@ from healda.config.variables import VARIABLE_CONFIGS
 from healda.datasets import static_data
 from healda.observations.footprints import (
     FootprintBlock,
+    LongCells,
     as_tensor,
     bits,
     expand_column,
     long_cells,
 )
-from healda.observations.loaders.nnja_base import LOCAL_CHANNEL_ID
 from healda.observations.packing import pixel_packing
 from healda.observations.protocols import Observations
-from healda.observations.schema import get_combined_observation_schema
-import warnings
+from healda.observations.schema import LOCAL_CHANNEL_ID, get_combined_observation_schema
 
-warnings.filterwarnings(
-    "ignore",
-    message="The given NumPy array is not writable, and PyTorch does not support non-writable tensors",
-)
-
-_GLOBAL_MAX_PLATFORM = 1024
 
 # Obs table column -> key in the tensor dict the model consumes.
 _OBS_TENSOR_COLUMNS = {
@@ -85,31 +80,6 @@ _OBS_TENSOR_DTYPES = {
     key: _tensor_dtype(_UNIFIED_SCHEMA.field(column).type)
     for column, key in _OBS_TENSOR_COLUMNS.items()
 }
-
-# Column names required by the encode function
-ENCODE_REQUIRED_COLUMNS = [
-    "Latitude",
-    "Longitude",
-    "Absolute_Obs_Time",
-    "Platform_ID",
-    "Observation_Type",
-    "Observation",
-    "Global_Channel_ID",
-    "Sat_Zenith_Angle",
-    "Sol_Zenith_Angle",
-    "sensor_id",
-    "local_channel_id",
-]
-
-# Optional column names that are checked for existence in encode function
-ENCODE_OPTIONAL_COLUMNS = [
-    "Height",
-    "Pressure",
-    "Scan_Angle",
-]
-
-# All column names (required + optional)
-ENCODE_ALL_COLUMNS = ENCODE_REQUIRED_COLUMNS + ENCODE_OPTIONAL_COLUMNS
 
 
 def _cftime_to_timestamp(time: cftime.DatetimeGregorian) -> float:
@@ -149,7 +119,7 @@ _PIXEL_ORDERS = {
 }
 
 
-def reorder_from_nest(x, target_order: str):
+def reorder_from_nest(x: torch.Tensor | np.ndarray, target_order: str) -> torch.Tensor:
     x = torch.as_tensor(x)
     target = _PIXEL_ORDERS[target_order]
     if target is healpix.NEST:
@@ -157,29 +127,29 @@ def reorder_from_nest(x, target_order: str):
     return healpix.reorder(x, healpix.NEST, target)
 
 
-def _compute_second_of_day(time: cftime.datetime):
+def _compute_second_of_day(time: cftime.datetime) -> float:
     day_start = time.replace(hour=0, minute=0, second=0)
     return (time - day_start) / datetime.timedelta(seconds=1)
 
 
-def _compute_day_of_year(time: cftime.datetime):
+def _compute_day_of_year(time: cftime.datetime) -> float:
     day_start = time.replace(hour=0, minute=0, second=0)
     year_start = day_start.replace(month=1, day=1)
     return (time - year_start) / datetime.timedelta(seconds=86400)
 
 
-def _compute_timestamp(time: cftime.datetime):
+def _compute_timestamp(time: cftime.datetime) -> int:
     return int(_cftime_to_timestamp(time))
 
 
-def zscore_static(values) -> torch.Tensor:
+def zscore_static(values: torch.Tensor | np.ndarray) -> torch.Tensor:
     """Normalize a static field by its own spatial mean/std"""
     x = torch.as_tensor(values).float()
     return (x - x.mean()) / x.std()
 
 
 def fixed_static_condition(
-    variable_config,
+    variable_config: VariableConfig,
     hpx_level: int = 6,
     source: str = "ufs",
     pixel_order: str = "hpxpadxy",
@@ -228,16 +198,16 @@ class _DeviceCache:
 
     __slots__ = ("_entries",)
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._entries = {}
 
-    def get(self, key, build):
+    def get(self, key: Hashable, build: Callable[[], torch.Tensor]) -> torch.Tensor:
         value = self._entries.get(key)
         if value is None:
             value = self._entries[key] = build()
         return value
 
-    def __reduce__(self):
+    def __reduce__(self) -> tuple:
         return (_DeviceCache, ())
 
 
@@ -314,7 +284,7 @@ class TransformV2:
         default_factory=_DeviceCache, init=False, compare=False, repr=False
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.target_normalization is not None:
             target_stats = self.target_normalization
         else:
@@ -336,7 +306,7 @@ class TransformV2:
         self._config_name = self.variable_config.name
 
     @functools.cached_property
-    def _grid(self):
+    def _grid(self) -> healpix.Grid:
         return healpix.Grid(self.hpx_level, pixel_order=_PIXEL_ORDERS[self.pixel_order])
 
     @functools.cached_property
@@ -369,14 +339,14 @@ class TransformV2:
             luts[sensor_id] = lut
         return luts
 
-    def _platform_lut_matrix(self, device) -> torch.Tensor:
+    def _platform_lut_matrix(self, device: torch.device | str) -> torch.Tensor:
         """Return the cached device platform lookup table."""
         return self._device.get(
             ("platform_lut", str(device)),
             lambda: self._build_platform_lut_matrix(device),
         )
 
-    def _build_platform_lut_matrix(self, device) -> torch.Tensor:
+    def _build_platform_lut_matrix(self, device: torch.device | str) -> torch.Tensor:
         luts = [self._platform_luts[int(s)] for s in self._ordered_sensor_ids.tolist()]
         if not luts:
             return torch.zeros((0, 0), dtype=torch.long, device=device)
@@ -393,7 +363,7 @@ class TransformV2:
 
     @staticmethod
     def _sorted_parts(
-        frames, sensor_rank: dict[int, int]
+        frames: list[list[dict]], sensor_rank: dict[int, int]
     ) -> list[tuple[int, int, int, pa.RecordBatch | FootprintBlock]]:
         """Every frame's record batches and footprint blocks as ``(rank, b, t, part)``.
 
@@ -424,9 +394,14 @@ class TransformV2:
 
     @healda.utils.profiling.nvtx
     def _process_obs(
-        self, target_times: list[list[cftime.datetime]], frames, device="cpu"
-    ):
-        """Packed obs tensors on ``device`` and their (S, B, T) lengths.
+        self,
+        target_times: list[list[cftime.datetime]],
+        frames: list[list[dict]],
+        device: torch.device | str = "cpu",
+    ) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+        """Flatten every frame's observations into columns with one row per observation,
+        on ``device``, rows ordered by sensor and then (b, t); and the (S, B, T) row counts,
+        which stay on the CPU.
 
         Each frame's ``obs_v2`` is a long table or an `Observations`, whose footprint
         blocks expand on ``device``.
@@ -457,7 +432,12 @@ class TransformV2:
         )
         return tensors, lengths_3d
 
-    def _obs_tensors(self, parts, rows: list[int], device) -> dict[str, torch.Tensor]:
+    def _obs_tensors(
+        self,
+        parts: list[pa.RecordBatch | FootprintBlock],
+        rows: list[int],
+        device: torch.device | str,
+    ) -> dict[str, torch.Tensor]:
         """Materialize the obs columns the model consumes, one tensor each, on ``device``.
 
         Footprint blocks expand into their slice of each tensor. Consecutive record
@@ -501,7 +481,7 @@ class TransformV2:
             offset += count
         return tensors
 
-    def _get_packed_field(self, frames, key: str) -> torch.Tensor:
+    def _get_packed_field(self, frames: list[list[dict]], key: str) -> torch.Tensor:
         """
         Normalize + reorder in `device_transform` instead: at high-res (HPX256), takes >200ms w/ 1 torch CPU thread
         vs few ms on the GPU
@@ -515,14 +495,21 @@ class TransformV2:
         shape = (len(frames), -1) + tuple(all_state[0].shape)
         return stacked.reshape(shape).float()
 
-    def _const_to_device(self, name: str, values, device) -> torch.Tensor:
+    def _const_to_device(
+        self, name: str, values: torch.Tensor | np.ndarray, device: torch.device | str
+    ) -> torch.Tensor:
         """Return a cached device copy of a run-constant array."""
         return self._device.get(
             (name, str(device)), lambda: torch.as_tensor(values).to(device)
         )
 
     def _device_field(
-        self, packed: torch.Tensor, name: str, mean, std, device
+        self,
+        packed: torch.Tensor,
+        name: str,
+        mean: np.ndarray,
+        std: np.ndarray,
+        device: torch.device | str,
     ) -> torch.Tensor:
         """Normalize and reorder one packed field on `device`, (b, t, c, x) to (b, c, t, x)."""
         mean = self._const_to_device(f"{name}_mean", mean, device)  # (c, 1), over x
@@ -537,10 +524,29 @@ class TransformV2:
         )
 
     @healda.utils.profiling.nvtx
-    def transform(self, times, frames):
-        """
-        frames: [[{state: (c, x), obs_v2: Obs}]]
-        times: [[cftime]]
+    def transform(
+        self,
+        times: list[list[cftime.datetime]],
+        frames: list[list[dict]],
+    ) -> dict[str, torch.Tensor | tuple[dict[str, torch.Tensor], torch.Tensor]]:
+        """Pack a training batch on the CPU: every observation into one row of flat
+        columns, and the state, background and static condition into tensors.
+        ``device_transform`` finishes the batch on the device.
+
+        ``frames[b][t]`` holds ``state`` (C, X), and optionally ``obs_v2`` (an
+        ``Observations`` or a long table) and ``background`` (C, X).
+
+        Returns:
+            A dict with:
+
+            - ``unified_obs``, when frames carry ``obs_v2``: ``(tensors, lengths)``, the
+              packed observation columns with one row per observation, and their
+              (S, B, T) counts.
+            - ``target``: the state in model space, (B, T, C, X).
+            - ``second_of_day``, ``day_of_year``, ``timestamp``: each (B, T).
+            - ``background``, when frames carry it: (B, T, C, X).
+            - ``condition``: the static condition, (1 or B, C, 1 or T, X).
+            - ``labels``: empty, (B, 0).
         """
         out = {}
         if "obs_v2" in frames[0][0].keys():
@@ -580,26 +586,44 @@ class TransformV2:
         out["labels"] = torch.empty([len(frames), 0])
         return out
 
-    def transform_observations(self, times, frames, device="cpu"):
-        """``transform`` without state or condition, for observation-only inference.
+    def transform_observations(
+        self,
+        times: list[list[cftime.datetime]],
+        frames: list[list[dict]],
+        device: torch.device | str = "cpu",
+    ) -> tuple[types.UnifiedObservation, dict[str, torch.Tensor]]:
+        """Turn observations into the model's observation features, for
+        ``DAModel.run_analysis``: the observation part of ``transform`` (packing into one
+        row per observation) and of ``device_transform`` (pixel lookup, sort by pixel and
+        featurization on ``device``) in one call.
 
-        frames: [[{obs_v2: ...}]] and times: [[cftime]], both (batch, time). Returns
-        ``unified_obs`` as ``transform`` does, packed on ``device``, plus the time
-        encodings; ``_device_transform_unified_obs`` finishes the observations there.
-        ``transform`` cannot serve this caller: it always packs the state and requires a
-        static condition.
+        Training splits the two across dataloader workers and the main process.
+        ``run_analysis`` runs both in one process and has no state or static condition, which
+        ``transform`` always packs. ``frames[b][t]["obs_v2"]`` is an ``Observations`` or a
+        long table.
+
+        Returns:
+            The ``UnifiedObservation`` and the time encodings ``second_of_day``,
+            ``day_of_year`` and ``timestamp``, each (B, T).
         """
-        return {
-            "unified_obs": self._process_obs(times, frames, device),
-            **_time_encodings(times),
-        }
+        packed, lengths = self._process_obs(times, frames, device)
+        with torch.inference_mode():
+            # Rebinding drops the unsorted packed tensors before featurizing
+            packed, lengths, pix, packing = self._sort_on_device(
+                packed, lengths, device
+            )
+            unified_obs = self._featurize(packed, lengths, pix, packing, device)
+        return unified_obs, _time_encodings(times)
 
     @healda.utils.profiling.nvtx
-    def device_transform(self, batch, device):
-        """Transforms to the output of .transform that can occur on gpu
-
-        Typically used with the prefetch_map in the main training process.
-        """
+    def device_transform(
+        self, batch: dict[str, Any], device: torch.device | str
+    ) -> dict[str, Any]:
+        """Finish ``transform``'s batch on ``device``, in the training process's prefetch
+        thread. Observations go through pixel lookup, sort and featurization into the
+        model's observation features; ``target`` and ``background`` are normalized,
+        reordered to ``pixel_order`` and permuted to (B, C, T, X); the static condition
+        is expanded to (B, C, T, X) and cached; other entries are moved as they are."""
         batch = batch.copy()
         out = {}
         # Condition expansion uses target's (b, t). Observation-only calls omit both.
@@ -613,7 +637,7 @@ class TransformV2:
             if key == "unified_obs":
                 obs_tensors, lengths = batch["unified_obs"]
                 out[key] = self._device_transform_unified_obs(
-                    dict(obs_tensors), lengths, device
+                    obs_tensors, lengths, device
                 )
             elif key == "target":
                 out[key] = self._device_field(
@@ -633,7 +657,9 @@ class TransformV2:
                 out[key] = batch[key].to(device, non_blocking=True)
         return out
 
-    def _device_condition(self, condition, b: int, t: int, device) -> torch.Tensor:
+    def _device_condition(
+        self, condition: torch.Tensor, b: int, t: int, device: torch.device | str
+    ) -> torch.Tensor:
         """Return the run-static condition expanded on the device."""
         key = ("condition", b, t, str(device), condition.shape, condition.dtype)
         return self._device.get(
@@ -646,23 +672,43 @@ class TransformV2:
         )
 
     @healda.utils.profiling.nvtx
-    def _device_transform_unified_obs(self, obs_tensors, lengths, device):
-        """Featurize packed obs on ``device`` into a ``UnifiedObservation``.
+    def _device_transform_unified_obs(
+        self,
+        obs_tensors: dict[str, torch.Tensor],
+        lengths: torch.Tensor,
+        device: torch.device | str,
+    ) -> types.UnifiedObservation:
+        """Packed obs to the model's observation features on ``device``: pixel lookup and
+        sort (``_sort_on_device``), then featurization (``_featurize``)."""
+        obs_tensors, lengths, pix, packing = self._sort_on_device(
+            obs_tensors, lengths, device
+        )
+        return self._featurize(obs_tensors, lengths, pix, packing, device)
 
-        Takes the tensors out of ``obs_tensors``, leaving it empty, so the caller holds no
-        reference to tensors packed on ``device`` once they are reordered or replaced.
+    def _sort_on_device(
+        self,
+        obs_tensors: dict[str, torch.Tensor],
+        lengths: torch.Tensor,
+        device: torch.device | str,
+    ) -> tuple[
+        dict[str, torch.Tensor],
+        torch.Tensor,
+        torch.Tensor,
+        types.AttentionPacking | None,
+    ]:
+        """Move packed obs, each (N, ...), and their (S, B, T) lengths to ``device`` and
+        look up each row's HEALPix pixel. Under ``attention_prepack``, sort the rows so
+        each pixel's observations are contiguous, as the pixel cross-attention reads them.
+
+        Returns ``(tensors, lengths, pix, packing)``: pix (N,) int32 numbered in
+        ``pixel_order``; packing, the per-pixel counts and offsets, None without
+        ``attention_prepack``.
         """
-
-        def _to_device(tensor, non_blocking=True):
-            if isinstance(tensor, torch.Tensor):
-                return tensor.to(device, non_blocking=non_blocking)
-            else:
-                return torch.from_numpy(tensor).to(device, non_blocking=non_blocking)
-
         obs_tensors = {
-            key: _to_device(obs_tensors.pop(key)) for key in list(obs_tensors)
+            key: value.to(device, non_blocking=True)
+            for key, value in obs_tensors.items()
         }
-        lengths = _to_device(lengths)
+        lengths = lengths.to(device, non_blocking=True)
         pix = self._grid.ang2pix(
             obs_tensors["longitude"], obs_tensors["latitude"]
         ).int()
@@ -678,89 +724,78 @@ class TransformV2:
                 self.pixel_order,
                 build_group_map=self.build_attention_group_map,
             )
-            if order is not None:
-                obs_tensors = {
-                    key: _indexable(value)[order] for key, value in obs_tensors.items()
-                }
-                pix = pix[order]
+            obs_tensors = {
+                key: _indexable(value)[order] for key, value in obs_tensors.items()
+            }
+            pix = pix[order]
+        return obs_tensors, lengths, pix, packing
 
-        obs_time_ns = obs_tensors["absolute_obs_time"]
-        lat_tensor = obs_tensors["latitude"]
-        lon_tensor = obs_tensors["longitude"]
-        height_tensor = obs_tensors["height"]
-        pressure_tensor = obs_tensors["pressure"]
-        scan_angle_tensor = obs_tensors["scan_angle"]
-        sat_zenith_tensor = obs_tensors["sat_zenith_angle"]
-        sol_zenith_tensor = obs_tensors["sol_zenith_angle"]
-        platform_id_tensor = obs_tensors["platform_id"].int()
-        obs_type_tensor = obs_tensors["observation_type"].int()
-        local_channel_id_tensor = obs_tensors["local_channel_id"].int()
-        global_channel_id_tensor = obs_tensors["global_channel_id"].int()
-        observation_tensor = obs_tensors["observation"]
+    def _featurize(
+        self,
+        obs: dict[str, torch.Tensor],
+        lengths: torch.Tensor,
+        pix: torch.Tensor,
+        packing: types.AttentionPacking | None,
+        device: torch.device | str,
+    ) -> types.UnifiedObservation:
+        """Featurize ``_sort_on_device``'s rows into the model's observation input.
 
-        # Compute metadata
+        Each observation gets a fixed feature vector computed from its metadata
+        (``float_metadata``: time relative to the target, location, height or pressure,
+        scan, satellite and solar angles, and with ``features_position`` the offset from
+        its pixel centre), next to its value, channel, platform and observation-type ids,
+        pixel and the (S, B, T) lengths. The network's learned
+        ``tokenize_observations`` embeds these into tokens.
+        """
+        metadata = dict(
+            time=obs["absolute_obs_time"],
+            lon=obs["longitude"],
+            height=obs["height"],
+            pressure=obs["pressure"],
+            scan_angle=obs["scan_angle"],
+            sat_zenith_angle=obs["sat_zenith_angle"],
+            sol_zenith_angle=obs["sol_zenith_angle"],
+        )
         if self.features_v2:
             meta = features_v2.compute_unified_metadata(
-                obs_tensors["target_time_sec"],
-                time=obs_time_ns,
-                lon=lon_tensor,
-                lat=lat_tensor,
-                height=height_tensor,
-                pressure=pressure_tensor,
-                scan_angle=scan_angle_tensor,
-                sat_zenith_angle=sat_zenith_tensor,
-                sol_zenith_angle=sol_zenith_tensor,
+                obs["target_time_sec"], lat=obs["latitude"], **metadata
             )
             if self.features_position:
                 center_lon, center_lat = self._grid.pix2ang(pix)
-                meta = torch.cat(
-                    [
-                        meta,
-                        features_v2.position_features(
-                            lon_tensor,
-                            lat_tensor,
-                            center_lon,
-                            center_lat,
-                            self.hpx_level,
-                        ).to(meta.dtype),
-                    ],
-                    dim=1,
-                )
+                position = features_v2.position_features(
+                    obs["longitude"],
+                    obs["latitude"],
+                    center_lon,
+                    center_lat,
+                    self.hpx_level,
+                ).to(meta.dtype)
+                meta = torch.cat([meta, position], dim=1)
         else:
-            meta = features.compute_unified_metadata(
-                obs_tensors["target_time_sec"],
-                time=obs_time_ns,
-                lon=lon_tensor,
-                height=height_tensor,
-                pressure=pressure_tensor,
-                scan_angle=scan_angle_tensor,
-                sat_zenith_angle=sat_zenith_tensor,
-                sol_zenith_angle=sol_zenith_tensor,
-            )
-
+            meta = features.compute_unified_metadata(obs["target_time_sec"], **metadata)
+        platform_id = obs["platform_id"].int()
         if self.attention_prepack:
             # The obs-attention path attends over all sensors together and never
             # reads a sensor-local platform id, so the mapping is dead work. -1 is a
             # fail-fast sentinel: nn.Embedding raises on negative indices.
             # TODO: carry None instead -- the sentinel array is allocated for no reader.
-            local_platform = torch.full_like(platform_id_tensor, -1)
+            local_platform = torch.full_like(platform_id, -1)
         else:
             local_platform = _map_platform_to_local(
-                platform=platform_id_tensor,
+                platform=platform_id,
                 lengths=lengths,
                 lut_matrix=self._platform_lut_matrix(device),
             )
 
         return types.UnifiedObservation(
-            obs=observation_tensor,
-            time=obs_time_ns,
+            obs=obs["observation"],
+            time=obs["absolute_obs_time"],
             float_metadata=meta,
             pix=pix,
-            local_channel=local_channel_id_tensor,
+            local_channel=obs["local_channel_id"].int(),
             local_platform=local_platform,
-            obs_type=obs_type_tensor,
-            global_channel=global_channel_id_tensor,
-            global_platform=platform_id_tensor,
+            obs_type=obs["observation_type"].int(),
+            global_channel=obs["global_channel_id"].int(),
+            global_platform=platform_id,
             hpx_level=self.hpx_level,
             lengths=lengths,
             attention_packing=packing,
@@ -772,8 +807,8 @@ def _indexable(tensor: torch.Tensor) -> torch.Tensor:
     return tensor.int() if tensor.dtype == torch.uint16 else tensor
 
 
-def _time_encodings(times) -> dict[str, torch.Tensor]:
-    def apply(func):
+def _time_encodings(times: list[list[cftime.datetime]]) -> dict[str, torch.Tensor]:
+    def apply(func: Callable[[cftime.datetime], float]) -> torch.Tensor:
         return torch.from_numpy(np.vectorize(func)(times))
 
     return {
@@ -783,11 +818,16 @@ def _time_encodings(times) -> dict[str, torch.Tensor]:
     }
 
 
-def collate(obj):
+def collate(obj: Any) -> Any:
     return obj
 
 
-def _fill_from_block(block: FootprintBlock, cells, out, column: str) -> None:
+def _fill_from_block(
+    block: FootprintBlock,
+    cells: LongCells | None,
+    out: dict[str, torch.Tensor],
+    column: str,
+) -> None:
     if block.has_column(column):
         expand_column(block, column, cells, out[column])
     else:
@@ -795,7 +835,9 @@ def _fill_from_block(block: FootprintBlock, cells, out, column: str) -> None:
         out[column].fill_(0 if column in _OBS_FILL_ZERO else float("nan"))
 
 
-def _fill_from_table(table: pa.Table, out, column: str) -> None:
+def _fill_from_table(
+    table: pa.Table, out: dict[str, torch.Tensor], column: str
+) -> None:
     values = table[column]
     # to_numpy promotes an integer column with nulls to float64; fill first.
     if column in _OBS_FILL_ZERO:

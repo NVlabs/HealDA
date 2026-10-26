@@ -12,6 +12,7 @@ numerics.
 import asyncio
 import dataclasses
 import gc
+import os
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 
@@ -32,6 +33,7 @@ from healda.datasets.da.transform import TransformV2
 from healda.datasets.da.hourly_latlon_dataset import NLAT as LATLON_NLAT
 from healda.datasets.da.hourly_latlon_dataset import NLON as LATLON_NLON
 from healda.observations.system import ObsFilters, inference_filters
+from healda.observations.loaders import threads as obs_threads
 from healda.observations.loaders.nnja_base import CycleTableSource
 from healda.observations.preprocessing.ir_spectral import ir_channel_preset
 from healda.training.checkpoint import Checkpoint
@@ -63,6 +65,10 @@ def set_inference_recipe(
         loop.latlon_decode = dataclasses.replace(
             loop.latlon_decode, fp32_output=fp32_output_head
         )
+
+
+# Obs pool threads while an analysis runs; training keeps the pool's default size
+INFERENCE_OBS_WORKERS = 32
 
 
 @dataclasses.dataclass
@@ -132,6 +138,11 @@ class DAModel:
         or sensor not passed contributes no observations.
         """
         times = pd.DatetimeIndex(analysis_times)
+        # Training runs several dataloader worker processes that share the CPUs; an
+        # analysis runs in one process with every CPU to itself.
+        obs_threads.set_workers(
+            min(INFERENCE_OBS_WORKERS, len(os.sched_getaffinity(0)))
+        )
         # A None source reads the on-disk archive; a stream not passed is empty instead.
         # `is None`, not `or`: len() of an analysis_tables source waits for every table.
         loader = build_obs_loader(
@@ -153,48 +164,47 @@ class DAModel:
             [{"obs_v2": obs["obs_v2"][i]} for i in range(self.loop.time_length)]
             for obs in loaded
         ]
-        batch = self.transform.transform_observations(cftimes, frames, self.device)
-        return self.to_physical(self._forward(batch))
+        return self.to_physical(self._forward(cftimes, frames))
 
     @staticmethod
     async def _sel_all(loader, frame_times):
         return await asyncio.gather(*(loader.sel_time(w) for w in frame_times))
 
-    @torch.inference_mode()
-    def _forward(self, batch) -> torch.Tensor:
+    def _forward(self, times, frames) -> torch.Tensor:
         """Model-space analysis ``(b, C, lat, lon)``, the last frame, for one batch."""
         graphs_before = dynamo_counters["stats"]["unique_graphs"]
-        second_of_day = batch["second_of_day"].to(self.device)
-        b, t = second_of_day.shape
-        # Popped, so neither the batch nor this frame keeps the packed tensors alive into
-        # the forward: the device transform empties the dict it is handed.
-        obs_tensors, lengths = batch.pop("unified_obs")
-        unified_obs = self.transform._device_transform_unified_obs(
-            obs_tensors, lengths, self.device
+        # The packed tensors never leave transform_observations, and `unified_obs` is
+        # rebound to its tokens, so neither is held into the network.
+        unified_obs, encodings = self.transform.transform_observations(
+            times, frames, self.device
         )
-        # The lat/lon model rebuilds its condition; this is the placeholder training feeds.
-        condition = torch.zeros(b, 1, t, 1, device=self.device)
-        with torch.autocast(
-            device_type=self.device.type,
-            dtype=torch.bfloat16,
-            enabled=self.device.type == "cuda" and self.loop.bf16,
-        ):
-            unified_obs = self.net.tokenize_observations(unified_obs)
-            out = self.net(
-                condition,
-                noise_labels=torch.zeros(b, device=self.device),
-                class_labels=torch.empty(b, 0, device=self.device),
-                second_of_day=second_of_day,
-                day_of_year=batch["day_of_year"].to(self.device),
-                unified_obs=unified_obs,
-                timestamp=batch["timestamp"].to(self.device),
-                is_causal=self.loop.dit_temporal_attention_causal,
-            )
-        if dynamo_counters["stats"]["unique_graphs"] != graphs_before:
-            # A compile leaves its tracing state as cyclic garbage that holds this forward's
-            # inputs to the compiled blocks (the obs tokens among them).
-            gc.collect()
-        return out.out[:, :, -1].float()
+        with torch.inference_mode():
+            second_of_day = encodings["second_of_day"].to(self.device)
+            b, t = second_of_day.shape
+            # The lat/lon model rebuilds its condition; this is the placeholder training
+            # feeds.
+            condition = torch.zeros(b, 1, t, 1, device=self.device)
+            with torch.autocast(
+                device_type=self.device.type,
+                dtype=torch.bfloat16,
+                enabled=self.device.type == "cuda" and self.loop.bf16,
+            ):
+                unified_obs = self.net.tokenize_observations(unified_obs)
+                out = self.net(
+                    condition,
+                    noise_labels=torch.zeros(b, device=self.device),
+                    class_labels=torch.empty(b, 0, device=self.device),
+                    second_of_day=second_of_day,
+                    day_of_year=encodings["day_of_year"].to(self.device),
+                    unified_obs=unified_obs,
+                    timestamp=encodings["timestamp"].to(self.device),
+                    is_causal=self.loop.dit_temporal_attention_causal,
+                )
+            if dynamo_counters["stats"]["unique_graphs"] != graphs_before:
+                # A compile leaves its tracing state as cyclic garbage that holds this
+                # forward's inputs to the compiled blocks (the obs tokens among them).
+                gc.collect()
+            return out.out[:, :, -1].float()
 
     def to_physical(self, prediction: torch.Tensor) -> torch.Tensor:
         """Model space ``(b, C, lat, lon)`` -> physical units, fills re-imposed."""
@@ -282,7 +292,7 @@ def load_da_model(
     satellite and NNJA conventional observations, the streams ``run_analysis`` takes as
     tables. ``checkpoint`` is a ``.checkpoint`` zip written by ``healda-train``;
     ``extra_filters`` defaults to ``inference_filters()``, as the inference CLI does. Provider
-    flags act only where a table carries them; ``e2s_nnja`` tables carry none.
+    flags act only where a table carries them.
     ``fill_uv_sonde_heights`` and ``fp32_output_head`` are as in ``set_inference_recipe``.
     Building the recipe fetches ERA5 statics into the healda cache on first use.
     """

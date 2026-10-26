@@ -37,8 +37,7 @@ from healda.observations.loaders.nnja_wide import NNJAWideLoader
 from healda.observations.loaders.threads import thread_pool
 from healda.observations.preprocessing.filtering import filter_observations
 from healda.observations.protocols import ObservationBatch, Observations
-from healda.observations.loaders.ufs import LOCAL_CHANNEL_ID
-from healda.observations.schema import GLOBAL_CHANNEL_ID, SENSOR_ID
+from healda.observations.schema import GLOBAL_CHANNEL_ID, LOCAL_CHANNEL_ID, SENSOR_ID
 
 CONV_SENSOR = "conv-plevel"
 
@@ -385,6 +384,8 @@ class CombinedObsLoader:
         satellite, conventional = await asyncio.gather(
             self.satellite.sel_time(times), self.conventional.sel_time(times)
         )
+        if any(sat.table.num_rows for sat in satellite["obs_v2"]):
+            raise ValueError("the satellite loader returned rows outside its blocks")
         return {
             "obs_v2": [
                 Observations(blocks=sat.blocks, table=_rebase(conv, _local(conv)))

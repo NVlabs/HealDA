@@ -177,11 +177,13 @@ loader changes on load:
   monochromatic Planck inversion (`brightness_temperature` in
   `preprocessing/ir_spectral.py`), with CODATA 2018 constants and the channel
   wavenumbers defined in that module. AIRS is archived as brightness temperature.
-  To supply IASI or CrIS brightness temperature, convert it to radiance with
-  `spectral_radiance_mw` from the same module, as `observations/adapters/e2s_nnja.py`
-  does, so the loader recovers the same values. Brightness temperatures computed
-  with other constants, channel wavenumbers or a band correction may carry small
-  biases relative to the training data.
+  To supply IASI or CrIS brightness temperature instead, compute it with that
+  inversion (its constants are earth2studio's `PLANCK_C1`/`PLANCK_C2`); other
+  constants, channel wavenumbers or a band correction may bias it slightly relative
+  to the training data. Write it as `brightness_temperature__ch_NNNNN` columns
+  (`NNNNN` the five-digit channel number) with field metadata `nnja.value_unit = K`,
+  as `observations/adapters/e2s_nnja.py` does; the loader then reads it without an
+  inversion.
 - **Geometry**: longitude is -180 to 180 in the archive and moved to 0 to 360 on
   load. Satellite zenith angle is an unsigned magnitude in the archive, and the
   loader gives it GSI's sign, negative on the first half of the scan.

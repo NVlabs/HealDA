@@ -43,6 +43,7 @@ from healda.observations.loaders.nnja_base import (
     NNJAArchiveLoader,
 )
 
+from healda.observations.schema import long_table
 from healda.observations.loaders.threads import configure_arrow_pools, thread_pool
 from healda.observations.sensors import (
     CONV_CHANNELS,
@@ -82,7 +83,6 @@ OPTIONAL_COLUMNS = (
     "standard_atmosphere_pressure_hpa",
     "blended_pressure_5km_hpa",
 )
-NULL_COLUMNS = ("Sat_Zenith_Angle", "Sol_Zenith_Angle", "Scan_Angle", "QC_Flag")
 
 
 @dataclass(frozen=True)
@@ -348,31 +348,8 @@ class NNJAGpsroLoader(NNJAArchiveLoader):
                     np.full(count, SENSOR_NAME_TO_ID["conv"], dtype=np.uint16)
                 ),
             }
-            for name in NULL_COLUMNS:
-                arrays[name] = pa.nulls(count, type=self.output_schema.field(name).type)
-            out[positive_half] = pa.table(
-                [arrays[field.name] for field in self.output_schema],
-                schema=self.output_schema,
-            )
+            out[positive_half] = long_table(arrays, self.output_schema)
         return out
-
-    def _load_cycle(
-        self,
-        cycle: pd.Timestamp,
-        halves: Sequence[bool],
-    ) -> list[tuple[pd.Timestamp, pa.Table]]:
-        by_half: dict[bool, list[pa.Table]] = {half: [] for half in halves}
-        for source, candidates in self._cycle_sources(cycle, list(by_half)):
-            for half, long in self._to_long(source, cycle, candidates).items():
-                by_half[half].append(long)
-
-        result = []
-        for half in halves:
-            parts = by_half[half]
-            if parts:
-                window = cycle + pd.Timedelta(hours=3 if half else 0)
-                result.append((window, pa.concat_tables(parts)))
-        return result
 
     @staticmethod
     def _check_columns(available: set[str], origin: str) -> None:

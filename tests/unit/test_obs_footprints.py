@@ -183,10 +183,15 @@ def test_blocks_pack_bitwise_like_their_long_tables(device):
 def test_packed_device_tensors_are_freed_before_the_forward():
     tr = transform(hpx_level=6, attention_prepack=True)
     blocks = [make_block("atms", 4, 5000, seed=8), make_block("amsua", 6, 3000, seed=9)]
-    batch = tr.transform_observations(
-        [[TIME]], frames_of([blocks], as_tables=False), "cuda"
-    )
-    packed = weakref.WeakValueDictionary(batch["unified_obs"][0])
+    packed = weakref.WeakValueDictionary()
+    process_obs = tr._process_obs
+
+    def recording_process_obs(*args, **kwargs):
+        tensors, lengths = process_obs(*args, **kwargs)
+        packed.update(tensors)
+        return tensors, lengths
+
+    tr._process_obs = recording_process_obs
     alive_at_forward = []
 
     class Net:
@@ -203,6 +208,40 @@ def test_packed_device_tensors_are_freed_before_the_forward():
         net=Net(),
         loop=types.SimpleNamespace(bf16=False, dit_temporal_attention_causal=False),
     )
-    DAModel._forward(model, batch)
-    assert "unified_obs" not in batch
+    DAModel._forward(model, [[TIME]], frames_of([blocks], as_tables=False))
     assert alive_at_forward == [[]]
+
+
+def test_training_featurizes_observations_as_inference_does():
+    tr = transform(hpx_level=6, attention_prepack=True)
+    blocks = [make_block("atms", 4, 500, seed=8), make_block("amsua", 6, 300, seed=9)]
+    frames = frames_of([blocks], as_tables=False)
+    inference, _ = tr.transform_observations([[TIME]], frames, "cpu")
+    # The obs part of the batch `transform` builds for training.
+    batch = {"unified_obs": tr._process_obs([[TIME]], frames)}
+    keys = list(batch["unified_obs"][0])
+    training = tr.device_transform(batch, "cpu")["unified_obs"]
+    assert list(batch["unified_obs"][0]) == keys
+    for got, want in [
+        (training.obs, inference.obs),
+        (training.time, inference.time),
+        (training.float_metadata, inference.float_metadata),
+        (training.pix, inference.pix),
+        (training.local_channel, inference.local_channel),
+        (training.global_channel, inference.global_channel),
+        (training.global_platform, inference.global_platform),
+        (training.lengths, inference.lengths),
+    ]:
+        assert torch.equal(got, want)
+
+
+def test_no_observations_give_empty_features_in_training_and_inference():
+    tr = transform(hpx_level=6, attention_prepack=True)
+    frames = frames_of([[make_block("atms", 4, 0, seed=8)]], as_tables=False)
+    inference, _ = tr.transform_observations([[TIME]], frames, "cpu")
+    batch = {"unified_obs": tr._process_obs([[TIME]], frames)}
+    training = tr.device_transform(batch, "cpu")["unified_obs"]
+    for obs in (inference, training):
+        assert obs.obs.shape[0] == obs.pix.shape[0] == obs.float_metadata.shape[0] == 0
+        assert not obs.attention_packing.counts.any()
+        assert not obs.attention_packing.cu_seqlens_k.any()

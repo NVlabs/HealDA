@@ -15,11 +15,15 @@ GPS-RO ``gps``, ``gps_refractivity``), ``NNJAObsSatwnd`` (``u``, ``v``) and
   as fixed-size lists ``quality`` and ``observation_<variable>`` over the sensor's
   channel axis, which the frame carries in ``attrs["channels"]``.
 
-These functions restate either layout in the column contract of healda's NNJA
-PrepBUFR, GPS-RO, SATWND and wide satellite archive tables, deriving what the ETL
-derives with the same code, so the loaders screen, thin and emit them exactly as they
-do archive rows. Each returns ``{cycle: table}``, a ``CycleTableSource`` for the
-loaders' ``table_source`` argument. Both layouts give the same tables.
+``analysis_tables`` takes wide frames and ``analysis_tables_long`` long ones. Both
+restate them in the column contract of healda's NNJA PrepBUFR, GPS-RO, SATWND and wide
+satellite archive tables, deriving what the ETL derives with the same code, so the
+loaders screen, thin and emit them exactly as they do archive rows, and both give the
+same tables. They return ``DAModel.run_analysis``'s table arguments: each a
+``{cycle: table}`` ``CycleTables``, ``satellite_tables`` one per sensor.
+
+The module holds the wide layout and the archive builders both layouts share; the
+long layout's regrouping is its last section.
 
 Satellite values stay in kelvin as earth2studio returns them. The IR sounders' columns
 are ``brightness_temperature__ch_NNNNN`` with field metadata ``nnja.value_unit = K``,
@@ -29,30 +33,21 @@ Rows are keyed by ``cycle_time``, the NCEP file each was decoded from, which the
 Earth2Studio NNJA sources fill: an observation at the shared edge of two files' windows
 is in both files, and stays in both, as in the archive.
 
-Usage, for the cycle file around ``cycle`` (dumps cover ``[cycle - 3h, cycle + 3h]``)::
+Usage, every stream at once from wide frames::
 
-    frame = NNJAObsConv(time_tolerance=window)(cycle, ["gps", "gps_refractivity"])
-    loader = NNJAGpsroLoader(table_source=gpsro_tables(frame))
-    await loader.sel_time(times)  # or via NNJAConventionalLoader(gpsro_table_source=...)
-
-    conv = NNJAObsConv(time_tolerance=window, original_event=True)
-    frame = conv(cycle, ["u", "v", "q", "t", "pres"])
-    NNJAConventionalLoader(prepbufr_table_source=prepbufr_tables(frame))
-
-    frame = NNJAObsSat(time_tolerance=window)(cycle, ["atms_antenna_temperature"])
-    loader = NNJAWideLoader(["atms"], table_source={"atms": sat_tables(frame, "atms")})
-
-    # Every stream at once, from frames of either layout:
-    tables = analysis_tables(conv, satwnd, sat, sensors=..., ir_channels=..., layout="wide")
+    tables = analysis_tables(
+        prepbufr=prepbufr, gpsro=gpsro, satwnd=satwnd, sat={"atms": atms},
+        ir_channels=...,
+    )
+    model.run_analysis(times, **tables)
 """
 
 from __future__ import annotations
 
 import functools
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
-from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -79,8 +74,6 @@ from healda.observations.preprocessing.gpsro_pressure import (
 from healda.observations.preprocessing.sat_helpers import hpx_nest_pixels
 from healda.observations.sensors_nnja import SENSOR_CONFIGS
 
-Layout = Literal["long", "wide"]
-LAYOUTS = ("long", "wide")
 # Wide frames: a variable's value and quality columns are these prefixes + its name.
 WIDE_VALUE = "observation_"
 WIDE_QUALITY = "quality_"
@@ -117,32 +110,7 @@ SAT_VARIABLE = {"atms": "atms_antenna_temperature"}
 
 PLATFORM_NAME_TO_SAID = {name: said for said, name in SAID_TO_PLATFORM_NAME.items()}
 
-# NNJAObsConv columns gpsro_tables reads.
-GPSRO_COLUMNS = (
-    "cycle_time",
-    "variable",
-    "observation",
-    "time",
-    "type",
-    "station",
-    "lat",
-    "lon",
-    "elev",
-    "quality",
-    "radius_curvature",
-    "geoid_undulation",
-)
-# NNJAObsConv columns prepbufr_tables reads.
-PREPBUFR_COLUMNS = (
-    *PREPBUFR_LEVEL_COLUMNS,
-    "time",
-    "lat",
-    "lon",
-    "variable",
-    "observation",
-    "quality",
-)
-# NNJAObsSatwnd columns satwnd_tables reads; the float ones also identify a wind.
+# NNJAObsSatwnd wind columns; the float ones also identify a wind.
 SATWND_FLOAT_KEYS = (
     "lat",
     "lon",
@@ -155,7 +123,6 @@ SATWND_FLOAT_KEYS = (
     "quality",
 )
 SATWND_WIND_COLUMNS = ("cycle_time", "time", "subset", *SATWND_FLOAT_KEYS)
-SATWND_COLUMNS = (*SATWND_WIND_COLUMNS, "variable", "observation")
 WIDE_SATWND_COLUMNS = (*SATWND_WIND_COLUMNS, f"{WIDE_VALUE}u", f"{WIDE_VALUE}v")
 # Columns constant over one footprint's channel rows.
 FOOTPRINT_KEYS = (
@@ -176,15 +143,8 @@ FOOTPRINT_FLAGS = {
     "granule_quality": "granule_quality",
     "footprint_quality": "summary_quality",
 }
-# Long NNJAObsSat columns sat_tables reads; quality is optional.
-SAT_CHANNEL_COLUMNS = ("sensor_index", "quality")
-SAT_COLUMNS = (
-    *FOOTPRINT_FLAGS,
-    *FOOTPRINT_KEYS,
-    *SAT_CHANNEL_COLUMNS,
-    "variable",
-    "observation",
-)
+# Footprint columns read when a sensor's frame has them.
+OPTIONAL_FOOTPRINT_COLUMNS = ("scan_line", "detector", *FOOTPRINT_FLAGS)
 
 
 def _integer(values: np.ndarray, pa_type: pa.DataType) -> pa.Array:
@@ -201,29 +161,7 @@ def _strings(codes: np.ndarray, dictionary: pa.Array) -> pa.Array:
     return pa.DictionaryArray.from_arrays(indices, dictionary).cast(pa.string())
 
 
-def gpsro_tables(frame: pd.DataFrame) -> dict[pd.Timestamp, pa.Table]:
-    """GPS-RO archive rows, one per bending-angle level, keyed by cycle.
-
-    ``frame`` holds long ``gps`` rows and, for the derived vertical coordinates,
-    the same occultations' ``gps_refractivity`` rows.
-    """
-    return _gpsro_long(_arrow(frame, GPSRO_COLUMNS))
-
-
-def _gpsro_long(table: pa.Table) -> dict[pd.Timestamp, pa.Table]:
-    variable, variables = _codes(table["variable"])
-    value = _floats(table["observation"])
-    return _gpsro_archive(
-        table,
-        is_gps=variable == variables.index(GPS_VARIABLE).as_py(),
-        is_profile=variable == variables.index(REFRACTIVITY_VARIABLE).as_py(),
-        bending=value,
-        refractivity=value,
-        qfro=_floats(table["quality"]),
-    )
-
-
-def _gpsro_wide(table: pa.Table) -> dict[pd.Timestamp, pa.Table]:
+def _gpsro_wide(table: pa.Table) -> pa.Table:
     return _gpsro_archive(
         table,
         is_gps=_wide_present(table, GPS_VARIABLE),
@@ -242,7 +180,7 @@ def _gpsro_archive(
     bending: np.ndarray,
     refractivity: np.ndarray,
     qfro: np.ndarray,
-) -> dict[pd.Timestamp, pa.Table]:
+) -> pa.Table:
     radius = _floats(table["radius_curvature"])
     geoid = _floats(table["geoid_undulation"])
     elev = _floats(table["elev"])
@@ -269,7 +207,7 @@ def _gpsro_archive(
     # radius of curvature.
     members = np.flatnonzero(is_gps | is_profile)
     if not members.size:
-        return {}
+        return pa.table({})
     keys = [cycle, time, _group_key(kind), station, _group_key(radius)]
     group = _group_ids([key[members] for key in keys])[0]
     order = np.argsort(group, kind="stable")
@@ -340,16 +278,7 @@ def _gpsro_archive(
             for name, values in columns.items()
         }
     )
-    return _split_by_cycle(out, cycle[gps].astype("datetime64[ns]"))
-
-
-def satwnd_tables(frame: pd.DataFrame) -> dict[pd.Timestamp, pa.Table]:
-    """SATWND archive rows, one per wind, keyed by cycle.
-
-    ``frame`` holds long ``NNJAObsSatwnd`` ``u`` and ``v`` rows; each wind's two
-    components are rejoined on the wind's own columns.
-    """
-    return _satwnd_long(_arrow(frame, SATWND_COLUMNS))
+    return out
 
 
 def _satwnd_winds(table: pa.Table) -> tuple[dict[str, np.ndarray], pa.Array]:
@@ -363,23 +292,7 @@ def _satwnd_winds(table: pa.Table) -> tuple[dict[str, np.ndarray], pa.Array]:
     return winds, subset_names
 
 
-def _satwnd_long(table: pa.Table) -> dict[pd.Timestamp, pa.Table]:
-    variable, names = _codes(table["variable"])
-    is_u = variable == names.index("u").as_py()
-    u_rows, v_rows = np.flatnonzero(is_u), np.flatnonzero(~is_u)
-    keys, subset_names = _satwnd_winds(table)
-    # NNJAObsSatwnd builds a file's v rows from the same winds, in the same order, as
-    # its u rows.
-    if not _same_rows(keys, u_rows, v_rows):
-        raise ValueError("NNJAObsSatwnd v rows are not in the u rows' wind order")
-    observation = _floats(table["observation"])
-    winds = {name: values[u_rows] for name, values in keys.items()}
-    return _satwnd_archive(
-        winds, subset_names, observation[u_rows], observation[v_rows]
-    )
-
-
-def _satwnd_wide(table: pa.Table) -> dict[pd.Timestamp, pa.Table]:
+def _satwnd_wide(table: pa.Table) -> pa.Table:
     winds, subset_names = _satwnd_winds(table)
     u = _floats(table[f"{WIDE_VALUE}u"])
     v = _floats(table[f"{WIDE_VALUE}v"])
@@ -388,12 +301,10 @@ def _satwnd_wide(table: pa.Table) -> dict[pd.Timestamp, pa.Table]:
 
 def _satwnd_archive(
     winds: dict[str, np.ndarray], subset_names: pa.Array, u: np.ndarray, v: np.ndarray
-) -> dict[pd.Timestamp, pa.Table]:
+) -> pa.Table:
     cycle = winds["cycle_time"].astype("datetime64[ns]")
     window = archive_window(winds["time"], cycle)
-    pixels, valid_position = hpx_nest_pixels(
-        winds["lat"], winds["lon"], ARCHIVE_HPX_LEVEL
-    )
+    pixels, valid_position = _pixels(winds["lat"], winds["lon"], ARCHIVE_HPX_LEVEL)
     subset = winds["subset"]
     swcm = winds["wind_method"]
     types = satwnd_gsi_types.resolve_codes(
@@ -439,62 +350,14 @@ def _satwnd_archive(
             "gsi_type_mapping_tier": _strings(types.tier_index, tier_names),
         }
     )
-    return _split_by_cycle(table, cycle)
+    return table
 
 
-def prepbufr_tables(frame: pd.DataFrame) -> dict[pd.Timestamp, pa.Table]:
-    """PrepBUFR archive rows, one per report level, keyed by cycle.
-
-    ``frame`` holds long ``u``, ``v``, ``q``, ``t`` and ``pres`` rows from
-    ``NNJAObsConv(original_event=True)``. The archive holds each observation's original
-    event (program code 1); the default, the latest event, is for temperature often
-    the virtual temperature, with later quality marks, which the loader reads as a
-    different observation. ``XOB``, ``YOB`` and ``DHR`` are the report header's
-    position and time (``report_lon``, ``report_lat``, ``report_time``); ``XDR``,
-    ``YDR`` and ``HRDR`` the level's (``lon``, ``lat``, ``time``), which is the
-    header's except for drifting radiosonde levels. ``pres`` rows supply the levels
-    that carry no other variable.
-
-    Reports are keyed by ``cycle_time``, the file each was decoded from; one at the
-    edge of two files' windows is in both, as in the archive.
-    """
-    return _prepbufr_long(_arrow(frame, PREPBUFR_COLUMNS))
-
-
-def _prepbufr_long(table: pa.Table) -> dict[pd.Timestamp, pa.Table]:
-    variable, variables = _codes(table["variable"])
-    wanted = [variables.index(name).as_py() for name in PREPBUFR_LEVEL_VARIABLES]
-    rows = np.flatnonzero(np.isin(variable, [code for code in wanted if code >= 0]))
-    if not rows.size:
-        return {}
-    variable = variable[rows]
-    levels = _prepbufr_levels(table, rows)
-    keys = [_group_key(levels[name]) for name in PREPBUFR_LEVEL_COLUMNS]
-    # A report repeated in the file gives each variable once per copy.
-    occurrence = _group_ids([*keys, variable])[2]
-    level, first, _ = _group_ids([*keys, occurrence])
-
-    observation = _floats(table["observation"])[rows]
-    quality = _floats(table["quality"])[rows]
-    values, qualities, present = {}, {}, {}
-    for name in PREPBUFR_VARIABLES:
-        selected = variable == variables.index(name).as_py()
-        values[name] = np.full(first.size, np.nan)
-        qualities[name] = np.full(first.size, np.nan)
-        present[name] = np.zeros(first.size, dtype=bool)
-        values[name][level[selected]] = observation[selected]
-        qualities[name][level[selected]] = quality[selected]
-        present[name][level[selected]] = True
-    header = {name: column[first] for name, column in levels.items()}
-    stations = _codes(table["station"])[1]
-    return _prepbufr_archive(header, stations, values, qualities, present)
-
-
-def _prepbufr_wide(table: pa.Table) -> dict[pd.Timestamp, pa.Table]:
+def _prepbufr_wide(table: pa.Table) -> pa.Table:
     present = {name: _wide_present(table, name) for name in PREPBUFR_LEVEL_VARIABLES}
     rows = np.flatnonzero(np.logical_or.reduce(list(present.values())))
     if not rows.size:
-        return {}
+        return pa.table({})
     values = {
         name: _wide_floats(table, WIDE_VALUE + name)[rows]
         for name in PREPBUFR_VARIABLES
@@ -522,10 +385,18 @@ def _prepbufr_levels(table: pa.Table, rows: np.ndarray) -> dict[str, np.ndarray]
 
 def _prepbufr_archive(
     header: dict, stations: pa.Array, values: dict, qualities: dict, present: dict
-) -> dict[pd.Timestamp, pa.Table]:
+) -> pa.Table:
     """One archive row per level: its ``_prepbufr_levels`` columns, station codes
     indexing ``stations``, and per variable the value in e2s units (K, kg/kg, m/s), the
-    quality mark, and whether the level holds it."""
+    quality mark, and whether the level holds it.
+
+    The rows come from ``NNJAObsConv(original_event=True)``: the archive holds each
+    observation's original event (program code 1), while the latest event is for
+    temperature often the virtual temperature, with later quality marks, which the
+    loader reads as a different observation. ``XOB``, ``YOB`` and ``DHR`` are the
+    report header's position and time; ``XDR``, ``YDR`` and ``HRDR`` the level's, the
+    header's except for drifting radiosonde levels.
+    """
     cycle = header["cycle_time"].astype("datetime64[ns]")
 
     def hours_from_cycle(time_ns):
@@ -564,23 +435,7 @@ def _prepbufr_archive(
             },
         }
     )
-    return _split_by_cycle(table, cycle)
-
-
-def sat_tables(
-    frame: pd.DataFrame,
-    sensor: str,
-    ir_channels: str | Mapping[str, Sequence[int]] | None = "ir32",
-) -> dict[pd.Timestamp, pa.Table]:
-    """Wide satellite archive rows, one per footprint, keyed by cycle.
-
-    ``frame`` holds long ``NNJAObsSat`` rows of ``sensor``'s variable (``SAT_VARIABLE``)
-    in the order the source emits them: a footprint's channel rows are consecutive and
-    ascending in ``sensor_index``. Rows of other variables are ignored. The channel
-    columns are those ``NNJAWideLoader(ir_channels=ir_channels)`` reads, null where
-    the frame has no row.
-    """
-    return _sat_long(_arrow(frame, SAT_COLUMNS), sensor, ir_channels)
+    return table
 
 
 def _sat_channels(sensor: str, ir_channels) -> tuple[np.ndarray, np.ndarray]:
@@ -601,99 +456,17 @@ def _slots(sensor_index: np.ndarray, channel_slot: np.ndarray) -> np.ndarray:
     return np.where(known, channel_slot[np.where(known, sensor_index, 0)], -1)
 
 
-def _sat_long(
-    table: pa.Table, sensor: str, ir_channels
-) -> dict[pd.Timestamp, pa.Table]:
-    # Arrow and numpy throughout: earth2studio frames are Arrow-backed, and pandas
-    # operations on them are slower for identical output.
-    variable, names = _codes(table["variable"])
-    code = names.index(SAT_VARIABLE.get(sensor, sensor)).as_py()
-    if code < 0:
-        return {}
-    channels, channel_slot = _sat_channels(sensor, ir_channels)
-    footprint_columns = [
-        name
-        for name in (*FOOTPRINT_KEYS, *FOOTPRINT_FLAGS)
-        if name in table.column_names
-    ]
-    has_quality = "quality" in table.column_names
-    width = _footprint_width(table) if (variable == code).all() else 0
-    if width:
-        # Every footprint is the same `width` consecutive rows: reshape, no pivot.
-        firsts = table.select(footprint_columns).take(
-            pa.array(np.arange(0, table.num_rows, width))
-        )
-        slot = _slots(_native(table["sensor_index"].slice(0, width)), channel_slot)
-        if not (slot >= 0).any():
-            return {}
-        footprints = {name: _native(firsts[name]) for name in footprint_columns}
-        observation = _channel_rows(
-            _native(table["observation"]).astype(np.float32, copy=False),
-            width,
-            slot,
-            channels.size,
-        )
-        flags = None
-        if has_quality:
-            flags = _or_flags(_unsigned(table["quality"]), width, slot)
-        platforms = _codes(firsts["satellite"])[1]
-        return _sat_archive(sensor, footprints, platforms, channels, observation, flags)
-
-    slot = np.where(
-        variable == code, _slots(_native(table["sensor_index"]), channel_slot), -1
-    )
-    kept = np.flatnonzero(slot >= 0)
-    if not kept.size:
-        return {}
-    slot = slot[kept]
-
-    def at_kept(name: str) -> np.ndarray:
-        values = _native(table[name])
-        return values if values.size == kept.size else values[kept]
-
-    # A footprint starts where the channel sequence restarts or a footprint column changes.
-    starts = np.ones(kept.size, dtype=bool)
-    starts[1:] = slot[1:] <= slot[:-1]
-    columns = {name: at_kept(name) for name in footprint_columns}
-    for name in FOOTPRINT_KEYS:
-        if name in columns:
-            values = columns[name]
-            same = values[1:] == values[:-1]
-            if values.dtype.kind == "f":
-                same |= np.isnan(values[1:]) & np.isnan(values[:-1])
-            starts[1:] |= ~same
-    first = np.flatnonzero(starts)
-    footprint = np.cumsum(starts) - 1
-
-    observation = np.full((channels.size, first.size), np.nan, dtype=np.float32)
-    observation[slot, footprint] = at_kept("observation")
-    flags = None
-    if has_quality:
-        quality = np.zeros((channels.size, first.size), dtype=np.int64)
-        quality[slot, footprint] = np.maximum(at_kept("quality"), 0)
-        flags = np.bitwise_or.reduce(quality, axis=0)
-    footprints = {name: values[first] for name, values in columns.items()}
-    platforms = _codes(table["satellite"])[1]
-    return _sat_archive(sensor, footprints, platforms, channels, observation, flags)
-
-
-def _sat_wide(
-    table: pa.Table, sensor: str, axis: np.ndarray, ir_channels
-) -> dict[pd.Timestamp, pa.Table]:
+def _sat_wide(table: pa.Table, sensor: str, axis: np.ndarray, ir_channels) -> pa.Table:
     """Archive rows of one sensor's wide frame, whose per-channel columns hold one slot
     per channel of ``axis``."""
     channels, channel_slot = _sat_channels(sensor, ir_channels)
     slot = _slots(axis, channel_slot)
     if not (slot >= 0).any():
-        return {}
-    values = _flat(table[WIDE_VALUE + SAT_VARIABLE.get(sensor, sensor)])
-    observation = _channel_rows(
-        values.astype(np.float32, copy=False), axis.size, slot, channels.size
+        return pa.table({})
+    observation = _list_channel_rows(
+        table[WIDE_VALUE + SAT_VARIABLE.get(sensor, sensor)], slot, channels.size
     )
-    flags = None
-    if "quality" in table.column_names:
-        quality = _unsigned(pc.list_flatten(table["quality"]))
-        flags = _or_flags(quality, axis.size, slot)
+    flags = _list_or_flags(table["quality"], slot)
     footprints = {
         name: _native(table[name])
         for name in (*FOOTPRINT_KEYS, *FOOTPRINT_FLAGS)
@@ -703,27 +476,46 @@ def _sat_wide(
     return _sat_archive(sensor, footprints, platforms, channels, observation, flags)
 
 
-def _footprint_width(table: pa.Table) -> int:
-    """Rows per footprint when every footprint is the same channel sequence in
-    consecutive rows and the footprint columns hold within it, else 0."""
-    sensor_index = _raw(table["sensor_index"])
-    restarts = np.flatnonzero(sensor_index[1:] <= sensor_index[:-1])
-    width = int(restarts[0]) + 1 if restarts.size else sensor_index.size
-    if not width or sensor_index.size % width:
-        return 0
-    blocks = sensor_index.reshape(-1, width)
-    if not (blocks == blocks[0]).all():
-        return 0
-    for name in FOOTPRINT_KEYS:
-        if name not in table.column_names:
-            continue
-        values = _raw(table[name]).reshape(-1, width)
-        same = values == values[:, :1]
-        if values.dtype.kind == "f":
-            same |= np.isnan(values) & np.isnan(values[:, :1])
-        if not same.all():
-            return 0
-    return width
+def _list_width(column: pa.ChunkedArray) -> int:
+    if not pa.types.is_fixed_size_list(column.type):
+        raise ValueError(
+            "wide satellite columns are fixed-size lists over the channel axis, as "
+            f"Arrow-backed earth2studio frames hold them; got {column.type}"
+        )
+    return column.type.list_size
+
+
+def _list_blocks(column: pa.ChunkedArray) -> Iterator[tuple[int, pa.Array]]:
+    """(first footprint, flattened values) of each chunk of a fixed-size list column."""
+    if column.null_count:
+        raise ValueError("satellite channel lists must not be null")
+    start = 0
+    for chunk in column.chunks:
+        yield start, chunk.flatten()
+        start += len(chunk)
+
+
+# Transposes and reductions run in row ranges that stay in cache.
+_ROWS_PER_PASS = 1 << 16
+
+
+def _transpose_into(
+    out: np.ndarray, block: np.ndarray, slot: np.ndarray, start: int
+) -> None:
+    """Write (footprint, slot) ``block`` into ``out``'s channel rows from column ``start``."""
+    columns = np.flatnonzero(slot >= 0)
+    for lo in range(0, len(block), _ROWS_PER_PASS):
+        hi = min(lo + _ROWS_PER_PASS, len(block))
+        out[slot[columns], start + lo : start + hi] = block[lo:hi, columns].T
+
+
+def _or_into(out: np.ndarray, block: np.ndarray, slot: np.ndarray, start: int) -> None:
+    """Write the bitwise OR of each footprint's archive-channel flags from ``start``."""
+    columns = np.flatnonzero(slot >= 0)
+    for lo in range(0, len(block), _ROWS_PER_PASS):
+        hi = min(lo + _ROWS_PER_PASS, len(block))
+        chunk = np.ascontiguousarray(block[lo:hi, columns].T)
+        out[start + lo : start + hi] = np.bitwise_or.reduce(chunk, axis=0)
 
 
 def _channel_rows(
@@ -733,22 +525,38 @@ def _channel_rows(
     whose channels sit at ``slot``; NaN where a footprint lacks a channel."""
     block = values.reshape(-1, width)
     out = np.full((channel_count, block.shape[0]), np.nan, dtype=values.dtype)
-    columns = np.flatnonzero(slot >= 0)
-    # Transposed in row chunks that stay in cache.
-    for lo in range(0, block.shape[0], 1 << 16):
-        out[slot[columns], lo : lo + (1 << 16)] = block[lo : lo + (1 << 16), columns].T
+    _transpose_into(out, block, slot, 0)
     return out
 
 
 def _or_flags(quality: np.ndarray, width: int, slot: np.ndarray) -> np.ndarray:
     """Per footprint of ``width`` entries, the bitwise OR of its archive channels' flags."""
     block = quality.reshape(-1, width)
-    columns = np.flatnonzero(slot >= 0)
     out = np.empty(block.shape[0], dtype=np.int64)
-    # Reduced in row chunks, transposed so the OR runs over contiguous rows.
-    for lo in range(0, block.shape[0], 1 << 16):
-        chunk = np.ascontiguousarray(block[lo : lo + (1 << 16), columns].T)
-        out[lo : lo + (1 << 16)] = np.bitwise_or.reduce(chunk, axis=0)
+    _or_into(out, block, slot, 0)
+    return out
+
+
+def _list_channel_rows(
+    column: pa.ChunkedArray, slot: np.ndarray, channel_count: int
+) -> np.ndarray:
+    """``_channel_rows`` of a fixed-size list column, chunk by chunk, as float32."""
+    width = _list_width(column)
+    out = np.full((channel_count, len(column)), np.nan, dtype=np.float32)
+    for start, values in _list_blocks(column):
+        block = values.to_numpy(zero_copy_only=False).reshape(-1, width)
+        _transpose_into(out, block, slot, start)
+    return out
+
+
+def _list_or_flags(column: pa.ChunkedArray, slot: np.ndarray) -> np.ndarray:
+    """``_or_flags`` of a fixed-size list column, chunk by chunk; null flags are 0."""
+    width = _list_width(column)
+    out = np.empty(len(column), dtype=np.int64)
+    for start, values in _list_blocks(column):
+        _or_into(
+            out, pc.fill_null(values, 0).to_numpy().reshape(-1, width), slot, start
+        )
     return out
 
 
@@ -764,19 +572,17 @@ def _sat_archive(
     channels: np.ndarray,
     observation: np.ndarray,
     flags: np.ndarray | None,
-) -> dict[pd.Timestamp, pa.Table]:
+) -> pa.Table:
     """One archive row per footprint from its ``footprints`` columns (``satellite`` as
     codes into ``platforms``), the (channel, footprint) values in kelvin and, when the
     frame carries per-channel quality, each footprint's bitwise OR of it over the
     archive channels."""
-    if not observation.shape[1]:
-        return {}
     time_ns = footprints["time"]
     cycle = footprints["cycle_time"].astype("datetime64[ns]")
     window = archive_window(time_ns, cycle)
     lat = footprints["lat"].astype(np.float64)
     lon = footprints["lon"].astype(np.float64)
-    pixels, valid_position = _sat_pixels(lat, lon)
+    pixels, valid_position = _pixels(lat, lon, ARCHIVE_HPX_ORDER)
     said_by_code = np.array(
         [PLATFORM_NAME_TO_SAID.get(name, -1) for name in platforms.to_pylist()] + [-1]
     )
@@ -830,16 +636,16 @@ def _sat_archive(
             pa.field(f"{prefix}__ch_{channel:05d}", pa.float32(), metadata=metadata)
         )
     table = pa.Table.from_arrays(arrays, schema=pa.schema(fields))
-    return _split_by_cycle(table, cycle)
+    return table
 
 
-def _sat_pixels(lat: np.ndarray, lon: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    # At this level the GPU lookup gives the CPU's pixels; at satwnd's level 12 it
-    # differs on boundary ties, so satwnd stays on the CPU.
+def _pixels(
+    lat: np.ndarray, lon: np.ndarray, level: int
+) -> tuple[np.ndarray, np.ndarray]:
     import torch
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    return hpx_nest_pixels(lat, lon, ARCHIVE_HPX_ORDER, device=device)
+    return hpx_nest_pixels(lat, lon, level, device=device)
 
 
 def _footprint_flags(footprints: dict[str, np.ndarray]) -> dict:
@@ -869,25 +675,20 @@ def _quality_columns(sensor: str, flags: np.ndarray | None) -> dict:
 
 
 def analysis_tables(
-    conv: pd.DataFrame | None = None,
-    satwnd: pd.DataFrame | None = None,
-    sat: pd.DataFrame | Mapping[str, pd.DataFrame] | None = None,
     *,
     prepbufr: pd.DataFrame | None = None,
     gpsro: pd.DataFrame | None = None,
-    sensors: Sequence[str],
+    satwnd: pd.DataFrame | None = None,
+    sat: Mapping[str, pd.DataFrame] | None = None,
     ir_channels: str | Mapping[str, Sequence[int]] | None,
-    layout: Layout = "long",
     workers: int | None = None,
 ) -> dict:
-    """``DAModel.run_analysis`` table arguments from Earth2Studio NNJA frames.
+    """``DAModel.run_analysis`` table arguments from wide Earth2Studio NNJA frames.
 
-    In the long layout ``conv`` is an ``NNJAObsConv(original_event=True)`` frame of any
-    PrepBUFR and GPS-RO variables, ``satwnd`` an ``NNJAObsSatwnd`` frame and ``sat`` an
-    ``NNJAObsSat`` frame of any of ``sensors``. In the wide layout each stream is its
-    own frame: ``prepbufr`` and ``gpsro`` from ``NNJAObsConv``, ``satwnd``, and ``sat``
-    a mapping from sensor to that sensor's ``NNJAObsSat`` frame. A frame not passed
-    gives no argument.
+    Each stream is its own frame: ``prepbufr`` and ``gpsro`` from ``NNJAObsConv``,
+    ``satwnd`` from ``NNJAObsSatwnd``, and ``sat`` a mapping from sensor to that
+    sensor's ``NNJAObsSat`` frame. A stream or sensor not passed gives no tables, which
+    the loaders read as no observations. Long frames go to ``analysis_tables_long``.
 
     Every footprint, report, occultation and wind comes from one file, so each stream
     is cut by ``cycle_time`` and the pieces adapted in parallel on ``workers`` threads (default
@@ -896,82 +697,71 @@ def analysis_tables(
     The function returns once the streams are cut. Each ``{cycle: table}`` is a
     ``CycleTables`` whose lookups wait for that cycle's adaptation.
     """
-    if layout not in LAYOUTS:
-        raise ValueError(f"layout must be one of {LAYOUTS}, got {layout!r}")
-    wide = layout == "wide"
-    variables = {SAT_VARIABLE.get(sensor, sensor): sensor for sensor in sensors}
-    # (frame's Arrow table, stream of each row)
+    if isinstance(sat, pd.DataFrame):
+        raise ValueError(
+            "sat is {sensor: frame}; one long frame goes to analysis_tables_long"
+        )
+
+    sat = sat or {}
+    # (frame's Arrow table, its stream name)
     streams = []
-    if wide and conv is not None:
-        raise ValueError("a wide layout takes prepbufr and gpsro frames, not conv")
-    if not wide and (prepbufr is not None or gpsro is not None):
-        raise ValueError("a long layout takes one conv frame, not prepbufr and gpsro")
-    if wide and isinstance(sat, pd.DataFrame):
-        raise ValueError("a wide layout takes sat as {sensor: frame}, not one frame")
-    if not wide and isinstance(sat, Mapping):
-        raise ValueError("a long layout takes one sat frame, not {sensor: frame}")
-    if conv is not None:
-        _check_layout(conv, wide, "conv")
-        streams.append((_arrow(conv, conv.columns), _conv_stream))
     for name, frame in (("prepbufr", prepbufr), ("gps", gpsro)):
         if frame is not None:
-            _check_layout(frame, wide, name)
-            stream = functools.partial(_one_stream, name)
-            streams.append((_arrow(frame, frame.columns), stream))
+            _check_layout(frame, True, name)
+            streams.append((_arrow(frame, frame.columns, name), name))
     if satwnd is not None:
-        _check_layout(satwnd, wide, "satwnd")
-        names = WIDE_SATWND_COLUMNS if wide else SATWND_COLUMNS
-        streams.append((_arrow(satwnd, names), None))
-    # Each wide sensor frame carries its channel axis in attrs["channels"]
-    axes = {
-        sensor: np.array(frame.attrs["channels"][sensor])
-        for sensor, frame in (sat.items() if wide and sat is not None else ())
-    }
-    if sat is not None and wide:
-        for sensor, frame in sat.items():
-            _check_layout(frame, wide, f"sat[{sensor!r}]")
-            variable = SAT_VARIABLE.get(sensor, sensor)
-            names = [
-                *FOOTPRINT_FLAGS,
-                *FOOTPRINT_KEYS,
-                "quality",
-                WIDE_VALUE + variable,
-            ]
-            streams.append(
-                (_arrow(frame, names), functools.partial(_one_stream, variable))
-            )
-    elif sat is not None:
-        _check_layout(sat, wide, "sat")
-        streams.append((_arrow(sat, SAT_COLUMNS), _variable_stream))
+        _check_layout(satwnd, True, "satwnd")
+        streams.append((_arrow(satwnd, WIDE_SATWND_COLUMNS, "satwnd"), "satwnd"))
+    # Each sensor frame carries its channel axis in attrs["channels"]
+    axes = {}
+    unknown = sorted(set(sat) - set(SENSOR_CONFIGS))
+    if unknown:
+        raise ValueError(f"sat has sensors without an NNJA configuration: {unknown}")
+    for sensor, frame in sat.items():
+        _check_layout(frame, True, f"sat[{sensor!r}]")
+        axes[sensor] = np.array(frame.attrs["channels"][sensor])
+        variable = SAT_VARIABLE.get(sensor, sensor)
+        names = [*FOOTPRINT_FLAGS, *FOOTPRINT_KEYS, "quality", WIDE_VALUE + variable]
+        table = _arrow(frame, names, f"sat[{sensor!r}]", OPTIONAL_FOOTPRINT_COLUMNS)
+        streams.append((table, variable))
     adapters = {
-        "prepbufr": (
-            "prepbufr_tables",
-            None,
-            _prepbufr_wide if wide else _prepbufr_long,
-        ),
-        "gps": ("gpsro_tables", None, _gpsro_wide if wide else _gpsro_long),
-        "satwnd": ("satwnd_tables", None, _satwnd_wide if wide else _satwnd_long),
+        "prepbufr": ("prepbufr_tables", None, _prepbufr_wide),
+        "gps": ("gpsro_tables", None, _gpsro_wide),
+        "satwnd": ("satwnd_tables", None, _satwnd_wide),
         **{
-            variable: (
+            SAT_VARIABLE.get(sensor, sensor): (
                 "satellite_tables",
                 sensor,
-                (
-                    functools.partial(
-                        _sat_wide,
-                        sensor=sensor,
-                        axis=axes.get(sensor),
-                        ir_channels=ir_channels,
-                    )
-                    if wide
-                    else functools.partial(
-                        _sat_long, sensor=sensor, ir_channels=ir_channels
-                    )
+                functools.partial(
+                    _sat_wide,
+                    sensor=sensor,
+                    axis=axes[sensor],
+                    ir_channels=ir_channels,
                 ),
             )
-            for variable, sensor in variables.items()
+            for sensor in sat
         },
     }
+    jobs = {}
+    if prepbufr is not None:
+        jobs["prepbufr_tables"] = {}
+    if gpsro is not None:
+        jobs["gpsro_tables"] = {}
+    if satwnd is not None:
+        jobs["satwnd_tables"] = {}
+    if sat:
+        jobs["satellite_tables"] = {sensor: {} for sensor in sat}
+    return _adapt(streams, adapters, jobs, workers)
 
+
+def _adapt(streams: list, adapters: dict, jobs: dict, workers: int | None) -> dict:
+    """Cut each ``(table, stream)`` of ``streams`` into one piece per stream and cycle,
+    adapt every piece on a thread pool and return ``jobs``, the ``run_analysis`` table
+    arguments to fill, as ``CycleTables``.
+
+    ``adapters`` maps a stream name to ``(argument, sensor or None, adapt)``; pieces of
+    a stream it lacks are dropped.
+    """
     pool = ThreadPoolExecutor(
         max_workers=workers or min(32, len(os.sched_getaffinity(0)))
     )
@@ -979,18 +769,9 @@ def analysis_tables(
         pieces = [
             (name, cycle, piece)
             for table, stream in streams
-            for (name, cycle), piece in _pieces(table, stream, pool).items()
+            for (name, cycle), piece in _pieces(table, stream).items()
             if name in adapters
         ]
-        jobs = {}
-        if conv is not None or prepbufr is not None:
-            jobs["prepbufr_tables"] = {}
-        if conv is not None or gpsro is not None:
-            jobs["gpsro_tables"] = {}
-        if satwnd is not None:
-            jobs["satwnd_tables"] = {}
-        if sat is not None:
-            jobs["satellite_tables"] = {sensor: {} for sensor in sensors}
         for name, cycle, piece in pieces:
             argument, sensor, adapt = adapters[name]
             target = jobs[argument] if sensor is None else jobs[argument][sensor]
@@ -1014,28 +795,33 @@ class CycleTables(Mapping):
 
     A lookup waits only for its own cycle's job, so a loader reads the first cycles
     while later ones are built. Iterating, ``len`` and pickling wait for every job. A
-    failed job raises ``RuntimeError`` from the access that waits on it, never a
-    ``KeyError`` that ``get`` would read as an absent cycle.
+    cycle whose adaptation leaves no rows is absent. A failed job raises
+    ``RuntimeError`` from the access that waits on it, never a ``KeyError`` that ``get``
+    would read as an absent cycle.
     """
 
     def __init__(self, jobs: dict[pd.Timestamp, Future]):
         self._jobs = jobs
 
     def __getitem__(self, cycle: pd.Timestamp) -> pa.Table:
-        return _adapted(self._jobs[cycle])[cycle]
+        table = _adapted(self._jobs[cycle])
+        if not table.num_rows:
+            raise KeyError(cycle)
+        return table
 
-    def __iter__(self):
-        for job in self._jobs.values():
-            yield from _adapted(job)
+    def __iter__(self) -> Iterator[pd.Timestamp]:
+        for cycle, job in self._jobs.items():
+            if _adapted(job).num_rows:
+                yield cycle
 
     def __len__(self) -> int:
-        return sum(len(_adapted(job)) for job in self._jobs.values())
+        return sum(1 for _ in self)
 
     def __reduce__(self):
         return dict, (dict(self.items()),)
 
 
-def _adapted(job: Future) -> dict[pd.Timestamp, pa.Table]:
+def _adapted(job: Future) -> pa.Table:
     error = job.exception()
     if error is not None:
         raise RuntimeError("adapting a cycle's rows failed") from error
@@ -1048,12 +834,10 @@ def _check_layout(frame: pd.DataFrame, wide: bool, stream: str) -> None:
     is_wide = any(name.startswith(WIDE_VALUE) for name in columns)
     is_long = "observation" in columns
     if (is_wide, is_long) != (wide, not wide):
-        layout = "wide" if wide else "long"
-        raise ValueError(
-            f"{stream}: a {layout} frame holds "
-            + ("observation_<variable> columns" if wide else "an observation column")
-            + "; pass the layout the frame was requested in"
+        found, target = (
+            ("long", "analysis_tables_long") if wide else ("wide", "analysis_tables")
         )
+        raise ValueError(f"{stream}: a {found} frame; pass it to {target}")
 
 
 def _group_key(values: np.ndarray) -> np.ndarray:
@@ -1099,20 +883,6 @@ def _group_ids(keys: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarr
     return ids, np.sort(first_rows), position
 
 
-def _same_rows(keys: dict, a: np.ndarray, b: np.ndarray) -> bool:
-    """True when rows ``a[i]`` and ``b[i]`` agree on every key, NaN equal to NaN."""
-    if a.size != b.size:
-        return False
-    for values in keys.values():
-        x, y = values[a], values[b]
-        same = x == y
-        if x.dtype.kind == "f":
-            same |= np.isnan(x) & np.isnan(y)
-        if not same.all():
-            return False
-    return True
-
-
 def _floats(column: pa.ChunkedArray) -> np.ndarray:
     return column.cast(pa.float64()).to_numpy()
 
@@ -1133,90 +903,60 @@ def _wide_present(table: pa.Table, variable: str) -> np.ndarray:
     return present
 
 
-def _raw(column: pa.ChunkedArray) -> np.ndarray:
-    """Values to compare row with row, without widening: strings as codes,
-    timestamps as int64, null floats NaN."""
-    if pa.types.is_dictionary(column.type):
-        return (
-            column.unify_dictionaries()
-            .combine_chunks()
-            .indices.to_numpy(zero_copy_only=False)
-        )
-    if pa.types.is_timestamp(column.type):
-        return column.to_numpy().view(np.int64)
-    if pa.types.is_string(column.type) or pa.types.is_large_string(column.type):
-        return _codes(column)[0]
-    return column.to_numpy()
-
-
-def _flat(column: pa.ChunkedArray) -> np.ndarray:
-    """A list or fixed-size list column's values, rows concatenated, as ``_native``;
-    null rows contribute nothing."""
-    return _native(pc.list_flatten(column))
-
-
-def _split_by_cycle(table: pa.Table, cycle: np.ndarray) -> dict[pd.Timestamp, pa.Table]:
-    if cycle.size and (cycle == cycle[0]).all():
-        return {pd.Timestamp(cycle[0]): table}
-    order = np.argsort(cycle, kind="stable")
-    values, first = np.unique(cycle[order], return_index=True)
-    bounds = [*first, order.size]
-    return {
-        pd.Timestamp(value): table.take(pa.array(order[lo:hi]))
-        for value, lo, hi in zip(values, bounds[:-1], bounds[1:])
-    }
-
-
-def _pieces(table: pa.Table, stream, pool, segments: int = 32) -> dict:
+def _pieces(
+    table: pa.Table,
+    stream: str | Callable[[pa.Table], tuple[np.ndarray, np.ndarray]],
+) -> dict[tuple[str, int], pa.Table]:
     """``table`` cut into one table per (stream, archive cycle), rows in their original
-    order. ``stream(segment)`` names each row's stream (None: one stream, "satwnd").
+    order. ``stream`` is the table's stream name, or, for a table that mixes streams,
+    ``stream(part)`` gives each row's code into the stream names.
 
-    Segments of the table are keyed on ``pool`` in parallel; a key's runs are zero-copy
-    slices, concatenated in row order, so a report straddling two segments rejoins.
+    Earth2Studio frames hold one source file per Arrow chunk, so a chunk of a
+    single-stream table with one ``cycle_time`` is taken whole; other chunks are cut
+    where the stream or the cycle changes.
     """
-    if not table.num_rows:
-        return {}
-    size = -(-table.num_rows // segments)
-    parts = [table.slice(lo, size) for lo in range(0, table.num_rows, size)]
-
-    def runs(part):
-        names = np.array(["satwnd"]) if stream is None else None
-        codes = np.zeros(part.num_rows, dtype=np.int64)
-        if stream is not None:
-            codes, names = stream(part)
-        cycle = _native(part["cycle_time"])
-        change = (codes[1:] != codes[:-1]) | (cycle[1:] != cycle[:-1])
-        bounds = [0, *(np.flatnonzero(change) + 1), cycle.size]
-        return [
-            ((str(names[codes[lo]]), int(cycle[lo])), part.slice(lo, hi - lo))
-            for lo, hi in zip(bounds[:-1], bounds[1:])
-        ]
-
-    merged = {}
-    for part_runs in pool.map(runs, parts):
-        for key, piece in part_runs:
+    merged: dict[tuple[str, int], list[pa.Table]] = {}
+    for batch in table.to_batches():
+        part = pa.Table.from_batches([batch])
+        if not part.num_rows:
+            continue
+        if part["cycle_time"].null_count:
+            raise ValueError("rows without cycle_time: every row names its source file")
+        cycle_range = pc.min_max(part["cycle_time"])
+        if isinstance(stream, str) and cycle_range["min"] == cycle_range["max"]:
+            cycle = int(_native(part["cycle_time"].slice(0, 1))[0])
+            runs = [((stream, cycle), part)]
+        else:
+            runs = _runs(part, stream)
+        for key, piece in runs:
             merged.setdefault(key, []).append(piece)
-    return {key: pa.concat_tables(slices) for key, slices in merged.items()}
+    return {key: pa.concat_tables(pieces) for key, pieces in merged.items()}
 
 
-def _variable_stream(part: pa.Table) -> tuple[np.ndarray, np.ndarray]:
-    codes, names = _codes(part["variable"])
-    return codes, np.array([*names.to_pylist(), None], dtype=object)
+def _runs(
+    part: pa.Table, stream: str | Callable[[pa.Table], tuple[np.ndarray, np.ndarray]]
+) -> list[tuple[tuple[str, int], pa.Table]]:
+    if isinstance(stream, str):
+        codes, names = np.zeros(part.num_rows, dtype=np.int64), np.array([stream])
+    else:
+        codes, names = stream(part)
+    cycle = _native(part["cycle_time"])
+    change = (codes[1:] != codes[:-1]) | (cycle[1:] != cycle[:-1])
+    bounds = [0, *(np.flatnonzero(change) + 1), cycle.size]
+    return [
+        ((str(names[codes[lo]]), int(cycle[lo])), part.slice(lo, hi - lo))
+        for lo, hi in zip(bounds[:-1], bounds[1:])
+    ]
 
 
-def _conv_stream(part: pa.Table) -> tuple[np.ndarray, np.ndarray]:
-    variable, names = _codes(part["variable"])
-    gps = np.isin(names.to_pylist(), [GPS_VARIABLE, REFRACTIVITY_VARIABLE])
-    is_gps = np.append(gps, False)[variable]
-    return is_gps.astype(np.int64), np.array(["prepbufr", "gps"])
-
-
-def _one_stream(name: str, part: pa.Table) -> tuple[np.ndarray, np.ndarray]:
-    return np.zeros(part.num_rows, dtype=np.int64), np.array([name], dtype=object)
-
-
-def _arrow(frame: pd.DataFrame, names) -> pa.Table:
-    """The frame's ``names`` present in it, as Arrow; zero-copy for Arrow-backed frames."""
+def _arrow(frame: pd.DataFrame, names, stream: str, optional=()) -> pa.Table:
+    """The frame's ``names`` as Arrow, zero-copy for Arrow-backed frames; every name
+    not in ``optional`` must be a column of the frame."""
+    missing = [
+        name for name in names if name not in frame.columns and name not in optional
+    ]
+    if missing:
+        raise ValueError(f"{stream}: the frame lacks the required columns {missing}")
     present = [name for name in names if name in frame.columns]
     # A view without attrs: Arrow cannot serialize e2s's ndarray request_time and warns.
     view = pd.DataFrame(frame, copy=False)
@@ -1234,9 +974,11 @@ def _codes(column: pa.ChunkedArray) -> tuple[np.ndarray, pa.Array]:
 def _native(column: pa.ChunkedArray) -> np.ndarray:
     """One numpy array in the column's own dtype: floats keep NaN for null, integers
     widen to int64 with -1 for null, strings become codes, timestamps int64 ns."""
-    if pa.types.is_dictionary(column.type) or pa.types.is_string(column.type):
-        return _codes(column)[0]
-    if pa.types.is_large_string(column.type):
+    if (
+        pa.types.is_dictionary(column.type)
+        or pa.types.is_string(column.type)
+        or pa.types.is_large_string(column.type)
+    ):
         return _codes(column)[0]
     if pa.types.is_timestamp(column.type):
         # UTC instants either way; dropping the timezone keeps the stored integers.
@@ -1244,3 +986,275 @@ def _native(column: pa.ChunkedArray) -> np.ndarray:
     if pa.types.is_integer(column.type):
         return pc.fill_null(column.cast(pa.int64()), -1).to_numpy()
     return column.to_numpy()
+
+
+# ---------------------------------------------------------------------------------------
+# Long layout: one row per observation, its variable in ``variable`` and its value in
+# ``observation``. These functions regroup the rows into report levels, occultations,
+# winds and footprints and hand them to the archive builders above, so both layouts
+# give the same tables.
+# ---------------------------------------------------------------------------------------
+
+# NNJAObsSatwnd columns the SATWND adapter reads.
+SATWND_COLUMNS = (*SATWND_WIND_COLUMNS, "variable", "observation")
+# NNJAObsSat columns the satellite adapter reads, and those it reads when the frame has them.
+SAT_CHANNEL_COLUMNS = ("sensor_index", "quality")
+SAT_COLUMNS = (
+    *FOOTPRINT_FLAGS,
+    *FOOTPRINT_KEYS,
+    *SAT_CHANNEL_COLUMNS,
+    "variable",
+    "observation",
+)
+SAT_OPTIONAL = (*OPTIONAL_FOOTPRINT_COLUMNS, "quality")
+
+
+def analysis_tables_long(
+    *,
+    conv: pd.DataFrame | None = None,
+    satwnd: pd.DataFrame | None = None,
+    sat: pd.DataFrame | None = None,
+    sensors: Sequence[str] = (),
+    ir_channels: str | Mapping[str, Sequence[int]] | None,
+    workers: int | None = None,
+) -> dict:
+    """``DAModel.run_analysis`` table arguments from long frames: ``conv`` an
+    ``NNJAObsConv(original_event=True)`` frame of any PrepBUFR and GPS-RO variables,
+    ``satwnd`` an ``NNJAObsSatwnd`` frame and ``sat`` an ``NNJAObsSat`` frame of any of
+    ``sensors``."""
+    if isinstance(sat, Mapping):
+        raise ValueError(
+            "sat is one long frame; {sensor: frame} goes to analysis_tables"
+        )
+    streams = []
+    if conv is not None:
+        _check_layout(conv, False, "conv")
+        streams.append((_arrow(conv, conv.columns, "conv"), _conv_stream))
+    if satwnd is not None:
+        _check_layout(satwnd, False, "satwnd")
+        streams.append((_arrow(satwnd, SATWND_COLUMNS, "satwnd"), "satwnd"))
+    if sat is not None:
+        _check_layout(sat, False, "sat")
+        table = _arrow(sat, SAT_COLUMNS, "sat", SAT_OPTIONAL)
+        streams.append((table, _variable_stream))
+    adapters = {
+        "prepbufr": ("prepbufr_tables", None, _prepbufr_long),
+        "gps": ("gpsro_tables", None, _gpsro_long),
+        "satwnd": ("satwnd_tables", None, _satwnd_long),
+        **{
+            SAT_VARIABLE.get(sensor, sensor): (
+                "satellite_tables",
+                sensor,
+                functools.partial(_sat_long, sensor=sensor, ir_channels=ir_channels),
+            )
+            for sensor in sensors
+        },
+    }
+    jobs = {}
+    if conv is not None:
+        jobs["prepbufr_tables"] = {}
+        jobs["gpsro_tables"] = {}
+    if satwnd is not None:
+        jobs["satwnd_tables"] = {}
+    if sat is not None:
+        jobs["satellite_tables"] = {sensor: {} for sensor in sensors}
+    return _adapt(streams, adapters, jobs, workers)
+
+
+def _gpsro_long(table: pa.Table) -> pa.Table:
+    """GPS-RO archive rows, one per bending-angle level, from ``gps`` rows; the same
+    occultations' ``gps_refractivity`` rows supply the derived vertical coordinates."""
+    variable, variables = _codes(table["variable"])
+    value = _floats(table["observation"])
+    return _gpsro_archive(
+        table,
+        is_gps=variable == variables.index(GPS_VARIABLE).as_py(),
+        is_profile=variable == variables.index(REFRACTIVITY_VARIABLE).as_py(),
+        bending=value,
+        refractivity=value,
+        qfro=_floats(table["quality"]),
+    )
+
+
+def _satwnd_long(table: pa.Table) -> pa.Table:
+    """SATWND archive rows, one per wind, rejoining each wind's ``u`` and ``v`` rows on
+    the wind's own columns."""
+    variable, names = _codes(table["variable"])
+    is_u = variable == names.index("u").as_py()
+    u_rows, v_rows = np.flatnonzero(is_u), np.flatnonzero(~is_u)
+    keys, subset_names = _satwnd_winds(table)
+    # NNJAObsSatwnd builds a file's v rows from the same winds, in the same order, as
+    # its u rows.
+    if not _same_rows(keys, u_rows, v_rows):
+        raise ValueError("NNJAObsSatwnd v rows are not in the u rows' wind order")
+    observation = _floats(table["observation"])
+    winds = {name: values[u_rows] for name, values in keys.items()}
+    return _satwnd_archive(
+        winds, subset_names, observation[u_rows], observation[v_rows]
+    )
+
+
+def _prepbufr_long(table: pa.Table) -> pa.Table:
+    variable, variables = _codes(table["variable"])
+    wanted = [variables.index(name).as_py() for name in PREPBUFR_LEVEL_VARIABLES]
+    rows = np.flatnonzero(np.isin(variable, [code for code in wanted if code >= 0]))
+    if not rows.size:
+        return pa.table({})
+    variable = variable[rows]
+    levels = _prepbufr_levels(table, rows)
+    keys = [_group_key(levels[name]) for name in PREPBUFR_LEVEL_COLUMNS]
+    # A report repeated in the file gives each variable once per copy.
+    occurrence = _group_ids([*keys, variable])[2]
+    level, first, _ = _group_ids([*keys, occurrence])
+
+    observation = _floats(table["observation"])[rows]
+    quality = _floats(table["quality"])[rows]
+    values, qualities, present = {}, {}, {}
+    for name in PREPBUFR_VARIABLES:
+        selected = variable == variables.index(name).as_py()
+        values[name] = np.full(first.size, np.nan)
+        qualities[name] = np.full(first.size, np.nan)
+        present[name] = np.zeros(first.size, dtype=bool)
+        values[name][level[selected]] = observation[selected]
+        qualities[name][level[selected]] = quality[selected]
+        present[name][level[selected]] = True
+    header = {name: column[first] for name, column in levels.items()}
+    stations = _codes(table["station"])[1]
+    return _prepbufr_archive(header, stations, values, qualities, present)
+
+
+def _sat_long(table: pa.Table, sensor: str, ir_channels) -> pa.Table:
+    """Wide satellite archive rows, one per footprint, from ``sensor``'s rows in source
+    order: a footprint's channel rows are consecutive and ascending in
+    ``sensor_index``. Channels ``NNJAWideLoader(ir_channels=ir_channels)`` reads, null
+    where the frame has no row."""
+    # Arrow and numpy throughout: earth2studio frames are Arrow-backed, and pandas
+    # operations on them are slower for identical output.
+    channels, channel_slot = _sat_channels(sensor, ir_channels)
+    footprint_columns = [
+        name
+        for name in (*FOOTPRINT_KEYS, *FOOTPRINT_FLAGS)
+        if name in table.column_names
+    ]
+    has_quality = "quality" in table.column_names
+    width = _footprint_width(table)
+    if width:
+        # Every footprint is the same `width` consecutive rows: reshape, no pivot.
+        firsts = table.select(footprint_columns).take(
+            pa.array(np.arange(0, table.num_rows, width))
+        )
+        slot = _slots(_native(table["sensor_index"].slice(0, width)), channel_slot)
+        if not (slot >= 0).any():
+            return pa.table({})
+        footprints = {name: _native(firsts[name]) for name in footprint_columns}
+        observation = _channel_rows(
+            _native(table["observation"]).astype(np.float32, copy=False),
+            width,
+            slot,
+            channels.size,
+        )
+        flags = None
+        if has_quality:
+            flags = _or_flags(_unsigned(table["quality"]), width, slot)
+        platforms = _codes(firsts["satellite"])[1]
+        return _sat_archive(sensor, footprints, platforms, channels, observation, flags)
+
+    slot = _slots(_native(table["sensor_index"]), channel_slot)
+    kept = np.flatnonzero(slot >= 0)
+    if not kept.size:
+        return pa.table({})
+    slot = slot[kept]
+
+    def at_kept(name: str) -> np.ndarray:
+        values = _native(table[name])
+        return values if values.size == kept.size else values[kept]
+
+    # A footprint starts where the channel sequence restarts or a footprint column changes.
+    starts = np.ones(kept.size, dtype=bool)
+    starts[1:] = slot[1:] <= slot[:-1]
+    columns = {name: at_kept(name) for name in footprint_columns}
+    for name in FOOTPRINT_KEYS:
+        if name in columns:
+            values = columns[name]
+            same = values[1:] == values[:-1]
+            if values.dtype.kind == "f":
+                same |= np.isnan(values[1:]) & np.isnan(values[:-1])
+            starts[1:] |= ~same
+    first = np.flatnonzero(starts)
+    footprint = np.cumsum(starts) - 1
+
+    observation = np.full((channels.size, first.size), np.nan, dtype=np.float32)
+    observation[slot, footprint] = at_kept("observation")
+    flags = None
+    if has_quality:
+        quality = np.zeros((channels.size, first.size), dtype=np.int64)
+        quality[slot, footprint] = np.maximum(at_kept("quality"), 0)
+        flags = np.bitwise_or.reduce(quality, axis=0)
+    footprints = {name: values[first] for name, values in columns.items()}
+    platforms = _codes(table["satellite"])[1]
+    return _sat_archive(sensor, footprints, platforms, channels, observation, flags)
+
+
+def _footprint_width(table: pa.Table) -> int:
+    """Rows per footprint when every footprint is the same channel sequence in
+    consecutive rows and the footprint columns hold within it, else 0."""
+    sensor_index = _raw(table["sensor_index"])
+    restarts = np.flatnonzero(sensor_index[1:] <= sensor_index[:-1])
+    width = int(restarts[0]) + 1 if restarts.size else sensor_index.size
+    if not width or sensor_index.size % width:
+        return 0
+    blocks = sensor_index.reshape(-1, width)
+    if not (blocks == blocks[0]).all():
+        return 0
+    for name in FOOTPRINT_KEYS:
+        if name not in table.column_names:
+            continue
+        values = _raw(table[name]).reshape(-1, width)
+        same = values == values[:, :1]
+        if values.dtype.kind == "f":
+            same |= np.isnan(values) & np.isnan(values[:, :1])
+        if not same.all():
+            return 0
+    return width
+
+
+def _same_rows(keys: dict, a: np.ndarray, b: np.ndarray) -> bool:
+    """True when rows ``a[i]`` and ``b[i]`` agree on every key, NaN equal to NaN."""
+    if a.size != b.size:
+        return False
+    for values in keys.values():
+        x, y = values[a], values[b]
+        same = x == y
+        if x.dtype.kind == "f":
+            same |= np.isnan(x) & np.isnan(y)
+        if not same.all():
+            return False
+    return True
+
+
+def _raw(column: pa.ChunkedArray) -> np.ndarray:
+    """Values to compare row with row, without widening: strings as codes,
+    timestamps as int64, null floats NaN."""
+    if pa.types.is_dictionary(column.type):
+        return (
+            column.unify_dictionaries()
+            .combine_chunks()
+            .indices.to_numpy(zero_copy_only=False)
+        )
+    if pa.types.is_timestamp(column.type):
+        return column.to_numpy().view(np.int64)
+    if pa.types.is_string(column.type) or pa.types.is_large_string(column.type):
+        return _codes(column)[0]
+    return column.to_numpy()
+
+
+def _variable_stream(part: pa.Table) -> tuple[np.ndarray, np.ndarray]:
+    codes, names = _codes(part["variable"])
+    return codes, np.array([*names.to_pylist(), None], dtype=object)
+
+
+def _conv_stream(part: pa.Table) -> tuple[np.ndarray, np.ndarray]:
+    variable, names = _codes(part["variable"])
+    gps = np.isin(names.to_pylist(), [GPS_VARIABLE, REFRACTIVITY_VARIABLE])
+    is_gps = np.append(gps, False)[variable]
+    return is_gps.astype(np.int64), np.array(["prepbufr", "gps"])

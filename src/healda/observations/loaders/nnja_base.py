@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import functools
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, Sequence
 
 import numpy as np
 import pandas as pd
@@ -15,11 +15,10 @@ import pyarrow as pa
 
 from healda.observations.schema import (
     GLOBAL_CHANNEL_ID,
+    LOCAL_CHANNEL_ID,
     SENSOR_ID,
     get_combined_observation_schema,
 )
-
-LOCAL_CHANNEL_ID = pa.field("local_channel_id", pa.uint16())
 
 __all__ = [
     "GLOBAL_CHANNEL_ID",
@@ -68,6 +67,28 @@ class NNJAArchiveLoader:
         return (
             np.asarray(values, dtype=dtype) if dtype is not None else np.asarray(values)
         )
+
+    def _load_cycle(
+        self, cycle: pd.Timestamp, halves: Sequence[bool], *to_long_args
+    ) -> list[tuple[pd.Timestamp, pa.Table]]:
+        """``(window, long rows)`` of each of ``halves`` of one cycle file that has rows.
+
+        For the loaders of 6-hourly cycle files, which define ``_cycle_sources`` and
+        ``_to_long``; ``to_long_args`` follow ``_to_long``'s source, cycle and halves.
+        """
+        by_half: dict[bool, list[pa.Table]] = {half: [] for half in halves}
+        for source, candidates in self._cycle_sources(cycle, list(by_half)):
+            longs = self._to_long(source, cycle, candidates, *to_long_args)
+            for half, long in longs.items():
+                by_half[half].append(long)
+
+        result = []
+        for half in halves:
+            parts = by_half[half]
+            if parts:
+                window = cycle + pd.Timedelta(hours=3 if half else 0)
+                result.append((window, pa.concat_tables(parts)))
+        return result
 
     @staticmethod
     def _cycle_and_half(window: pd.Timestamp) -> tuple[pd.Timestamp, bool]:

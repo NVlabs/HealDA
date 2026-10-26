@@ -18,10 +18,11 @@ import numpy as np
 import pyarrow as pa
 import torch
 
-from healda.observations.schema import SENSOR_ID
+from healda.observations.schema import SENSOR_ID, long_table
 from healda.utils.profiling import cpu_timing_range
 
-# Sources are read, never written; Arrow hands them over read-only.
+# Sources are read, never written; Arrow hands them over read-only. The filter also
+# covers the transform, which imports this module.
 warnings.filterwarnings(
     "ignore",
     message="The given NumPy array is not writable, and PyTorch does not support non-writable tensors",
@@ -55,10 +56,6 @@ class FootprintBlock:
     footprint_columns: dict[str, np.ndarray]
     global_channel_id: np.ndarray
     local_channel_id: np.ndarray
-
-    @property
-    def channel_count(self) -> int:
-        return self.values.shape[0]
 
     @property
     def footprint_count(self) -> int:
@@ -187,30 +184,4 @@ def expand(block: FootprintBlock, schema: pa.Schema) -> pa.Table:
         arrays[SENSOR_ID.name] = pa.array(
             np.full(long_rows, block.sensor_id, dtype=np.uint16), type=SENSOR_ID.type
         )
-        null_fields = [field for field in schema if field.name not in arrays]
-        null_columns = _all_null_columns(
-            [field.type for field in null_fields],
-            long_rows,
-            arrays[OBSERVATION].buffers()[1],
-        )
-        for field, column in zip(null_fields, null_columns):
-            arrays[field.name] = column
-        return pa.table([arrays[field.name] for field in schema], schema=schema)
-
-
-def _all_null_columns(
-    types: list[pa.DataType], rows: int, values: pa.Buffer
-) -> list[pa.Array]:
-    """All-null fixed-width columns aliasing one values buffer.
-
-    `pa.nulls` zeroes a values buffer per column, ~25 ms per 25M-row float32 column;
-    null values are never read, so only the validity bitmap needs zeroing.
-    """
-    validity = pa.py_buffer(bytearray((rows + 7) // 8))
-    widest = max(type.bit_width // 8 for type in types)
-    if values.size < rows * widest:
-        raise ValueError("shared values buffer is too small")
-    return [
-        pa.Array.from_buffers(type, rows, [validity, values], null_count=rows)
-        for type in types
-    ]
+        return long_table(arrays, schema)

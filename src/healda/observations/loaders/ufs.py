@@ -51,12 +51,11 @@ from healda.observations.preprocessing.conv_plevel import (
 from healda.observations.schema import (
     get_combined_observation_schema,
     GLOBAL_CHANNEL_ID,
+    LOCAL_CHANNEL_ID,
     SENSOR_ID,
 )
 from healda.datasets.base import DatasetMetadata, TimeUnit
 from healda.observations.preprocessing.filtering import filter_observations
-
-LOCAL_CHANNEL_ID = pa.field("local_channel_id", pa.uint16())
 
 
 def _split(items: list, count: int) -> list[list]:

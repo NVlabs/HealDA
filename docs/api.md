@@ -17,6 +17,7 @@ The entry points HealDA supports for use from other code. Everything else under
     options:
       members:
         - analysis_tables
+        - analysis_tables_long
 
 ## Command-line entry points
 

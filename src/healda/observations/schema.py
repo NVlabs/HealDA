@@ -19,6 +19,8 @@ import pyarrow as pa
 
 GLOBAL_CHANNEL_ID = pa.field("Global_Channel_ID", pa.uint16(), nullable=False)
 SENSOR_ID = pa.field("sensor_id", pa.uint16())
+# A sensor's own 0-based channel index; GLOBAL_CHANNEL_ID is its offset plus this.
+LOCAL_CHANNEL_ID = pa.field("local_channel_id", pa.uint16())
 
 
 def get_combined_observation_schema() -> pa.Schema:
@@ -104,4 +106,16 @@ def get_channel_table_schema():
             pa.field("mean", pa.float32()),
             pa.field("stddev", pa.float32()),
         ]
+    )
+
+
+def long_table(arrays: dict[str, pa.Array], schema: pa.Schema) -> pa.Table:
+    """``arrays`` as a table of ``schema``, every field without an array all null."""
+    rows = len(next(iter(arrays.values())))
+    return pa.table(
+        [
+            arrays[field.name] if field.name in arrays else pa.nulls(rows, field.type)
+            for field in schema
+        ],
+        schema=schema,
     )

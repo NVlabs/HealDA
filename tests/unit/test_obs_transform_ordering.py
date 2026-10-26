@@ -137,9 +137,8 @@ def test_obs_partitioned_by_time_frame_multiframe_batch1():
 
 
 def test_a_window_split_across_record_batches_lands_in_one_frame():
-    # lengths_3d reads (sensor, b, t) off row 0 of each batch and accumulates, so a group
-    # spread over several batches must total the same as one. Filtering with an expression
-    # used to split every group at 32,768 rows; the materialized mask leaves one batch.
+    # lengths_3d adds each record batch's rows to its (sensor, b, t), so a group spread
+    # over several batches must total the same as one.
     ordered_sensor_ids = torch.tensor([0, 9, 1], dtype=torch.int32)
     obs_by_window = {
         (0, 0): {0: [100, 101, 102], 9: [200, 201, 202, 203], 1: [300]},

@@ -144,7 +144,8 @@ must satisfy to match a trained checkpoint.
 `healda.inference.load_da_model` rebuilds a trained network from a checkpoint's
 `loop.json`, and `DAModel.run_analysis` produces analyses from in-memory observation
 cycle tables. `healda.observations.adapters.e2s_nnja.analysis_tables` builds those
-tables from Earth2Studio NNJA observation frames.
+tables from wide Earth2Studio NNJA observation frames, `analysis_tables_long` from long
+ones.
 
 ## Contributing
 

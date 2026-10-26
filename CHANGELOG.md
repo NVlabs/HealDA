@@ -26,8 +26,9 @@ follow semantic versioning starting with its first tagged release.
   range of local observations and targets, writing the analysis zarr with per-time
   metrics; `healda.inference_output` holds its asynchronous writer and store.
 - `healda.observations.adapters.e2s_nnja`: Earth2Studio NNJA frames as NNJA archive
-  tables (`analysis_tables` for all streams at once), keyed by each row's source file
-  (`cycle_time`).
+  tables, all streams at once (`analysis_tables` for wide frames, `analysis_tables_long`
+  for long ones), keyed by each row's source file (`cycle_time`). `analysis_tables` takes
+  no `layout` or `sensors` argument: the sensors are the keys of `sat`.
 - NNJA loaders take in-memory cycle tables (`table_source`, `gpsro_table_source`,
   `satwnd_table_source`, `prepbufr_table_source`) in place of the archive.
 - `v2-nnja-latlon-dense` training preset, the recipe of the released HealDA v2
@@ -63,7 +64,7 @@ follow semantic versioning starting with its first tagged release.
   `as_table` and `Observations.to_table` give the long table. `TransformV2` expands
   the blocks in torch straight into the packed tensors, on the GPU in
   `DAModel.run_analysis`. Channel denials and platform/channel dropout clear cells of
-  the block. `_device_transform_unified_obs` empties the dict it is given.
+  the block.
 - Active configuration, dataset, observation, model, training, checkpoint, and
   utility modules are organized under the package namespace.
 
