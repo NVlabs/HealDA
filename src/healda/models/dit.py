@@ -683,7 +683,6 @@ class DiT(torch.nn.Module):
         dense_decoder: bool = True,
         # FLAGS
         embed_v2: bool = False,
-        embed_v2_meta_dim: int = 28,
         embed_v2_n_embed=1024,
         obs_hpx_level: int = 6,
         sensor_embedder_config: Optional[
@@ -904,9 +903,11 @@ class DiT(torch.nn.Module):
             self.patch_decode = None
 
         if obs_decoder:
+            if sensor_embedder_config is None:
+                raise ValueError("obs_decoder requires a sensor_embedder_config")
             self.decode_obs = ObsDecoder(
                 self.inner_dim,
-                metadata_dim=embed_v2_meta_dim,
+                metadata_dim=sensor_embedder_config.meta_dim,
                 hpx_fine_level=8,
                 hpx_in_level=level_model,
                 max_embed_id=1024,

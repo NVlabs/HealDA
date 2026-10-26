@@ -173,7 +173,7 @@ class ObsTokenizerFiLM(torch.nn.Module):
     metadata is pre-expanded (on the data side) into
     ``[shared, sat_private, conv_private]`` with the off-family block zeroed -- so a
     single plain first linear effectively learns separate conv/sat weights. The
-    expansion is the featurization layer's job (``features_v2.compute_unified_metadata``);
+    expansion is the featurization layer's job (``features.compute_unified_metadata``);
     this module just consumes the wider metadata vector.
 
     ``use_fused_mlp`` runs the whole tokenizer (embedding gather + conditioning +

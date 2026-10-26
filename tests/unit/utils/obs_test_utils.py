@@ -38,7 +38,6 @@ def create_unified_observation(
     if nobs == 0:
         return UnifiedObservation(
             obs=torch.empty(0, device=device),
-            time=torch.empty(0, dtype=torch.long, device=device),
             float_metadata=torch.empty((0, meta_dim), device=device),
             pix=torch.empty(0, dtype=torch.long, device=device),
             local_channel=torch.empty(0, dtype=torch.long, device=device),
@@ -106,10 +105,8 @@ def create_unified_observation(
     for s_local, sid in enumerate(sensor_ids):
         lengths[s_local, 0, 0] = (sensor_id_tensor == sid).sum().item()
 
-    time = torch.zeros(nobs, dtype=torch.long)
     return UnifiedObservation(
         obs=obs.to(device),
-        time=time.to(device),
         float_metadata=float_metadata.to(device),
         pix=pix_tensor.to(device),
         local_channel=channel_tensor.to(device),

@@ -19,7 +19,7 @@ from healda.datasets.base import (
     VariableConfig,
 )
 from healda.datasets.da import state_transforms
-from healda.observations.preprocessing import features, features_v2
+from healda.observations.preprocessing import features
 from healda.observations.loaders import threads
 from healda.observations import types
 from healda.datasets.da.state_stats import (
@@ -69,7 +69,7 @@ _OBS_FILL_ZERO = frozenset({"Platform_ID", "Observation_Type"})
 
 
 def _tensor_dtype(field_type: pa.DataType) -> torch.dtype:
-    # Timestamps travel as int64 nanoseconds since the epoch, which features_v2 reads back.
+    # Timestamps travel as int64 nanoseconds since the epoch, which the featurization reads back.
     if pa.types.is_timestamp(field_type):
         return torch.int64
     return torch.from_numpy(np.empty(0, field_type.to_pandas_dtype())).dtype
@@ -193,19 +193,34 @@ def _map_platform_to_local(
     return flat[idx].reshape(platform.shape)  # (N,) local platform IDs
 
 
+# dynamo specializes sizes 0 and 1: a batch that small would recompile, in whichever thread
+# calls it
+_MIN_COMPILED_POINTS = 2
+_WARMUP_POINTS = 1_000_000
+
+
+def _without_autograd(fn):
+    # No grad and no inference tensors: one tensor kind for the compiled pixel ops
+    return torch.inference_mode(False)(torch.no_grad()(fn))
+
+
 class _DeviceCache:
-    """Device copies of run-constant transform tensors."""
+    """Run-constant device state of a transform: tensor copies and the compiled pixel ops.
+    Pickles empty, so data-loader workers get none of it."""
 
     __slots__ = ("_entries",)
 
     def __init__(self) -> None:
         self._entries = {}
 
-    def get(self, key: Hashable, build: Callable[[], torch.Tensor]) -> torch.Tensor:
+    def get(self, key: Hashable, build: Callable[[], Any]) -> Any:
         value = self._entries.get(key)
         if value is None:
             value = self._entries[key] = build()
         return value
+
+    def find(self, key: Hashable) -> Any:
+        return self._entries.get(key)
 
     def __reduce__(self) -> tuple:
         return (_DeviceCache, ())
@@ -216,7 +231,6 @@ class TransformOptions:
     # HEALPix level used to assign each observation's pixel id. Backbone attention
     # requires this to match the model token level.
     observation_hpx_level: int = 6
-    features_v2: bool = False
     features_position: bool = False
     attention_prepack: bool = False
     build_attention_group_map: bool = True
@@ -244,8 +258,9 @@ class TransformV2:
           sensor order. Missing sensors remain present with zero counts.
     Stage 2 - ``device_transform()`` converts ``unified_obs`` to ``UnifiedObservation``:
         - Moves tensors to GPU
-        - Computes ``float_metadata`` via ``features.compute_unified_metadata()``
-          (encodes lat/lon, time deltas, zenith angles, etc.)
+        - Computes ``float_metadata`` (encodes lat/lon, time deltas, zenith angles,
+          etc.) with ``features.featurize`` on CUDA,
+          ``features.compute_unified_metadata()`` on CPU
         - Populates per-obs integer fields: pix, local_channel, platform,
           global_platform, obs_type, global_channel
         - Returns ``types.UnifiedObservation`` dataclass ready for model input.
@@ -258,7 +273,6 @@ class TransformV2:
     variable_config: VariableConfig = VARIABLE_CONFIGS["era5_74ch"]
     hpx_level: int = 10  # pixel level of the observations
     hpx_level_condition: int = 6
-    features_v2: bool = False
     features_position: bool = False
     sensors: list[str] = dataclasses.field(default_factory=list)
     background_normalization: NormalizationStats | None = None
@@ -308,6 +322,47 @@ class TransformV2:
     @functools.cached_property
     def _grid(self) -> healpix.Grid:
         return healpix.Grid(self.hpx_level, pixel_order=_PIXEL_ORDERS[self.pixel_order])
+
+    def compile_pixel_ops(self, device) -> None:
+        """Compile ``ang2pix`` and ``pix2ang`` for this grid on ``device`` and run them once on
+        ``_WARMUP_POINTS`` points, so Inductor tunes the kernels for a realistic batch.
+
+        Call from the main thread before another thread uses the transform: while dynamo
+        compiles in one thread, compiled calls in other threads raise. The warm-up marks the
+        point count dynamic (``dynamic=False`` only turns off dynamo's automatic dynamic
+        shapes), so later sizes reuse the kernels; sizes below ``_MIN_COMPILED_POINTS`` and CPU
+        run eager. The compiled code is guarded on grad mode and tensor kind, so the warm-up and
+        every caller run under ``_without_autograd``.
+        """
+        if torch.device(device).type == "cuda":
+            self._device.get("pixel_ops", lambda: self._compile_pixel_ops(device))
+
+    @_without_autograd
+    def _compile_pixel_ops(
+        self, device: torch.device | str
+    ) -> tuple[Callable, Callable]:
+        ang2pix = torch.compile(self._grid.ang2pix, dynamic=False)
+        pix2ang = torch.compile(self._grid.pix2ang, dynamic=False)
+        lon = torch.linspace(0, 360, _WARMUP_POINTS, device=device)
+        lat = torch.linspace(-90, 90, _WARMUP_POINTS, device=device)
+        torch._dynamo.mark_dynamic(lon, 0)
+        torch._dynamo.mark_dynamic(lat, 0)
+        pix = ang2pix(lon, lat).int()
+        torch._dynamo.mark_dynamic(pix, 0)
+        pix2ang(pix)
+        return ang2pix, pix2ang
+
+    def _pixel_ops(
+        self, device: torch.device | str, n: int
+    ) -> tuple[Callable, Callable]:
+        compiled = self._device.find("pixel_ops")
+        if (
+            compiled is None
+            or n < _MIN_COMPILED_POINTS
+            or torch.device(device).type != "cuda"
+        ):
+            return self._grid.ang2pix, self._grid.pix2ang
+        return compiled
 
     @functools.cached_property
     def _sensor_name_to_id(self) -> dict[str, int]:
@@ -586,6 +641,7 @@ class TransformV2:
         out["labels"] = torch.empty([len(frames), 0])
         return out
 
+    @_without_autograd
     def transform_observations(
         self,
         times: list[list[cftime.datetime]],
@@ -607,12 +663,8 @@ class TransformV2:
             ``day_of_year`` and ``timestamp``, each (B, T).
         """
         packed, lengths = self._process_obs(times, frames, device)
-        with torch.inference_mode():
-            # Rebinding drops the unsorted packed tensors before featurizing
-            packed, lengths, pix, packing = self._sort_on_device(
-                packed, lengths, device
-            )
-            unified_obs = self._featurize(packed, lengths, pix, packing, device)
+        packed, lengths, pix, packing = self._sort_on_device(packed, lengths, device)
+        unified_obs = self._featurize(packed, lengths, pix, packing, device)
         return unified_obs, _time_encodings(times)
 
     @healda.utils.profiling.nvtx
@@ -672,6 +724,7 @@ class TransformV2:
         )
 
     @healda.utils.profiling.nvtx
+    @_without_autograd
     def _device_transform_unified_obs(
         self,
         obs_tensors: dict[str, torch.Tensor],
@@ -680,14 +733,19 @@ class TransformV2:
     ) -> types.UnifiedObservation:
         """Packed obs to the model's observation features on ``device``: pixel lookup and
         sort (``_sort_on_device``), then featurization (``_featurize``)."""
+        # A fresh dict: _sort_on_device empties the one it is handed
+        on_device = {
+            key: value.to(device, non_blocking=True)
+            for key, value in obs_tensors.items()
+        }
         obs_tensors, lengths, pix, packing = self._sort_on_device(
-            obs_tensors, lengths, device
+            on_device, lengths, device
         )
         return self._featurize(obs_tensors, lengths, pix, packing, device)
 
     def _sort_on_device(
         self,
-        obs_tensors: dict[str, torch.Tensor],
+        unsorted: dict[str, torch.Tensor],
         lengths: torch.Tensor,
         device: torch.device | str,
     ) -> tuple[
@@ -696,26 +754,25 @@ class TransformV2:
         torch.Tensor,
         types.AttentionPacking | None,
     ]:
-        """Move packed obs, each (N, ...), and their (S, B, T) lengths to ``device`` and
-        look up each row's HEALPix pixel. Under ``attention_prepack``, sort the rows so
-        each pixel's observations are contiguous, as the pixel cross-attention reads them.
+        """Look up each row's HEALPix pixel of packed obs on ``device``, each (N, ...).
+        Under ``attention_prepack``, sort the rows so each pixel's observations are
+        contiguous, as the pixel cross-attention reads them. On CUDA ``features.featurize``
+        writes the columns, sorted or not, and their features in one pass.
 
-        Returns ``(tensors, lengths, pix, packing)``: pix (N,) int32 numbered in
-        ``pixel_order``; packing, the per-pixel counts and offsets, None without
-        ``attention_prepack``.
+        Takes ownership of ``unsorted``: it is emptied, so its columns are freed as soon as
+        the returned ones exist. Callers use the returned columns.
+
+        Returns ``(tensors, lengths, pix, packing)``: tensors include ``float_metadata`` on
+        CUDA; pix (N,) int32 numbered in ``pixel_order``; packing, the per-pixel counts and
+        offsets, None without ``attention_prepack``.
         """
-        obs_tensors = {
-            key: value.to(device, non_blocking=True)
-            for key, value in obs_tensors.items()
-        }
         lengths = lengths.to(device, non_blocking=True)
-        pix = self._grid.ang2pix(
-            obs_tensors["longitude"], obs_tensors["latitude"]
-        ).int()
+        ang2pix, pix2ang = self._pixel_ops(device, unsorted["latitude"].shape[0])
+        pix = ang2pix(unsorted["longitude"], unsorted["latitude"]).int()
 
         # Pixel-sort the raw rows before deriving float_metadata so it is built once, in
         # order, instead of built and then reordered.
-        packing = None
+        order = packing = None
         if self.attention_prepack:
             order, packing = pixel_packing(
                 pix,
@@ -724,10 +781,28 @@ class TransformV2:
                 self.pixel_order,
                 build_group_map=self.build_attention_group_map,
             )
+        if pix.is_cuda:
+            if order is not None:
+                pix = pix[order]
+            centers = None
+            if self.features_position:
+                center_lon, center_lat = pix2ang(pix)
+                centers = center_lon.float(), center_lat.float()
+                del center_lon, center_lat
+            obs_tensors, meta = features.featurize(
+                unsorted, order, centers, self.hpx_level
+            )
+            unsorted.clear()
+            obs_tensors["float_metadata"] = meta
+            del centers, meta
+        elif order is not None:
+            # One column at a time, so only one extra column is alive
             obs_tensors = {
-                key: _indexable(value)[order] for key, value in obs_tensors.items()
+                key: _indexable(unsorted.pop(key))[order] for key in list(unsorted)
             }
             pix = pix[order]
+        else:
+            obs_tensors = unsorted
         return obs_tensors, lengths, pix, packing
 
     def _featurize(
@@ -747,22 +822,23 @@ class TransformV2:
         pixel and the (S, B, T) lengths. The network's learned
         ``tokenize_observations`` embeds these into tokens.
         """
-        metadata = dict(
-            time=obs["absolute_obs_time"],
-            lon=obs["longitude"],
-            height=obs["height"],
-            pressure=obs["pressure"],
-            scan_angle=obs["scan_angle"],
-            sat_zenith_angle=obs["sat_zenith_angle"],
-            sol_zenith_angle=obs["sol_zenith_angle"],
-        )
-        if self.features_v2:
-            meta = features_v2.compute_unified_metadata(
-                obs["target_time_sec"], lat=obs["latitude"], **metadata
-            )
+        meta = obs.get("float_metadata")
+        if meta is None:
+            meta = features.compute_unified_metadata(
+                obs["target_time_sec"],
+                time=obs["absolute_obs_time"],
+                lon=obs["longitude"],
+                lat=obs["latitude"],
+                height=obs["height"],
+                pressure=obs["pressure"],
+                scan_angle=obs["scan_angle"],
+                sat_zenith_angle=obs["sat_zenith_angle"],
+                sol_zenith_angle=obs["sol_zenith_angle"],
+            ).bfloat16()
             if self.features_position:
-                center_lon, center_lat = self._grid.pix2ang(pix)
-                position = features_v2.position_features(
+                _, pix2ang = self._pixel_ops(device, pix.shape[0])
+                center_lon, center_lat = pix2ang(pix)
+                position = features.position_features(
                     obs["longitude"],
                     obs["latitude"],
                     center_lon,
@@ -770,8 +846,6 @@ class TransformV2:
                     self.hpx_level,
                 ).to(meta.dtype)
                 meta = torch.cat([meta, position], dim=1)
-        else:
-            meta = features.compute_unified_metadata(obs["target_time_sec"], **metadata)
         platform_id = obs["platform_id"].int()
         if self.attention_prepack:
             # The obs-attention path attends over all sensors together and never
@@ -788,7 +862,6 @@ class TransformV2:
 
         return types.UnifiedObservation(
             obs=obs["observation"],
-            time=obs["absolute_obs_time"],
             float_metadata=meta,
             pix=pix,
             local_channel=obs["local_channel_id"].int(),

@@ -608,6 +608,7 @@ def _run_in_temporary_directory(tmpdir):
     dataloader = torch.utils.data.DataLoader(**dataloader_kwargs)
 
     # Apply device transform. The same TransformV2 owns the CPU and device stages.
+    dataset.transform.compile_pixel_ops(loop.device)
     device_transform = functools.partial(
         loop._device_transform, transform=dataset.transform
     )

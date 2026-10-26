@@ -44,7 +44,6 @@ def make_realistic_obs(
     nobs = len(all_obs)
     return UnifiedObservation(
         obs=values.unsqueeze(1).expand(nobs, 3),
-        time=values.long(),
         float_metadata=values.unsqueeze(1).expand(nobs, 5),
         pix=torch.arange(nobs, dtype=torch.long),
         local_channel=torch.zeros(nobs, dtype=torch.long),
@@ -116,7 +115,6 @@ def test_split_requires_lengths():
     """Test that split_by_sensor requires lengths."""
     obs = UnifiedObservation(
         obs=torch.randn(10, 3),
-        time=torch.zeros(10, dtype=torch.long),
         float_metadata=torch.randn(10, 5),
         pix=torch.zeros(10, dtype=torch.long),
         local_channel=torch.zeros(10, dtype=torch.long),
@@ -158,7 +156,6 @@ def test_split_handles_sparse_windows():
 
     obs = UnifiedObservation(
         obs=torch.arange(nobs, dtype=torch.float32).unsqueeze(1).expand(nobs, 3),
-        time=torch.zeros(nobs, dtype=torch.long),
         float_metadata=torch.arange(nobs, dtype=torch.float32)
         .unsqueeze(1)
         .expand(nobs, 5),

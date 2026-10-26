@@ -58,7 +58,6 @@ def _make_obs(nobs, meta_dim, with_platform, device="cuda", seed=0):
     zeros = torch.zeros(nobs, dtype=torch.long)
     return UnifiedObservation(
         obs=obs_vals.to(device),
-        time=zeros.to(device),
         float_metadata=float_meta.to(device),
         pix=zeros.to(device),
         local_channel=channel.to(device),
@@ -111,7 +110,7 @@ def test_fused_forward_matches_reference_fp32(with_platform, nobs):
     meta_dim, out_dim = (
         50,
         32,
-    )  # production FiLM dims (features_v2 N_FEATURES, embed_dim)
+    )  # production FiLM dims (features.N_FEATURES, embed_dim)
     tok = _build_tokenizer(meta_dim, out_dim, with_platform)
     obs = _make_obs(nobs, meta_dim, with_platform)
 
@@ -137,7 +136,7 @@ def test_fused_forward_matches_reference_bf16_module(with_platform):
     meta_dim, out_dim = (
         50,
         32,
-    )  # production FiLM dims (features_v2 N_FEATURES, embed_dim)
+    )  # production FiLM dims (features.N_FEATURES, embed_dim)
     tok = _build_tokenizer(meta_dim, out_dim, with_platform)
     obs = _make_obs(512, meta_dim, with_platform)
 
@@ -156,7 +155,7 @@ def test_fused_backward_matches_reference(with_platform):
     meta_dim, out_dim = (
         50,
         32,
-    )  # production FiLM dims (features_v2 N_FEATURES, embed_dim)
+    )  # production FiLM dims (features.N_FEATURES, embed_dim)
     tok = _build_tokenizer(meta_dim, out_dim, with_platform)
     obs = _make_obs(384, meta_dim, with_platform)
 
@@ -192,7 +191,7 @@ def test_fused_empty_obs():
     meta_dim, out_dim = (
         50,
         32,
-    )  # production FiLM dims (features_v2 N_FEATURES, embed_dim)
+    )  # production FiLM dims (features.N_FEATURES, embed_dim)
     tok = _build_tokenizer(meta_dim, out_dim, with_platform=True)
     obs = _make_obs(0, meta_dim, with_platform=True)
 
@@ -214,7 +213,7 @@ def test_no_platform_grad_when_disabled():
     meta_dim, out_dim = (
         50,
         32,
-    )  # production FiLM dims (features_v2 N_FEATURES, embed_dim)
+    )  # production FiLM dims (features.N_FEATURES, embed_dim)
     tok = _build_tokenizer(meta_dim, out_dim, with_platform=False)
     assert tok.platform_embedding is None
     obs = _make_obs(256, meta_dim, with_platform=False)
@@ -229,7 +228,7 @@ def test_platform_required_when_embedding_present():
     meta_dim, out_dim = (
         50,
         32,
-    )  # production FiLM dims (features_v2 N_FEATURES, embed_dim)
+    )  # production FiLM dims (features.N_FEATURES, embed_dim)
     tok = _build_tokenizer(meta_dim, out_dim, with_platform=True)
     obs = _make_obs(8, meta_dim, with_platform=True)
     with pytest.raises(ValueError, match="platform required"):

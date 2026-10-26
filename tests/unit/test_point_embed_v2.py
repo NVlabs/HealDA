@@ -110,7 +110,6 @@ def test_sensor_embedder_no_batching():
     )
     obs = UnifiedObservation(
         obs=obs.obs,
-        time=obs.time,
         float_metadata=obs.float_metadata,
         pix=obs.pix,
         local_channel=obs.local_channel,

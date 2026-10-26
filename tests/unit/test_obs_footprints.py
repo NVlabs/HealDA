@@ -224,7 +224,6 @@ def test_training_featurizes_observations_as_inference_does():
     assert list(batch["unified_obs"][0]) == keys
     for got, want in [
         (training.obs, inference.obs),
-        (training.time, inference.time),
         (training.float_metadata, inference.float_metadata),
         (training.pix, inference.pix),
         (training.local_channel, inference.local_channel),

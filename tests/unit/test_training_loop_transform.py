@@ -4,7 +4,6 @@
 import dataclasses
 from types import SimpleNamespace
 
-import torch
 
 from healda.datasets.da.transform import TransformV2
 import healda.cli.train as train_mod
@@ -34,19 +33,3 @@ def test_training_loop_reuses_the_dataset_transform(monkeypatch):
     stage = loop._device_stage_for_dataset(dataset)
     assert stage.keywords["transform"] is dataset_transform
     loop.dumps()
-
-
-def test_mask_training_device_stage_only_moves_tensors():
-    loop = train_mod.TrainingLoop()
-    loop.device = torch.device("cpu")
-    assert loop.mask_training
-
-    batch = {
-        "target": torch.arange(24).reshape(1, 2, 3, 4),
-        "condition": torch.arange(24, 48).reshape(1, 2, 3, 4),
-        "timestamp": torch.tensor([[1, 2, 3]]),
-    }
-    out = loop._device_stage_for_dataset(object())(batch)
-
-    for key in batch:
-        assert torch.equal(out[key], batch[key])

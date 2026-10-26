@@ -204,6 +204,10 @@ class HourlyLatlonTransform(torch.nn.Module):
                 fills[channels.index(name)] = value
         self.register_buffer("_domain_fill", fills.view(1, -1, 1, 1))
 
+    def compile_pixel_ops(self, device) -> None:
+        if self._obs is not None:
+            self._obs.compile_pixel_ops(device)
+
     def device_transform(self, batch, device):
         self.to(device)
         latlon = batch["latlon"].to(device, non_blocking=True)
@@ -306,7 +310,6 @@ class HourlyLatlonDataset(torch.utils.data.Dataset):
                 sensors=get_sensors_for_config(obs_config),
                 use_nnja_sat=obs_config.use_nnja_sat,
                 target_normalization=self.batch_info.normalization,
-                features_v2=transform_options.features_v2,
                 features_position=transform_options.features_position,
                 attention_prepack=transform_options.attention_prepack,
                 build_attention_group_map=(transform_options.build_attention_group_map),

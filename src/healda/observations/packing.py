@@ -140,7 +140,6 @@ def pack_observations_by_pixel(
     return dataclasses.replace(
         obs,
         obs=obs.obs[order],
-        time=obs.time[order],
         float_metadata=obs.float_metadata[order],
         pix=obs.pix[order],
         local_channel=obs.local_channel[order],

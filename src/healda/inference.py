@@ -87,6 +87,7 @@ class DAModel:
         """Move the network and the device observations are prepared on."""
         self.device = torch.device(device)
         self.net.to(self.device)
+        self.transform.compile_pixel_ops(self.device)
         return self
 
     @property
@@ -323,7 +324,6 @@ def load_da_model(
         sensors=get_sensors_for_config(loop.obs_config),
         use_nnja_sat=loop.obs_config.use_nnja_sat,
         target_normalization=loop.batch_info.normalization,
-        features_v2=options.features_v2,
         features_position=options.features_position,
         attention_prepack=options.attention_prepack,
         build_attention_group_map=options.build_attention_group_map,

@@ -25,7 +25,7 @@ The conditioning vector is a plain concatenation::
     [meta, obs_emb, channel_emb, platform_emb?]
 
 Any sensor-family (conv vs satellite) routing of the metadata is performed on
-the data side: ``features_v2.compute_unified_metadata`` already emits the
+the data side: ``features.compute_unified_metadata`` already emits the
 per-family layout with off-family columns zeroed, so this kernel only sees and
 consumes the final metadata vector. The fused kernel deliberately does not
 implement in-kernel metadata splitting.

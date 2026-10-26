@@ -13,7 +13,7 @@ from healda.observations.packing import (
     pixel_packing,
     sort_and_pack,
 )
-from healda.observations.preprocessing import features_v2
+from healda.observations.preprocessing import features
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
@@ -28,7 +28,6 @@ def _make_obs(window_of_obs, pix, hpx_level, batch, time, device):
     ident = torch.arange(n)
     return UnifiedObservation(
         obs=ident.float().to(device),
-        time=ident.to(device),
         float_metadata=ident.float().unsqueeze(1).repeat(1, 3).to(device),
         pix=torch.tensor(pix, dtype=torch.long, device=device),
         local_channel=ident.to(device),
@@ -241,8 +240,8 @@ def test_featurizing_sorted_rows_matches_sorting_featurized_rows(device):
     order, _ = pixel_packing(
         obs.pix, obs.lengths, hpx_level, "hpxpadxy", build_group_map=False
     )
-    sorted_first = features_v2.compute_unified_metadata(
+    sorted_first = features.compute_unified_metadata(
         target[order], **{name: value[order] for name, value in raw.items()}
     )
-    featurized_first = features_v2.compute_unified_metadata(target, **raw)[order]
+    featurized_first = features.compute_unified_metadata(target, **raw)[order]
     assert torch.equal(sorted_first, featurized_first)

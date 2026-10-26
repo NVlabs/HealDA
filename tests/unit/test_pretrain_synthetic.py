@@ -14,6 +14,7 @@ def test_build_empty_batch_uses_expected_shape():
         condition_channels=3,
         time_length=4,
         x_size=5,
+        meta_dim=50,
         device=torch.device("cpu"),
     )
 
@@ -33,6 +34,7 @@ def test_build_empty_batch_adds_background_when_requested():
         condition_channels=3,
         time_length=4,
         x_size=5,
+        meta_dim=50,
         device=torch.device("cpu"),
         background_channels=3,
     )
@@ -48,5 +50,6 @@ def test_build_empty_batch_rejects_non_positive_x_size():
             condition_channels=1,
             time_length=1,
             x_size=0,
+            meta_dim=50,
             device=torch.device("cpu"),
         )

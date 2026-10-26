@@ -3,12 +3,11 @@
 
 import math
 
-import pytest
 import torch
 from earth2grid import healpix
 
 from healda.config.models import SensorEmbedderConfig
-from healda.observations.preprocessing.features_v2 import (
+from healda.observations.preprocessing.features import (
     N_FEATURES,
     position_features,
 )
@@ -57,14 +56,9 @@ def test_offset_wraps_across_the_dateline_and_stays_within_a_pixel():
     )
 
 
-def test_meta_dim_counts_the_offset_columns_and_needs_features_v2():
-    assert SensorEmbedderConfig(features_v2=True).meta_dim == N_FEATURES
-    assert (
-        SensorEmbedderConfig(features_v2=True, features_position=True).meta_dim
-        == N_FEATURES + 4
-    )
-    with pytest.raises(ValueError, match="features_v2"):
-        SensorEmbedderConfig(features_position=True).meta_dim
+def test_meta_dim_counts_the_offset_columns():
+    assert SensorEmbedderConfig().meta_dim == N_FEATURES
+    assert SensorEmbedderConfig(features_position=True).meta_dim == N_FEATURES + 4
 
 
 def test_position_features_are_packed_only_when_the_embedder_asks():

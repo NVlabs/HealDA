@@ -231,9 +231,7 @@ class SensorEmbedderConfig:
     # Backward of the fused FiLM tokenizer: 0 Triton, 2 CuTe DSL. Layouts the CuTe DSL kernel
     # cannot serve warn and fall back to Triton.
     film_bwd_impl: int = 0
-    features_v2: bool = False  # expanded features
     # Append each observation's offset within its HEALPix pixel and sin/cos longitude
-    # (features_v2 only).
     features_position: bool = False
 
     # Rows in the backbone tokenizer's channel embedding table. Sizes a checkpointed weight.
@@ -252,23 +250,17 @@ class SensorEmbedderConfig:
 
     @property
     def meta_dim(self) -> int:
-        if self.features_v2:
-            from healda.observations.preprocessing.features_v2 import (
-                N_FEATURES,
-                N_POSITION_FEATURES,
-            )
+        from healda.observations.preprocessing.features import (
+            N_FEATURES,
+            N_POSITION_FEATURES,
+        )
 
-            return N_FEATURES + N_POSITION_FEATURES * self.features_position
-        if self.features_position:
-            raise ValueError("features_position requires features_v2")
-        from healda.observations.preprocessing.features import N_FEATURES
-
-        return N_FEATURES
+        return N_FEATURES + N_POSITION_FEATURES * self.features_position
 
     @property
     def tokenizer_meta_dim(self) -> int:
         """Metadata width the FiLM obs tokenizer's first linear receives. Equals
-        ``meta_dim``: features_v2 emits the conv/sat-split layout directly."""
+        ``meta_dim``: the features already come in the conv/sat-split layout."""
         return self.meta_dim
 
 

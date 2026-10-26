@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from earth2grid import healpix
+import threading
+
 import pytest
 import torch
 
 from healda.datasets import static_data
 from healda.datasets.base import NormalizationStats, VariableConfig
-from healda.datasets.da import transform as transform_module
 from healda.datasets.da.transform import (
     TransformV2,
     fixed_static_condition,
@@ -90,7 +91,7 @@ def test_state_and_static_condition_share_pixel_order(monkeypatch, pixel_order):
     "pixel_order",
     ["hpxpadxy", "nest"],
 )
-def test_ang2pix_and_packing_share_pixel_order(monkeypatch, pixel_order):
+def test_ang2pix_and_packing_share_pixel_order(pixel_order):
     lon = torch.tensor([12.0, 140.0, 275.0, 80.0])
     lat = torch.tensor([-65.0, -10.0, 35.0, 70.0])
     count = lon.numel()
@@ -112,12 +113,6 @@ def test_ang2pix_and_packing_share_pixel_order(monkeypatch, pixel_order):
         "observation": ident,
         "target_time_sec": torch.zeros(count, dtype=torch.int64),
     }
-    monkeypatch.setattr(
-        transform_module.features,
-        "compute_unified_metadata",
-        lambda *args, **kwargs: torch.zeros(count, 1),
-    )
-
     transform = TransformV2(
         variable_config=_CONFIG,
         hpx_level=1,
@@ -141,3 +136,82 @@ def test_ang2pix_and_packing_share_pixel_order(monkeypatch, pixel_order):
         packing.counts,
         torch.bincount(expected_pix.long(), minlength=12 * 4**1),
     )
+
+
+def _obs_batch(lon, lat):
+    count = lon.numel()
+    zeros = torch.zeros(count)
+    obs_tensors = {
+        "absolute_obs_time": torch.zeros(count, dtype=torch.int64),
+        "latitude": lat,
+        "longitude": lon,
+        "height": zeros,
+        "pressure": zeros,
+        "scan_angle": zeros,
+        "sat_zenith_angle": zeros,
+        "sol_zenith_angle": zeros,
+        "platform_id": torch.zeros(count, dtype=torch.uint16),
+        "observation_type": torch.zeros(count, dtype=torch.uint16),
+        "local_channel_id": torch.zeros(count, dtype=torch.uint16),
+        "global_channel_id": torch.zeros(count, dtype=torch.uint16),
+        "observation": torch.arange(count, dtype=torch.float32),
+        "target_time_sec": torch.zeros(count, dtype=torch.int64),
+    }
+    return {"unified_obs": (obs_tensors, torch.tensor([[[count]]], dtype=torch.int32))}
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="compiled pixel ops are CUDA only"
+)
+def test_compiled_pixel_ops_in_a_prefetch_thread():
+    g = torch.Generator().manual_seed(0)
+    lon = torch.cat(
+        [torch.rand(5000, generator=g) * 360, torch.tensor([0.0, 90.0, 180.0, 270.0])]
+    )
+    lat = torch.cat(
+        [
+            torch.rand(5000, generator=g) * 180 - 90,
+            torch.tensor([70.0, 43.5, 90.0, -60.5]),
+        ]
+    )
+    transform = TransformV2(
+        variable_config=_CONFIG,
+        hpx_level=6,
+        sensors=["atms"],
+        target_normalization=_NORMALIZATION,
+        attention_prepack=True,
+        features_position=True,
+        pixel_order="nest",
+    )
+    transform.compile_pixel_ops("cuda")
+    expected = transform.device_transform(_obs_batch(lon, lat), device="cuda")[
+        "unified_obs"
+    ]
+    other = torch.compile(lambda x: x * 2)
+    other(torch.ones(4, device="cuda"))
+    results, errors = [], []
+
+    def prefetch():
+        try:
+            for _ in range(20):
+                results.append(
+                    transform.device_transform(_obs_batch(lon, lat), device="cuda")[
+                        "unified_obs"
+                    ]
+                )
+        except Exception as error:  # noqa: BLE001
+            errors.append(error)
+
+    thread = threading.Thread(target=prefetch)
+    thread.start()
+    while thread.is_alive():
+        other(torch.ones(4, device="cuda"))
+    thread.join()
+
+    assert not errors
+    for obs in results:
+        assert torch.equal(obs.pix, expected.pix)
+        assert torch.equal(
+            obs.float_metadata.view(torch.int16),
+            expected.float_metadata.view(torch.int16),
+        )

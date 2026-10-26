@@ -35,7 +35,6 @@ from healda.datasets.da.tasks import (
     TASK_CONFIGS,
     TrainingTaskConfig,
     build_training_dataset,
-    collate,
     get_sensors_for_config,
 )
 from healda.datasets.da.state_stats import (
@@ -53,7 +52,7 @@ from healda.observations.sensors import (
     SENSOR_NAME_TO_ID,
 )
 from healda.datasets.da.transform import (
-    collate as collate_v2,
+    collate,
     TransformV2,
 )
 from healda.observations import types
@@ -875,8 +874,7 @@ class TrainingLoop(loop.TrainingLoopBase):
             )
             return ds
 
-        # Anything not in the task table comes from a registered provider:
-        # obs-to-state DA when the config asks for obs, else mask training.
+        # Anything not in the task table comes from a registered provider.
         provider = dataset_provider(self.dataset)
         if extra_obs_filters != ObsFilters():
             raise ValueError(
@@ -920,11 +918,6 @@ class TrainingLoop(loop.TrainingLoopBase):
         """Helper to create a DataLoader with common settings."""
         if num_workers is None:
             num_workers = self.dataloader_num_workers
-        # Mask training emits legacy batches and needs collate. The dense
-        # static+background condition path emits TransformV2 batches, even when
-        # observations are disabled for no-obs DA ablations.
-        collate_fn = collate if self.mask_training else collate_v2
-
         return torch.utils.data.DataLoader(
             dataset,
             sampler=sampler,
@@ -933,7 +926,7 @@ class TrainingLoop(loop.TrainingLoopBase):
             worker_init_fn=signals.ignore_in_worker if num_workers > 0 else None,
             batch_size=batch_size,
             num_workers=num_workers,
-            collate_fn=collate_fn,
+            collate_fn=collate,
             pin_memory=pin_memory,
             persistent_workers=True if num_workers > 0 else False,
             in_order=True,
@@ -941,11 +934,6 @@ class TrainingLoop(loop.TrainingLoopBase):
         )
 
     def _device_stage_for_dataset(self, dataset):
-        # RandomMasker and ObservationMasker already normalize, transpose, and reorder
-        # on CPU; their device stage must preserve those values and only move tensors.
-        if self.mask_training:
-            return self._move_mask_batch_to_device
-
         # The same TransformV2 owns the CPU and device stages.
         return functools.partial(self._device_transform, transform=dataset.transform)
 
@@ -992,6 +980,7 @@ class TrainingLoop(loop.TrainingLoopBase):
         # transferring the obs data from cpu -> gpu can be slow, so
         # running it in a separate thread using prefetch_map improves utilization
         # queue_size=1 is sufficient for pipelining, assuming device_transform time is smaller than training time
+        dataset.transform.compile_pixel_ops(self.device)
         if self.prefetch_to_gpu:
             loader = prefetch_map(
                 loader,
@@ -1041,19 +1030,12 @@ class TrainingLoop(loop.TrainingLoopBase):
             condition_channels=self.model_config.condition_channels,
             time_length=self.time_length // self.time_parallel,
             x_size=self.grid.shape[0],
+            meta_dim=self.sensor_embedder_config.meta_dim,
             device=self.device,
             background_channels=self.n_background_channels
             if self.background_enabled
             else None,
         )
-
-    def _move_mask_batch_to_device(self, batch: types.Batch | None):
-        if batch is None:
-            return self._empty_device_batch()
-        return {
-            key: value.to(self.device, non_blocking=True)
-            for key, value in batch.items()
-        }
 
     def _device_transform(self, batch: types.Batch | None, transform: TransformV2):
         """Transformations to occur on device in a separate thread. including device movement"""
@@ -1298,28 +1280,12 @@ class TrainingLoop(loop.TrainingLoopBase):
         obs = fields.get("obs_config")
         if isinstance(obs, dict) and "nnja_ir_channels" in obs:
             obs["nnja_ir_channels"] = ir_preset_name(obs["nnja_ir_channels"])
+        embedder = fields.get("sensor_embedder_config")
+        if isinstance(embedder, dict) and embedder.pop("features_v2", True) is not True:
+            raise ValueError("features_v2=False checkpoints are no longer supported")
 
         fields = _migrate_latlon_fields(fields)
         return parse_dict(cls, fields)
-
-    @property
-    def mask_training(self) -> bool:
-        """Mask training: no real obs; the (NaN-)masked target state is the condition.
-
-        This only applies when there is no background to condition on. Background
-        recipes always use the dense static+background condition; there,
-        ``use_obs`` only toggles obs ingestion and obs cross-attention.
-        """
-        if self.background_enabled:
-            return False
-        return not self.obs_config.use_obs
-
-    @property
-    def allow_nans_condition(self) -> bool:
-        """Coupled to mask training: only the masked-state condition carries NaNs
-        (at unobserved pixels). Real-obs DA uses a dense static condition.
-        """
-        return self.mask_training
 
     @property
     def resolved_hpx_in_level(self) -> int:
@@ -1385,19 +1351,16 @@ class TrainingLoop(loop.TrainingLoopBase):
             from healda.models.hpx256_latlon import CALENDAR_CHANNELS, GEO_CHANNELS
             from healda.datasets.era5_statics import N_ERA5_STATICS
 
-            if self.background_enabled or self.mask_training:
+            if self.background_enabled:
                 # Hpx256LatlonModel.forward discards the condition run_model_step assembled,
                 # so widening the DiT for it would size pos_embed for a tensor that never
-                # arrives; mask training would silently become a no-op.
+                # arrives.
                 raise NotImplementedError(
-                    "latlon_decode builds its own condition: background and mask training "
-                    "cannot reach the backbone"
+                    "latlon_decode builds its own condition: a background cannot reach the "
+                    "backbone"
                 )
             condition_channels = N_ERA5_STATICS + CALENDAR_CHANNELS + GEO_CHANNELS
             out_channels = self.latlon_decode.decode_channels
-        elif self.mask_training:
-            # mask training: the masked target state is fed in as the condition
-            condition_channels += out_channels
         else:
             # obs DA: condition is the static fields; obs enter via cross-attention
             condition_channels += 2  # orog and lfrac static variables
@@ -1447,7 +1410,6 @@ class TrainingLoop(loop.TrainingLoopBase):
             sensor_embedder_config=sensor_embedder_config,
             sensors=sensors_dict,
             qk_rms_norm=self.dit_qk_rms_norm,
-            allow_nans_condition=self.allow_nans_condition,
             compile_dit=self.compile_dit,
             emb_channels=self.emb_channels,
             noise_channels=self.noise_channels,
@@ -1715,7 +1677,6 @@ LOOPS[UFS_HPX64] = TrainingLoop(
     ),
     sensor_embedder_config=SensorEmbedderConfig(
         tokenizer_type="film",
-        features_v2=True,
         use_fused_mlp=True,
         use_channel_platform_embedding_table=True,
         channel_embed_dim=16,

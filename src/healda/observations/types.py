@@ -99,9 +99,6 @@ class UnifiedObservation:
     """Unified observation structure for both satellite and conventional observations."""
 
     obs: torch.Tensor  # (n_obs,) observation values
-    time: (
-        torch.Tensor
-    )  # (n_obs,) observation timestamps (ns since epoch). Not used by the model.
     # (n_obs, n_features) pre-computed float features; None once the model has tokenized.
     float_metadata: torch.Tensor | None
 
@@ -127,6 +124,7 @@ class UnifiedObservation:
     @classmethod
     def empty(
         cls,
+        meta_dim: int,
         device: str = "cpu",
         hpx_level: int = 8,
         batch_dims: tuple[int, int] = (1, 1),
@@ -134,8 +132,7 @@ class UnifiedObservation:
         B, T = batch_dims
         return cls(
             obs=torch.empty(0, device=device),
-            time=torch.empty(0, dtype=torch.long, device=device),
-            float_metadata=torch.empty((0, 28), device=device),
+            float_metadata=torch.empty((0, meta_dim), device=device),
             pix=torch.empty(0, dtype=torch.long, device=device),
             local_channel=torch.empty(0, dtype=torch.long, device=device),
             local_platform=torch.empty(0, dtype=torch.long, device=device),
@@ -168,7 +165,6 @@ class UnifiedObservation:
 
         return UnifiedObservation(
             obs=_move_tensor(self.obs),
-            time=_move_tensor(self.time),
             float_metadata=_move_tensor(self.float_metadata),
             pix=_move_tensor(self.pix),
             local_channel=_move_tensor(self.local_channel),
@@ -209,6 +205,7 @@ def empty_batch(
     condition_channels: int,
     time_length: int,
     x_size: int,
+    meta_dim: int,
     device: torch.device | str,
     background_channels: int | None = None,
 ) -> Batch:
@@ -229,7 +226,7 @@ def empty_batch(
             [batch_gpu, time_length], dtype=torch.long, device=device
         ),
         "unified_obs": UnifiedObservation.empty(
-            device=device, batch_dims=(batch_gpu, time_length)
+            meta_dim, device=device, batch_dims=(batch_gpu, time_length)
         ),
     }
     if background_channels is not None:
@@ -271,7 +268,6 @@ def split_by_sensor(
     sizes = lengths.sum(dim=(1, 2)).tolist()
     obs_fields = [
         obs.obs,
-        obs.time,
         obs.float_metadata,
         obs.pix,
         obs.local_channel,
@@ -293,7 +289,6 @@ def split_by_sensor(
             sensor_lengths = torch.zeros((1, B, T), dtype=lengths.dtype, device=device)
             out[sensor_id] = UnifiedObservation(
                 obs=obs.obs[:0],
-                time=obs.time[:0],
                 float_metadata=obs.float_metadata[:0],
                 pix=obs.pix[:0],
                 local_channel=obs.local_channel[:0],
@@ -307,14 +302,13 @@ def split_by_sensor(
         else:
             out[sensor_id] = UnifiedObservation(
                 obs=splits[0][s_local],
-                time=splits[1][s_local],
-                float_metadata=splits[2][s_local],
-                pix=splits[3][s_local],
-                local_channel=splits[4][s_local],
-                local_platform=splits[5][s_local],
-                obs_type=splits[6][s_local],
-                global_channel=splits[7][s_local],
-                global_platform=splits[8][s_local],
+                float_metadata=splits[1][s_local],
+                pix=splits[2][s_local],
+                local_channel=splits[3][s_local],
+                local_platform=splits[4][s_local],
+                obs_type=splits[5][s_local],
+                global_channel=splits[6][s_local],
+                global_platform=splits[7][s_local],
                 hpx_level=obs.hpx_level,
                 lengths=lengths[s_local : s_local + 1],
             )

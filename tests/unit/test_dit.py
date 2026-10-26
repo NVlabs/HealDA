@@ -156,7 +156,6 @@ def test_dit_with_observations(t, device, autocast):
 
     model = DiT(
         embed_v2=True,
-        embed_v2_meta_dim=meta_dim,
         embed_v2_n_embed=1024,
         obs_hpx_level=obs.hpx_level,
         sensor_embedder_config=sensor_embedder_config,
@@ -194,7 +193,7 @@ def test_dit_with_observations(t, device, autocast):
 
     # Verify observation processing worked (model should handle the obs without errors)
     assert obs.batch_dims == (n, t)
-    assert obs.float_metadata.shape[-1] == 28
+    assert obs.float_metadata.shape[-1] == meta_dim
     assert obs.hpx_level == 6
 
     # Verify the correct embedding module was initialized based on encoder type
@@ -280,7 +279,7 @@ def test_dit_obs_decoder(device):
         level_model=4,
         in_channels=3,
         out_channels=3,
-        embed_v2_meta_dim=meta_dim,
+        sensor_embedder_config=SensorEmbedderConfig(),
     )
     model.to(device)
 
@@ -355,7 +354,6 @@ def _single_sensor_obs(
     lengths[0, 0, 0] = nobs
     return UnifiedObservation(
         obs=torch.randn(nobs, generator=g).to(device),
-        time=torch.zeros(nobs, dtype=torch.long, device=device),
         float_metadata=torch.randn(nobs, meta_dim, generator=g).to(device),
         pix=ri(npix).to(device),
         local_channel=ri(nchannel).to(device),
@@ -372,7 +370,6 @@ def _stack_obs(samples, hpx_level, device):
     # Concatenate per-sample (B=1) obs into one (B=len, T=1) batch in (s,b,t) order.
     fields = (
         "obs",
-        "time",
         "float_metadata",
         "pix",
         "local_channel",

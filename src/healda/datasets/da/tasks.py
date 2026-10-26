@@ -10,7 +10,7 @@ part of the task identity; the train loop toggles them with ``use_obs`` /
 """
 
 import dataclasses
-from typing import Any, Mapping
+from typing import Mapping
 
 import torch
 
@@ -33,7 +33,6 @@ __all__ = [
     "TrainingTaskConfig",
     "build_obs_loader",
     "build_training_dataset",
-    "collate",
     "get_sensors_for_config",
 ]
 
@@ -217,17 +216,6 @@ def build_training_dataset(
     from healda.datasets.da.packed_da_dataset import PackedDADataset
 
     return PackedDADataset(config_, transform_options=transform_options, **kwargs)
-
-
-def collate(batch: list[dict[str, Any]]):
-    """Collate a batch of samples for masked training.
-
-    Uses default_collate for tensor fields.
-    """
-    data_tensors = [
-        {k: v for k, v in sample.items() if torch.is_tensor(v)} for sample in batch
-    ]
-    return torch.utils.data.default_collate(data_tensors)
 
 
 def satellite_sensors(config: ObsConfig) -> tuple[str, ...]:

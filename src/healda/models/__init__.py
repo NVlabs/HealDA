@@ -29,7 +29,6 @@ def transform_options_for(config: ModelConfigV1) -> TransformOptions:
             if config.backbone_pixel_attention
             else config.obs_hpx_level
         ),
-        features_v2=embedder is not None and embedder.features_v2,
         features_position=embedder is not None and embedder.features_position,
         attention_prepack=config.backbone_pixel_attention,
         build_attention_group_map=config.pixel_attn_impl == PIXEL_ATTN_TRITON,
@@ -41,7 +40,6 @@ def get_model(config: ModelConfigV1) -> torch.nn.Module:
     sensor_embedder_config = config.sensor_embedder_config
     # TODO remove embed_v2 option flag since it is redundant with sensor config
     embed_v2 = sensor_embedder_config is not None and config.sensors is not None
-    meta_dim = sensor_embedder_config.meta_dim if sensor_embedder_config else 0
 
     if config.architecture == "dit-b_reg_hpx6":
         return dit.DiT(
@@ -67,7 +65,6 @@ def get_model(config: ModelConfigV1) -> torch.nn.Module:
             use_gains=config.pos_emb_gains,
             temporal_attention=config.dit_temporal_attention,
             embed_v2=embed_v2,
-            embed_v2_meta_dim=meta_dim,
             obs_hpx_level=config.obs_hpx_level,
             sensor_embedder_config=sensor_embedder_config,
             sensors=config.sensors,
@@ -107,7 +104,6 @@ def get_model(config: ModelConfigV1) -> torch.nn.Module:
             compile_dit=config.compile_dit,
             qk_rms_norm=config.qk_rms_norm,
             allow_nans_condition=config.allow_nans_condition,
-            embed_v2_meta_dim=meta_dim,
             sensor_embedder_config=sensor_embedder_config,
             sensors=config.sensors,
             as_vit=config.as_vit,
@@ -138,7 +134,6 @@ def get_model(config: ModelConfigV1) -> torch.nn.Module:
             time_length=config.time_length,
             temporal_attention=config.dit_temporal_attention,
             embed_v2=embed_v2,
-            embed_v2_meta_dim=meta_dim,
             obs_hpx_level=config.obs_hpx_level,
             sensor_embedder_config=sensor_embedder_config,
             sensors=config.sensors,
@@ -183,7 +178,6 @@ def get_model(config: ModelConfigV1) -> torch.nn.Module:
             compile_dit=config.compile_dit,
             allow_nans_condition=config.allow_nans_condition,
             embed_v2=embed_v2,
-            embed_v2_meta_dim=meta_dim,
             obs_hpx_level=config.obs_hpx_level,
             sensor_embedder_config=sensor_embedder_config,
             sensors=config.sensors,
@@ -229,7 +223,6 @@ def get_model(config: ModelConfigV1) -> torch.nn.Module:
             compile_dit=config.compile_dit,
             allow_nans_condition=config.allow_nans_condition,
             embed_v2=embed_v2,
-            embed_v2_meta_dim=meta_dim,
             obs_hpx_level=config.obs_hpx_level,
             sensor_embedder_config=sensor_embedder_config,
             sensors=config.sensors,
@@ -263,7 +256,6 @@ def get_model(config: ModelConfigV1) -> torch.nn.Module:
             time_length=config.time_length,
             temporal_attention=config.dit_temporal_attention,
             embed_v2=embed_v2,
-            embed_v2_meta_dim=meta_dim,
             obs_hpx_level=config.obs_hpx_level,
             sensor_embedder_config=sensor_embedder_config,
             sensors=config.sensors,
@@ -299,7 +291,6 @@ def get_model(config: ModelConfigV1) -> torch.nn.Module:
             time_length=config.time_length,
             temporal_attention=config.dit_temporal_attention,
             embed_v2=embed_v2,
-            embed_v2_meta_dim=meta_dim,
             obs_hpx_level=config.obs_hpx_level,
             sensor_embedder_config=sensor_embedder_config,
             sensors=config.sensors,

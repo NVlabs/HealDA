@@ -270,7 +270,7 @@ class Hpx256LatlonModel(nn.Module):
     def forward(self, hidden_states, **kwargs):
         # Deliberately dropped: the condition is rebuilt below at this model's grid, so
         # whatever run_model_step assembled never reaches the backbone. get_network refuses
-        # the configs whose condition would have carried more (background, mask training).
+        # the configs whose condition would have carried more (a background).
         del hidden_states
         second = kwargs["second_of_day"]
         day = kwargs["day_of_year"]

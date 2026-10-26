@@ -297,11 +297,10 @@ def test_dit_with_observations_domain_parallel():
             sensor_config=sensor_config,
         )
     else:
-        obs = UnifiedObservation.empty(device="cuda", hpx_level=6)
+        obs = UnifiedObservation.empty(meta_dim, device="cuda", hpx_level=6)
 
     model = dit.DiT(
         embed_v2=True,
-        embed_v2_meta_dim=meta_dim,
         embed_v2_n_embed=1024,
         obs_hpx_level=obs.hpx_level,
         sensor_embedder_config=sensor_embedder_config,
