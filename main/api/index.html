@@ -570,6 +570,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#healda.observations.adapters.e2s_nnja.analysis_tables_long" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        analysis_tables_long
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -792,6 +803,17 @@
     <span class="md-ellipsis">
       
         analysis_tables
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#healda.observations.adapters.e2s_nnja.analysis_tables_long" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        analysis_tables_long
       
     </span>
   </a>
@@ -1134,7 +1156,7 @@ or sensor not passed contributes no observations.</p>
 satellite and NNJA conventional observations, the streams <code>run_analysis</code> takes as
 tables. <code>checkpoint</code> is a <code>.checkpoint</code> zip written by <code>healda-train</code>;
 <code>extra_filters</code> defaults to <code>inference_filters()</code>, as the inference CLI does. Provider
-flags act only where a table carries them; <code>e2s_nnja</code> tables carry none.
+flags act only where a table carries them.
 <code>fill_uv_sonde_heights</code> and <code>fp32_output_head</code> are as in <code>set_inference_recipe</code>.
 Building the recipe fetches ERA5 statics into the healda cache on first use.</p>
 
@@ -1178,31 +1200,26 @@ GPS-RO <code>gps</code>, <code>gps_refractivity</code>), <code>NNJAObsSatwnd</co
   as fixed-size lists <code>quality</code> and <code>observation_&lt;variable&gt;</code> over the sensor's
   channel axis, which the frame carries in <code>attrs["channels"]</code>.</li>
 </ul>
-<p>These functions restate either layout in the column contract of healda's NNJA
-PrepBUFR, GPS-RO, SATWND and wide satellite archive tables, deriving what the ETL
-derives with the same code, so the loaders screen, thin and emit them exactly as they
-do archive rows. Each returns <code>{cycle: table}</code>, a <code>CycleTableSource</code> for the
-loaders' <code>table_source</code> argument. Both layouts give the same tables.</p>
+<p><code>analysis_tables</code> takes wide frames and <code>analysis_tables_long</code> long ones. Both
+restate them in the column contract of healda's NNJA PrepBUFR, GPS-RO, SATWND and wide
+satellite archive tables, deriving what the ETL derives with the same code, so the
+loaders screen, thin and emit them exactly as they do archive rows, and both give the
+same tables. They return <code>DAModel.run_analysis</code>'s table arguments: each a
+<code>{cycle: table}</code> <code>CycleTables</code>, <code>satellite_tables</code> one per sensor.</p>
+<p>The module holds the wide layout and the archive builders both layouts share; the
+long layout's regrouping is its last section.</p>
 <p>Satellite values stay in kelvin as earth2studio returns them. The IR sounders' columns
 are <code>brightness_temperature__ch_NNNNN</code> with field metadata <code>nnja.value_unit = K</code>,
 which <code>NNJAWideLoader</code> reads without a Planck inversion.</p>
 <p>Rows are keyed by <code>cycle_time</code>, the NCEP file each was decoded from, which the
 Earth2Studio NNJA sources fill: an observation at the shared edge of two files' windows
 is in both files, and stays in both, as in the archive.</p>
-<p>Usage, for the cycle file around <code>cycle</code> (dumps cover <code>[cycle - 3h, cycle + 3h]</code>)::</p>
-<div class="highlight"><pre><span></span><code>frame = NNJAObsConv(time_tolerance=window)(cycle, [&quot;gps&quot;, &quot;gps_refractivity&quot;])
-loader = NNJAGpsroLoader(table_source=gpsro_tables(frame))
-await loader.sel_time(times)  # or via NNJAConventionalLoader(gpsro_table_source=...)
-
-conv = NNJAObsConv(time_tolerance=window, original_event=True)
-frame = conv(cycle, [&quot;u&quot;, &quot;v&quot;, &quot;q&quot;, &quot;t&quot;, &quot;pres&quot;])
-NNJAConventionalLoader(prepbufr_table_source=prepbufr_tables(frame))
-
-frame = NNJAObsSat(time_tolerance=window)(cycle, [&quot;atms_antenna_temperature&quot;])
-loader = NNJAWideLoader([&quot;atms&quot;], table_source={&quot;atms&quot;: sat_tables(frame, &quot;atms&quot;)})
-
-# Every stream at once, from frames of either layout:
-tables = analysis_tables(conv, satwnd, sat, sensors=..., ir_channels=..., layout=&quot;wide&quot;)
+<p>Usage, every stream at once from wide frames::</p>
+<div class="highlight"><pre><span></span><code>tables = analysis_tables(
+    prepbufr=prepbufr, gpsro=gpsro, satwnd=satwnd, sat={&quot;atms&quot;: atms},
+    ir_channels=...,
+)
+model.run_analysis(times, **tables)
 </code></pre></div>
 
 
@@ -1234,34 +1251,60 @@ tables = analysis_tables(conv, satwnd, sat, sensors=..., ir_channels=..., layout
 
 <a href="#healda.observations.adapters.e2s_nnja.analysis_tables" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">analysis_tables</span><span class="p">(</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">conv</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">satwnd</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">sat</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span> <span class="o">|</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">prepbufr</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">gpsro</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">sensors</span><span class="p">:</span> <span class="n"><span title="collections.abc.Sequence">Sequence</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">],</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">ir_channels</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="collections.abc.Sequence">Sequence</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">layout</span><span class="p">:</span> <span class="n"><span title="healda.observations.adapters.e2s_nnja.Layout">Layout</span></span> <span class="o">=</span> <span class="s2">&quot;long&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">workers</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="dict">dict</span></span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">prepbufr</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">gpsro</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">satwnd</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">sat</span><span class="p">:</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">ir_channels</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="collections.abc.Sequence">Sequence</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">workers</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="dict">dict</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p><code>DAModel.run_analysis</code> table arguments from Earth2Studio NNJA frames.</p>
-<p>In the long layout <code>conv</code> is an <code>NNJAObsConv(original_event=True)</code> frame of any
-PrepBUFR and GPS-RO variables, <code>satwnd</code> an <code>NNJAObsSatwnd</code> frame and <code>sat</code> an
-<code>NNJAObsSat</code> frame of any of <code>sensors</code>. In the wide layout each stream is its
-own frame: <code>prepbufr</code> and <code>gpsro</code> from <code>NNJAObsConv</code>, <code>satwnd</code>, and <code>sat</code>
-a mapping from sensor to that sensor's <code>NNJAObsSat</code> frame. A frame not passed
-gives no argument.</p>
+        <p><code>DAModel.run_analysis</code> table arguments from wide Earth2Studio NNJA frames.</p>
+<p>Each stream is its own frame: <code>prepbufr</code> and <code>gpsro</code> from <code>NNJAObsConv</code>,
+<code>satwnd</code> from <code>NNJAObsSatwnd</code>, and <code>sat</code> a mapping from sensor to that
+sensor's <code>NNJAObsSat</code> frame. A stream or sensor not passed gives no tables, which
+the loaders read as no observations. Long frames go to <code>analysis_tables_long</code>.</p>
 <p>Every footprint, report, occultation and wind comes from one file, so each stream
 is cut by <code>cycle_time</code> and the pieces adapted in parallel on <code>workers</code> threads (default
 the smaller of 32 and the CPUs this process may run on); the result equals adapting each
 whole stream.
 The function returns once the streams are cut. Each <code>{cycle: table}</code> is a
 <code>CycleTables</code> whose lookups wait for that cycle's adaptation.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="healda.observations.adapters.e2s_nnja.analysis_tables_long" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">analysis_tables_long</span>
+
+
+<a href="#healda.observations.adapters.e2s_nnja.analysis_tables_long" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">analysis_tables_long</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">conv</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">satwnd</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">sat</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">sensors</span><span class="p">:</span> <span class="n"><span title="collections.abc.Sequence">Sequence</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">ir_channels</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="collections.abc.Sequence">Sequence</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">workers</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="dict">dict</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>DAModel.run_analysis</code> table arguments from long frames: <code>conv</code> an
+<code>NNJAObsConv(original_event=True)</code> frame of any PrepBUFR and GPS-RO variables,
+<code>satwnd</code> an <code>NNJAObsSatwnd</code> frame and <code>sat</code> an <code>NNJAObsSat</code> frame of any of
+<code>sensors</code>.</p>
 
 
     </div>
