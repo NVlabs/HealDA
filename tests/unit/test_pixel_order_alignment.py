@@ -3,9 +3,11 @@
 
 from earth2grid import healpix
 import threading
+import time
 
 import pytest
 import torch
+import torch.fx._symbolic_trace as fx_trace
 
 from healda.datasets import static_data
 from healda.datasets.base import NormalizationStats, VariableConfig
@@ -203,7 +205,14 @@ def test_compiled_pixel_ops_in_a_prefetch_thread():
             errors.append(error)
 
     thread = threading.Thread(target=prefetch)
-    thread.start()
+    # Setting torch's private FX tracing flag stands in for the main thread compiling a
+    # model: dynamo refuses compiled calls meanwhile
+    fx_trace._is_fx_tracing_flag = True
+    try:
+        thread.start()
+        time.sleep(0.5)
+    finally:
+        fx_trace._is_fx_tracing_flag = False
     while thread.is_alive():
         other(torch.ones(4, device="cuda"))
     thread.join()

@@ -3,6 +3,8 @@
 import dataclasses
 import datetime
 import functools
+import logging
+import time
 from collections.abc import Callable, Hashable
 from typing import Any
 import healda.utils.profiling
@@ -193,15 +195,46 @@ def _map_platform_to_local(
     return flat[idx].reshape(platform.shape)  # (N,) local platform IDs
 
 
+logger = logging.getLogger(__name__)
+
 # dynamo specializes sizes 0 and 1: a batch that small would recompile, in whichever thread
 # calls it
 _MIN_COMPILED_POINTS = 2
 _WARMUP_POINTS = 1_000_000
+# Longer than any model compile; past it the FX tracing flag is taken as left set
+_FX_TRACE_WAIT_SECONDS = 1800
 
 
 def _without_autograd(fn):
     # No grad and no inference tensors: one tensor kind for the compiled pixel ops
     return torch.inference_mode(False)(torch.no_grad()(fn))
+
+
+def _after_fx_trace(compiled: Callable) -> Callable:
+    """``compiled``, waiting while FX tracing is on: dynamo refuses a compiled call in any
+    thread while the process-wide FX tracing flag is set, which Inductor sets while it
+    compiles the model in the main thread. The refusal comes before anything runs."""
+
+    def call(*args):
+        deadline = None
+        while True:
+            try:
+                return compiled(*args)
+            except RuntimeError as error:
+                if "symbolically trace a dynamo-optimized" not in str(error):
+                    raise
+                if deadline is None:
+                    logger.info(
+                        "pixel ops waiting for a model compile in another thread"
+                    )
+                    deadline = time.monotonic() + _FX_TRACE_WAIT_SECONDS
+                elif time.monotonic() > deadline:
+                    raise RuntimeError(
+                        f"FX tracing stayed on for {_FX_TRACE_WAIT_SECONDS} s"
+                    ) from error
+                time.sleep(0.01)
+
+    return call
 
 
 class _DeviceCache:
@@ -328,7 +361,8 @@ class TransformV2:
         ``_WARMUP_POINTS`` points, so Inductor tunes the kernels for a realistic batch.
 
         Call from the main thread before another thread uses the transform: while dynamo
-        compiles in one thread, compiled calls in other threads raise. The warm-up marks the
+        compiles in one thread, compiled calls in other threads raise. Later calls wait out
+        the main thread's model compiles (``_after_fx_trace``). The warm-up marks the
         point count dynamic (``dynamic=False`` only turns off dynamo's automatic dynamic
         shapes), so later sizes reuse the kernels; sizes below ``_MIN_COMPILED_POINTS`` and CPU
         run eager. The compiled code is guarded on grad mode and tensor kind, so the warm-up and
@@ -350,7 +384,7 @@ class TransformV2:
         pix = ang2pix(lon, lat).int()
         torch._dynamo.mark_dynamic(pix, 0)
         pix2ang(pix)
-        return ang2pix, pix2ang
+        return _after_fx_trace(ang2pix), _after_fx_trace(pix2ang)
 
     def _pixel_ops(
         self, device: torch.device | str, n: int
