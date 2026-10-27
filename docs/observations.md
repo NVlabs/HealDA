@@ -65,7 +65,7 @@ NNJA BUFR feeds, with the `v2-nnja-latlon-dense` configuration in
 - Radiosonde levels sit at their drifted position and time, `nnja_balloon_drift`.
   Conventional files then also need `XDR`, `YDR` and `HRDR`.
 - Radiosonde and pibal winds without `ZOB` take the standard-atmosphere height of their
-  `POB`, in training and at inference, `nnja_pressure_height_fill="sonde"`.
+  `POB`, `nnja_pressure_height_fill="sonde"`.
 
 A checkpoint gives its intended results only on data prepared the same way. Data
 from another source, such as a near-real-time feed, has to reproduce the
@@ -132,8 +132,7 @@ lack either (`preprocessing/filtering.py`, `QCLimits` in `observations/sensors.p
 Some families report both coordinates. For the others the loader fills one in.
 
 - **PrepBUFR conventional** (`loaders/nnja_conventional.py`): pressure is `POB` and
-    height is `ZOB`. Rows without `ZOB` are dropped, with two exceptions (and a third
-    at inference, below).
+    height is `ZOB`. Rows without `ZOB` are dropped, except:
 
     - Scatterometer winds report a 10 m wind and no `ZOB`. Their height is set to
       10 m.
@@ -141,6 +140,8 @@ Some families report both coordinates. For the others the loader fills one in.
       height `ELV` + 10 m, as in GSI. Types 282 (ATLAS buoys) and 284 are excluded
       and dropped, because their `POB` is a nominal 1013 hPa or reduced from
       sea-level pressure rather than measured.
+    - Radiosonde and pibal winds (report types 220 and 221) take the US Standard
+      Atmosphere height of their `POB` (`nnja_pressure_height_fill="sonde"`).
 
 - **GPS radio occultation** (`loaders/nnja_gpsro.py`) reports height only. Height
   is `heit_at_impact_m`. Pressure is `blended_pressure_5km_hpa`, which
@@ -151,11 +152,10 @@ Some families report both coordinates. For the others the loader fills one in.
   `assigned_pressure`, the producing centre's final height assignment. Height is
   that pressure's US Standard Atmosphere 1976 altitude, floored at 0 m.
 
-The model is sensitive to the coordinates it was trained on. A coordinate from a
-substantially different algorithm, even a more accurate one, changes what the
-checkpoint sees and is likely to degrade its analyses. A GPS pressure taken from a
-model background is one example. Compare the two before relying on such a
-coordinate.
+The checkpoint was trained on the coordinates above. A coordinate from a different
+algorithm, even a more accurate one, such as a GPS pressure taken from a model
+background, changes the model's input; analyses made with such coordinates have
+not been evaluated.
 
 ### Satellite sounders
 
@@ -178,9 +178,9 @@ loader changes on load:
   `preprocessing/ir_spectral.py`), with CODATA 2018 constants and the channel
   wavenumbers defined in that module. AIRS is archived as brightness temperature.
   To supply IASI or CrIS brightness temperature instead, compute it with that
-  inversion (its constants are earth2studio's `PLANCK_C1`/`PLANCK_C2`); other
-  constants, channel wavenumbers or a band correction may bias it slightly relative
-  to the training data. Write it as `brightness_temperature__ch_NNNNN` columns
+  inversion (its constants are earth2studio's `PLANCK_C1`/`PLANCK_C2`). Other
+  constants, channel wavenumbers or a band correction give values that differ from
+  the training data. Write it as `brightness_temperature__ch_NNNNN` columns
   (`NNNNN` the five-digit channel number) with field metadata `nnja.value_unit = K`,
   as `observations/adapters/e2s_nnja.py` does; the loader then reads it without an
   inversion.
@@ -190,24 +190,20 @@ loader changes on load:
 
 ### At inference
 
-`healda.inference` applies an observation policy on top of the training recipe,
-on by default (`inference_filters` in `observations/system.py`):
+`healda.inference` and `healda-inference-local` apply the recipe in the checkpoint's
+`loop.json` and remove two further groups of observations
+(`inference_filters` in `observations/system.py`):
 
-- **Provider quality flags**: footprints the data provider flags are dropped. The
-  flags mark bad calibration or corrupted data, and separate it cleanly from good
-  data. Which flags and bits, per sensor, is `SOURCE_QUALITY_FLAGS` in
-  `loaders/nnja_wide.py`: CrIS scan and field-of-view quality, IASI `QGFQ`, ATMS
-  scan, granule and channel quality. A flag column the input lacks is not applied,
-  so a new source should carry them. Earth2Studio's `NNJAObsSat` carries them in its
-  per-channel `quality` column (ATMS channel quality, and CrIS `NFQF`, from which
-  the field-of-view flag is derived) and its footprint columns `scan_quality`,
-  `granule_quality` and `footprint_quality`.
-- **Channel denials**: channels known to be degraded are dropped over a date
-  range. The list is `observations/denials.csv`.
-- **Radiosonde and pibal wind heights**: winds of report types 220 and 221 without
-  `ZOB` get the standard-atmosphere height of their `POB` instead of being dropped
-  (`PRESSURE_HEIGHT_FILL` in `inference.py`). The released checkpoint was trained
-  with the same fill.
+- **Provider quality flags**: footprints that the data provider flags for bad
+  calibration or corrupted data are dropped. The flags and bits per sensor are
+  `SOURCE_QUALITY_FLAGS` in `loaders/nnja_wide.py`: CrIS scan and field-of-view quality,
+  IASI `QGFQ`, and ATMS scan, granule and channel quality. A flag applies only where the
+  input carries its column. Earth2Studio's `NNJAObsSat` carries them in its per-channel
+  `quality` column (ATMS channel quality and CrIS `NFQF`, from which the field-of-view
+  flag is derived) and in its footprint columns `scan_quality`, `granule_quality` and
+  `footprint_quality`.
+- **Channel denials**: channels known to be degraded are dropped over a date range,
+  listed in `observations/denials.csv`.
 
 ## Invariants
 

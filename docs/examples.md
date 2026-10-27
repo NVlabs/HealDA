@@ -21,12 +21,3 @@ fine-tuning preset its own learning-rate schedule.
 ```bash title="examples/fine_tuning/from_checkpoint.sh"
 --8<-- "examples/fine_tuning/from_checkpoint.sh"
 ```
-
-## NNJA observations through Earth2Studio
-
-`docs/examples/e2s_nnja_observations.py` loads prepared NNJA observations with the
-Earth2Studio adapter.
-
-```python title="docs/examples/e2s_nnja_observations.py"
---8<-- "docs/examples/e2s_nnja_observations.py"
-```

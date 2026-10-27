@@ -34,7 +34,6 @@ from healda.datasets.prefetch_map import prefetch_map
 from healda.training import distributed_checkpoint
 from healda.inference import (
     read_training_loop,
-    set_inference_recipe,
     to_physical,
 )
 from healda.config.models import ObsConfig
@@ -177,14 +176,6 @@ class InferenceArgs:
             "Place radiosonde levels at their drifted position and time (XDR/YDR/HRDR)"
         ),
     ] = None
-    no_uv_sonde_height_fill: a[
-        bool,
-        Help(
-            "Do not give radiosonde/pibal wind reports (PrepBUFR types 220/221) that "
-            "carry no height the standard-atmosphere height of their pressure; the "
-            "loader then drops those winds"
-        ),
-    ] = False
     withhold_stations: a[
         bool | None,
         Help(
@@ -284,14 +275,6 @@ class InferenceArgs:
             ">= 0; sic and cloud cover in [0, 1]); see state_transforms.PHYSICAL_BOUNDS"
         ),
     ] = True
-    bf16_output_head: a[
-        bool,
-        Help(
-            "Run the latlon decoder's output projection under bf16 autocast, which "
-            "rounds every analysis to bf16 before de-normalisation, as stores written "
-            "before 2026-10-04 did"
-        ),
-    ] = False
     stats_path: a[
         str | None,
         Help(
@@ -496,11 +479,6 @@ def _run_in_temporary_directory(tmpdir):
     # Setup the loop (creates network with proper parallelism/fsdp). The scoring dataset
     # is built below, so setup()'s train/val loaders are unused and their years may be absent.
     loop.setup_datasets = False
-    set_inference_recipe(
-        loop,
-        fill_uv_sonde_heights=not args.no_uv_sonde_height_fill,
-        fp32_output_head=not args.bf16_output_head,
-    )
     loop.setup()
 
     dist.print0(f"Loading checkpoint from {args.checkpoint_path}")

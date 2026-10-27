@@ -38,35 +38,6 @@ from healda.observations.loaders.nnja_base import CycleTableSource
 from healda.observations.preprocessing.ir_spectral import ir_channel_preset
 from healda.training.checkpoint import Checkpoint
 
-# Inference defaults shared by load_da_model and the inference CLI.
-PRESSURE_HEIGHT_FILL = "sonde"
-
-
-def set_inference_recipe(
-    loop: TrainingLoop,
-    *,
-    fill_uv_sonde_heights: bool = True,
-    fp32_output_head: bool = True,
-) -> None:
-    """Apply the inference settings to ``loop`` in place, overriding what it trained with.
-
-    ``fill_uv_sonde_heights`` gives radiosonde and pibal wind reports (PrepBUFR types
-    220 and 221) that carry no height the standard-atmosphere height of their pressure;
-    without it the loader drops those winds. ``fp32_output_head`` keeps a lat/lon
-    decoder's output projection out of bf16.
-    """
-    loop.obs_config = dataclasses.replace(
-        loop.obs_config,
-        nnja_pressure_height_fill=PRESSURE_HEIGHT_FILL
-        if fill_uv_sonde_heights
-        else None,
-    )
-    if loop.latlon_decode is not None:
-        loop.latlon_decode = dataclasses.replace(
-            loop.latlon_decode, fp32_output=fp32_output_head
-        )
-
-
 # Obs pool threads while an analysis runs; training keeps the pool's default size
 INFERENCE_OBS_WORKERS = 32
 
@@ -284,26 +255,17 @@ def load_da_model(
     device,
     *,
     extra_filters: ObsFilters | None = None,
-    fill_uv_sonde_heights: bool = True,
-    fp32_output_head: bool = True,
 ) -> DAModel:
     """Rebuild the trained network and its observation pipeline from a checkpoint.
 
-    Only the NNJA lat/lon recipe is supported: a 0.25 degree decode fed by NNJA
-    satellite and NNJA conventional observations, the streams ``run_analysis`` takes as
-    tables. ``checkpoint`` is a ``.checkpoint`` zip written by ``healda-train``;
-    ``extra_filters`` defaults to ``inference_filters()``, as the inference CLI does. Provider
-    flags act only where a table carries them.
-    ``fill_uv_sonde_heights`` and ``fp32_output_head`` are as in ``set_inference_recipe``.
-    Building the recipe fetches ERA5 statics into the healda cache on first use.
+    ``checkpoint`` is a ``.checkpoint`` file written by ``healda-train``. The recipe is
+    the ``loop.json`` stored in it. Only the NNJA 0.25 degree recipe
+    is supported. ``extra_filters`` defaults to ``inference_filters()``: the dated
+    channel denials, and the provider quality flags of tables that carry them. The first
+    call downloads the ERA5 static fields into the healda cache.
     """
     device = torch.device(device)
     loop = read_training_loop(checkpoint)
-    set_inference_recipe(
-        loop,
-        fill_uv_sonde_heights=fill_uv_sonde_heights,
-        fp32_output_head=fp32_output_head,
-    )
     obs = loop.obs_config
     if not (loop.latlon_decode and obs.use_nnja_sat and obs.use_nnja_conv):
         raise ValueError(

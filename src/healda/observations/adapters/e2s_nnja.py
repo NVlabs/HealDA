@@ -5,7 +5,7 @@
 ``earth2studio.data.NNJAObsConv`` (PrepBUFR ``u``, ``v``, ``q``, ``t``, ``pres``;
 GPS-RO ``gps``, ``gps_refractivity``), ``NNJAObsSatwnd`` (``u``, ``v``) and
 ``NNJAObsSat`` return raw decoded observations in one of two layouts
-(``output_format``):
+(``layout``):
 
 - ``long``: one row per observation, its variable in ``variable`` and its value in
   ``observation``;

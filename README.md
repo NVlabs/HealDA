@@ -19,11 +19,17 @@ normalization applied on load. It does not include raw-data ETL.
 
 📖 [arXiv (v1)](https://arxiv.org/abs/2601.17636) 📦 [Checkpoints](https://huggingface.co/nvidia/healda-v2) 📚 [Documentation](https://nvlabs.github.io/HealDA/)
 
-## Inference with Earth2Studio
+## Inference
 
-Inference with the published checkpoint on NNJA observations is provided in
-[Earth2Studio](https://github.com/NVIDIA/earth2studio) as `HealDAv2`; see the
+Earth2Studio runs the released checkpoint on NNJA observations as `HealDAv2`; see the
 [HealDA v2 example](https://github.com/NVIDIA/earth2studio/blob/main/examples/05_data_assimilation/04_healda_v2.py).
+Each call downloads the NNJA BUFR files it needs and decodes them on the fly with
+[earth2bufr](https://github.com/NVIDIA/earth2bufr).
+
+With observations already prepared in the NNJA archive layout
+([`docs/observations.md`](docs/observations.md)), `healda-inference-local` runs the model
+over a date range and writes the analyses to a Zarr store. The scripts that build this
+archive, also based on earth2bufr, are not yet released.
 
 ## Install
 
@@ -51,8 +57,8 @@ uv sync --extra cutedsl        # or: uv pip install -e '.[cutedsl]'
 python -c "import cutlass.cute"
 ```
 
-Without them, or on older GPUs, training falls back to Triton (pixel attention) and einsum
-(temporal attention) kernels and logs one warning for each at start-up.
+Without them, or on older GPUs, training falls back to slower Triton and einsum
+implementations.
 
 HealDA is licensed under the [Apache License 2.0](LICENSE).
 
@@ -123,20 +129,15 @@ Multi-process and multi-node configurations require CUDA/NCCL.
 
 ## Hardware
 
-The released HealDA v2 checkpoint comes from the 0.25 degree recipe
-`v2-nnja-latlon-dense` in `healda.cli.train`; its settings are listed beside it. It has
-been trained on GB300 nodes with `time_parallel=8`, eight GPUs per video sample.
-`time_parallel=4` also trains without changes. Training on H100-class GPUs needs further
-memory savings, such as more activation checkpointing, and has not been validated. It reads
-many observations per sample, so inference with it needs
-`healda-inference-local --prefetch-factor 2` to stay within host memory.
-As a reference for a new setup, that recipe trains at about 155 seconds per thousand
-samples (`Timing/sec_per_kimg` in the log) on 32 GB300 GPUs (batch 4, `time_parallel=8`),
-about 90k samples in a 4-hour job. A much slower run usually lacks the CuTe DSL kernels or
-reads data from a slow filesystem. For extra speed on GB300, also enable `fused_qk_norm=True`
-and `sensor_embedder_config.film_bwd_impl=2`.
-Inference currently needs about 40 GB of GPU memory and has been run on H100 and
-Blackwell GPUs.
+The released checkpoint was trained on 32 GB300 GPUs, with 8-way time parallelism and
+4-way data parallelism, at about 90,000 samples per 4 hours with the CuTe DSL kernels
+installed (see [Install](#install)). GPUs with less memory, such as the H100, likely
+need more activation checkpointing than the released recipe uses.
+
+Each analysis of the released checkpoint reads about 200 million observation tokens.
+Through Earth2Studio's `HealDAv2` on one H100 80 GB, one process peaks at 42 GiB of GPU
+memory and 41 GiB of host memory, including decoding the observations. Run
+`healda-inference-local` with `--prefetch-factor 2` to stay within host memory.
 
 ## Prepared observation input
 
@@ -146,14 +147,6 @@ the source the checkpoints are trained on. The older UFS replay archive
 and channel vocabulary, and a checkpoint reads only the source it was trained on.
 See [`docs/observations.md`](docs/observations.md), including what data
 must satisfy to match a trained checkpoint.
-
-## Inference
-
-`healda.inference.load_da_model` rebuilds a trained network from a checkpoint's
-`loop.json`, and `DAModel.run_analysis` produces analyses from in-memory observation
-cycle tables. `healda.observations.adapters.e2s_nnja.analysis_tables` builds those
-tables from wide Earth2Studio NNJA observation frames, `analysis_tables_long` from long
-ones.
 
 ## Contributing
 
