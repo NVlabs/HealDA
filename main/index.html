@@ -809,8 +809,13 @@ Multi-process and multi-node configurations require CUDA/NCCL.</p>
 <h2 id="hardware">Hardware<a class="headerlink" href="#hardware" title="Permanent link">&para;</a></h2>
 <p>The released checkpoint was trained on 32 GB300 GPUs, with 8-way time parallelism and
 4-way data parallelism, at about 90,000 samples per 4 hours with the CuTe DSL kernels
-installed (see <a href="#install">Install</a>). GPUs with less memory, such as the H100, likely
-need more activation checkpointing than the released recipe uses.</p>
+installed (see <a href="#install">Install</a>).</p>
+<p>Set <code>PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True</code> for training and inference. The
+observation count changes from batch to batch, which causes memory fragmentation in
+PyTorch's caching allocator. With it enabled, training the released recipe needs about 150 GB of
+GPU memory. Activation checkpointing (<code>gradient_checkpointing</code>,
+<code>gradient_checkpointing_last_n</code>) can reduce this for GPUs with less memory, such as the
+H100.</p>
 <p>Each analysis of the released checkpoint reads about 200 million observation tokens.
 Through Earth2Studio's <code>HealDAv2</code> on one H100 80 GB, one process peaks at 42 GiB of GPU
 memory and 41 GiB of host memory, including decoding the observations. Run
