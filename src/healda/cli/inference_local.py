@@ -302,10 +302,10 @@ class InferenceArgs:
         int,
         Help(
             "Windows each loader worker keeps queued; host memory grows with workers x "
-            "prefetch x ranks x observations per window. Dense-observation models need 2: "
-            "one exceeded ~929 GB host memory at the default 6"
+            "prefetch x ranks x observations per window. A dense-observation model exceeded "
+            "~929 GB host memory at 6"
         ),
-    ] = 6
+    ] = 2
     no_zarr_sharding: a[
         bool,
         Help("Write one object per analysis instead of packing 28 into one"),

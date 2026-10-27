@@ -717,7 +717,7 @@ class DiT(torch.nn.Module):
                 >1: gradient checkpoint for all blocks
             gradient_checkpointing_last_n:
                 0 (default) applies the mode above to every block; N > 0 only to the last
-                N. Each uncheckpointed block costs ~2.45 GiB at the production shape.
+                N.
             as_vit: If True, skip noise/label conditioning entirely.
                 Sets emb_channels=0 internally, making all AdaLN linear layers bias-only
         """
