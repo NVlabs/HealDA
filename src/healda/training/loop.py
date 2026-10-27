@@ -770,6 +770,14 @@ class TrainingLoopBase(abc.ABC):
             self.run_dir, "network-snapshot-{}.checkpoint"
         )
 
+    def set_backend_flags(self):
+        """cuDNN and matmul precision flags for training; healda-train sets them before
+        setup(). Compiled code is guarded on these flags, so changing them after something
+        compiled recompiles it, in whichever thread calls it next."""
+        torch.backends.cudnn.benchmark = self.cudnn_benchmark
+        torch.backends.cudnn.allow_tf32 = self.tf32
+        torch.backends.cuda.matmul.allow_tf32 = self.tf32
+
     def _setup_optimizer(self):
         self.optimizer = self.get_optimizer(self.net.named_parameters())
         if self.compile_optimizer:
@@ -888,12 +896,6 @@ class TrainingLoopBase(abc.ABC):
         )
         np.random.seed((self.seed * rng_world + rng_rank + self.cur_nimg) % (1 << 31))
         torch.manual_seed(np.random.randint(1 << 31))
-        torch.backends.cudnn.benchmark = self.cudnn_benchmark
-        torch.backends.cudnn.allow_tf32 = self.tf32
-        torch.backends.cuda.matmul.allow_tf32 = self.tf32
-        torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = (
-            not self.tf32
-        )
 
         # Train.
         tick_start_time = time.time()

@@ -1862,6 +1862,9 @@ def main():
     loop.run_dir = os.path.join(cli.output_dir, cli.name)
     if cli.finetune_from:
         loop.finetune_from = cli.finetune_from
+    # Before setup(): it compiles the pixel ops, and the data-loader thread would recompile
+    # them if the flags changed afterwards.
+    loop.set_backend_flags()
     loop.setup()
     dist.print0("Training with:", loop)
 
