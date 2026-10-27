@@ -9,13 +9,21 @@
 [![license-check](https://img.shields.io/github/actions/workflow/status/NVlabs/HealDA/license-check.yml?branch=main&label=license-check&style=flat-square)](https://github.com/NVlabs/HealDA/actions/workflows/license-check.yml)
 [![docs](https://img.shields.io/github/actions/workflow/status/NVlabs/HealDA/docs.yml?branch=main&label=docs&style=flat-square)](https://github.com/NVlabs/HealDA/actions/workflows/docs.yml)
 
+![HealDA v2 architecture](docs/assets/images/healda_v2_architecture.png)
+
 HealDA is an experimental package for observation-conditioned, HEALPix-grid
 atmospheric data assimilation. It contains the model architecture, distributed
 training, inference, and data loaders for prepared observations (Parquet) and
 target analysis states, with the observation filtering, thinning and
 normalization applied on load. It does not include raw-data ETL.
 
-> This code is provided for research and development purposes only.
+📖 [arXiv (v1)](https://arxiv.org/abs/2601.17636) 📦 [Checkpoints](https://huggingface.co/nvidia/healda-v2) 📚 [Documentation](https://nvlabs.github.io/HealDA/)
+
+## Inference with Earth2Studio
+
+Inference with the published checkpoint on NNJA observations is provided in
+[Earth2Studio](https://github.com/NVIDIA/earth2studio) as `HealDAv2`; see the
+[HealDA v2 example](https://github.com/NVIDIA/earth2studio/blob/main/examples/05_data_assimilation/04_healda_v2.py).
 
 ## Install
 

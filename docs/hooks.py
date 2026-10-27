@@ -4,7 +4,8 @@
 """MkDocs hooks: the home page is the repository README.
 
 Links in the README are relative to the repository root. Targets under docs/ become
-site pages; everything else points at the file on GitHub.
+site pages; everything else points at the file on GitHub. Images under docs/ are
+served from the site.
 """
 
 import re
@@ -16,6 +17,7 @@ GITHUB_BLOB = "https://github.com/NVlabs/HealDA/blob/main/"
 
 # Link text may itself be an image, as in a badge: [![alt](img)](target).
 LINK_RE = re.compile(r"(?<!!)\[((?:[^\[\]]|!\[[^\]]*\]\([^)]*\))*)\]\(([^)\s]+)\)")
+DOCS_IMAGE_RE = re.compile(r"(!\[[^\]]*\]\()docs/")
 
 
 def _rewrite(match: re.Match) -> str:
@@ -31,4 +33,5 @@ def on_page_markdown(markdown: str, page, config, files) -> str:
     if page.file.src_uri != "index.md":
         return markdown
     page.edit_url = f"{config.repo_url}/edit/main/README.md"
-    return LINK_RE.sub(_rewrite, README.read_text(encoding="utf-8"))
+    markdown = LINK_RE.sub(_rewrite, README.read_text(encoding="utf-8"))
+    return DOCS_IMAGE_RE.sub(r"\1", markdown)
