@@ -1139,9 +1139,7 @@ or sensor not passed contributes no observations.</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">device</span><span class="p">,</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">extra_filters</span><span class="p">:</span> <span class="n"><span title="healda.observations.system.ObsFilters">ObsFilters</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">fill_uv_sonde_heights</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">fp32_output_head</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="            DAModel
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="            DAModel
 
 
   
@@ -1152,13 +1150,11 @@ or sensor not passed contributes no observations.</p>
     <div class="doc doc-contents ">
 
         <p>Rebuild the trained network and its observation pipeline from a checkpoint.</p>
-<p>Only the NNJA lat/lon recipe is supported: a 0.25 degree decode fed by NNJA
-satellite and NNJA conventional observations, the streams <code>run_analysis</code> takes as
-tables. <code>checkpoint</code> is a <code>.checkpoint</code> zip written by <code>healda-train</code>;
-<code>extra_filters</code> defaults to <code>inference_filters()</code>, as the inference CLI does. Provider
-flags act only where a table carries them.
-<code>fill_uv_sonde_heights</code> and <code>fp32_output_head</code> are as in <code>set_inference_recipe</code>.
-Building the recipe fetches ERA5 statics into the healda cache on first use.</p>
+<p><code>checkpoint</code> is a <code>.checkpoint</code> file written by <code>healda-train</code>. The recipe is
+the <code>loop.json</code> stored in it. Only the NNJA 0.25 degree recipe
+is supported. <code>extra_filters</code> defaults to <code>inference_filters()</code>: the dated
+channel denials, and the provider quality flags of tables that carry them. The first
+call downloads the ERA5 static fields into the healda cache.</p>
 
 
     </div>
@@ -1190,7 +1186,7 @@ Building the recipe fetches ERA5 statics into the healda cache on first use.</p>
 <p><code>earth2studio.data.NNJAObsConv</code> (PrepBUFR <code>u</code>, <code>v</code>, <code>q</code>, <code>t</code>, <code>pres</code>;
 GPS-RO <code>gps</code>, <code>gps_refractivity</code>), <code>NNJAObsSatwnd</code> (<code>u</code>, <code>v</code>) and
 <code>NNJAObsSat</code> return raw decoded observations in one of two layouts
-(<code>output_format</code>):</p>
+(<code>layout</code>):</p>
 <ul>
 <li><code>long</code>: one row per observation, its variable in <code>variable</code> and its value in
   <code>observation</code>;</li>

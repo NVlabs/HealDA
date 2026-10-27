@@ -411,17 +411,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#nnja-observations-through-earth2studio" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        NNJA observations through Earth2Studio
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -499,17 +488,6 @@
     <span class="md-ellipsis">
       
         Fine-tune from a checkpoint
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#nnja-observations-through-earth2studio" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        NNJA observations through Earth2Studio
       
     </span>
   </a>
@@ -601,55 +579,6 @@ fine-tuning preset its own learning-rate schedule.</p>
 <a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>
 <a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="c1"># If OUTPUT_DIR/RUN_NAME already contains a valid checkpoint, normal resume</span>
 <a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="c1"># takes precedence and BASE_CHECKPOINT is not loaded.</span>
-</code></pre></div>
-<h2 id="nnja-observations-through-earth2studio">NNJA observations through Earth2Studio<a class="headerlink" href="#nnja-observations-through-earth2studio" title="Permanent link">&para;</a></h2>
-<p><code>docs/examples/e2s_nnja_observations.py</code> loads prepared NNJA observations with the
-Earth2Studio adapter.</p>
-<div class="highlight"><span class="filename">docs/examples/e2s_nnja_observations.py</span><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="sd">&quot;&quot;&quot;Feed earth2studio NNJA observations through the HealDA NNJA loaders.</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="sd">earth2studio returns raw decoded rows; ``e2s_nnja`` restates them in the NNJA archive</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="sd">layout; the loaders then apply the same QC, thinning and normalization as training.</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="sd">usage: python docs/examples/e2s_nnja_observations.py 2022-01-01T00</span>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="sd">&quot;&quot;&quot;</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">timedelta</span>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
-<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="kn">from</span><span class="w"> </span><span class="nn">earth2studio.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">NNJAObsConv</span><span class="p">,</span> <span class="n">NNJAObsSatwnd</span>
-<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>
-<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="kn">from</span><span class="w"> </span><span class="nn">healda.observations.adapters</span><span class="w"> </span><span class="kn">import</span> <span class="n">e2s_nnja</span>
-<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="kn">from</span><span class="w"> </span><span class="nn">healda.observations.loaders.combined</span><span class="w"> </span><span class="kn">import</span> <span class="n">NNJAConventionalLoader</span>
-<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>
-<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>
-<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">target</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>    <span class="c1"># The loader&#39;s (-3, 3) h context is one NCEP cycle file.</span>
-<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>    <span class="n">tolerance</span> <span class="o">=</span> <span class="p">(</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=-</span><span class="mi">3</span><span class="p">),</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">3</span><span class="p">))</span>
-<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>    <span class="c1"># Refractivity rows carry what the adapter derives height and pressure from.</span>
-<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>    <span class="n">gps</span> <span class="o">=</span> <span class="n">NNJAObsConv</span><span class="p">(</span><span class="n">time_tolerance</span><span class="o">=</span><span class="n">tolerance</span><span class="p">)(</span>
-<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>        <span class="n">target</span><span class="o">.</span><span class="n">to_pydatetime</span><span class="p">(),</span> <span class="p">[</span><span class="s2">&quot;gps&quot;</span><span class="p">,</span> <span class="s2">&quot;gps_refractivity&quot;</span><span class="p">]</span>
-<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>    <span class="p">)</span>
-<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>    <span class="n">winds</span> <span class="o">=</span> <span class="n">NNJAObsSatwnd</span><span class="p">(</span><span class="n">time_tolerance</span><span class="o">=</span><span class="n">tolerance</span><span class="p">)(</span><span class="n">target</span><span class="o">.</span><span class="n">to_pydatetime</span><span class="p">(),</span> <span class="p">[</span><span class="s2">&quot;u&quot;</span><span class="p">,</span> <span class="s2">&quot;v&quot;</span><span class="p">])</span>
-<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>
-<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>    <span class="n">tables</span> <span class="o">=</span> <span class="n">e2s_nnja</span><span class="o">.</span><span class="n">analysis_tables_long</span><span class="p">(</span><span class="n">conv</span><span class="o">=</span><span class="n">gps</span><span class="p">,</span> <span class="n">satwnd</span><span class="o">=</span><span class="n">winds</span><span class="p">,</span> <span class="n">ir_channels</span><span class="o">=</span><span class="s2">&quot;ir32&quot;</span><span class="p">)</span>
-<a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a>    <span class="n">loader</span> <span class="o">=</span> <span class="n">NNJAConventionalLoader</span><span class="p">(</span>
-<a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a>        <span class="n">obs_context_hours</span><span class="o">=</span><span class="p">(</span><span class="o">-</span><span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
-<a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a>        <span class="n">gpsro_saids</span><span class="o">=</span><span class="s2">&quot;full&quot;</span><span class="p">,</span>
-<a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a>        <span class="n">include_satwnd</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a>        <span class="n">gpsro_table_source</span><span class="o">=</span><span class="n">tables</span><span class="p">[</span><span class="s2">&quot;gpsro_tables&quot;</span><span class="p">],</span>
-<a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a>        <span class="n">satwnd_table_source</span><span class="o">=</span><span class="n">tables</span><span class="p">[</span><span class="s2">&quot;satwnd_tables&quot;</span><span class="p">],</span>
-<a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a>    <span class="p">)</span>
-<a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a>    <span class="n">obs</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">loader</span><span class="o">.</span><span class="n">sel_time</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">DatetimeIndex</span><span class="p">([</span><span class="n">target</span><span class="p">])))</span>
-<a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a>    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">tables</span> <span class="ow">in</span> <span class="n">obs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-<a id="__codelineno-2-41" name="__codelineno-2-41" href="#__codelineno-2-41"></a>        <span class="nb">print</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="p">[</span><span class="n">table</span><span class="o">.</span><span class="n">num_rows</span> <span class="k">for</span> <span class="n">table</span> <span class="ow">in</span> <span class="n">tables</span><span class="p">])</span>
-<a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a>
-<a id="__codelineno-2-43" name="__codelineno-2-43" href="#__codelineno-2-43"></a>
-<a id="__codelineno-2-44" name="__codelineno-2-44" href="#__codelineno-2-44"></a><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
-<a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a>    <span class="n">main</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
 </code></pre></div>
 
 
