@@ -1,9 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
+
 import pytest
 
-from healda.config.models import ObsConfig
+from healda.cli.train import TrainingLoop
+from healda.config.models import ModelConfigV1, ObsConfig
 
 
 @pytest.mark.parametrize(
@@ -41,3 +44,10 @@ def test_legacy_gpsro_said_values_migrate_rather_than_raise():
     """Old checkpoint configs carry the pre-rename spellings; they must still load."""
     assert ObsConfig(nnja_gpsro_saids="all").nnja_gpsro_saids == "full"
     assert ObsConfig(nnja_gpsro_saids="ufs2024").nnja_gpsro_saids == "legacy"
+
+
+@pytest.mark.parametrize(("nside", "level"), [(128, 7), (64, 6), (None, None)])
+def test_checkpoints_with_a_thinning_nside_load_at_its_level(nside, level):
+    stored = json.dumps({"obs_config": {"nnja_thin_nside": nside}})
+    assert ModelConfigV1.loads(stored).obs_config.nnja_sat_thin_hpx_level == level
+    assert TrainingLoop.loads(stored).obs_config.nnja_sat_thin_hpx_level == level

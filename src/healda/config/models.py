@@ -39,6 +39,16 @@ def _filter_to_dataclass_fields(d: dict, cls) -> dict:
     return {k: v for k, v in d.items() if k in valid_fields}
 
 
+# Checkpoints written before the rename store the sounder thinning as an nside.
+def migrate_obs_config_fields(obs: dict) -> dict:
+    if "nnja_thin_nside" not in obs:
+        return obs
+    obs = dict(obs)
+    nside = obs.pop("nnja_thin_nside")
+    obs["nnja_sat_thin_hpx_level"] = None if nside is None else nside.bit_length() - 1
+    return obs
+
+
 # Checkpoints predating the presets hold a count of the ranked set instead of a name.
 def ir_preset_name(value: str | int | None) -> str | None:
     return f"ir{value}" if isinstance(value, int) else value
@@ -110,9 +120,10 @@ class ObsConfig:
     # An `ir_spectral.IR_CHANNEL_PRESETS` name, narrowing the IR sounders and leaving microwave
     # alone; None keeps every channel the archive publishes.
     nnja_ir_channels: str | None = "ir32"
-    # The archive is unthinned, unlike the GSI-thinned replay: 64 costs 494M rows a sample
-    # against 31M. None is full resolution and is only for measuring what thinning removes.
-    nnja_thin_nside: int | None = 64
+    # HEALPix level of satellite sounder thinning. The archive is unthinned, unlike the
+    # GSI-thinned replay: level 6 costs 494M rows a sample against 31M. None is full
+    # resolution and is only for measuring what thinning removes.
+    nnja_sat_thin_hpx_level: int | None = 6
     # GPS-RO receiving satellites (BUFR SAIDs) to keep: "full" or the 2024-derived "legacy".
     nnja_gpsro_saids: str = "legacy"
     # Load surface wind types 280/281/287
@@ -342,7 +353,9 @@ class ModelConfigV1:
 
         if isinstance(d.get("obs_config"), dict):
             d["obs_config"] = ObsConfig(
-                **_filter_to_dataclass_fields(d["obs_config"], ObsConfig)
+                **_filter_to_dataclass_fields(
+                    migrate_obs_config_fields(d["obs_config"]), ObsConfig
+                )
             )
 
         if isinstance(d.get("sensor_embedder_config"), dict):

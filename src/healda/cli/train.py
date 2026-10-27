@@ -26,6 +26,7 @@ from healda.config.models import (
     ObsConfig,
     SensorEmbedderConfig,
     ir_preset_name,
+    migrate_obs_config_fields,
 )
 from healda.training.providers import DATASET_PROVIDERS, dataset_provider
 from healda.utils import signals
@@ -1278,6 +1279,8 @@ class TrainingLoop(loop.TrainingLoopBase):
         # parse_dict type-checks against the current annotation before ObsConfig is built,
         # so a checkpoint's stale value has to be migrated while it is still a dict.
         obs = fields.get("obs_config")
+        if isinstance(obs, dict):
+            obs = fields["obs_config"] = migrate_obs_config_fields(obs)
         if isinstance(obs, dict) and "nnja_ir_channels" in obs:
             obs["nnja_ir_channels"] = ir_preset_name(obs["nnja_ir_channels"])
         embedder = fields.get("sensor_embedder_config")
@@ -1767,7 +1770,7 @@ LOOPS[NNJA_LATLON_DENSE_POS] = dataclasses.replace(
     ),
     obs_config=dataclasses.replace(
         LOOPS[NNJA_LATLON].obs_config,
-        nnja_thin_nside=128,
+        nnja_sat_thin_hpx_level=7,
         nnja_satwnd_thin_hpx_level=6,
         nnja_max_quality_mark=3,
         nnja_pressure_height_fill="sonde",

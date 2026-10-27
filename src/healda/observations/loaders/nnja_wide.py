@@ -448,7 +448,7 @@ class NNJAWideLoader(NNJAArchiveLoader):
       1. Scan positions outside `fov_keep_range[sensor]`, ahead of thinning so that winners
          are drawn from survivors.
       2. Footprints with a null `hpx2048_nest`, which carry no position either.
-      3. All but one footprint per (sensor, window, platform, `thin_nside` pixel), by `winner`.
+      3. All but one footprint per (sensor, window, platform, `thin_hpx_level` pixel), by `winner`.
          Thinning runs per row group, so a sample spanning several windows keeps one footprint
          per cell per window.
       4. Footprints with a non-finite value in any of GEOMETRY_COLUMNS, in every channel,
@@ -513,7 +513,7 @@ class NNJAWideLoader(NNJAArchiveLoader):
         archive_root: str = nnja_archive("parquet"),
         obs_context_hours: tuple[int, int] = (-3, 3),
         data_spacing: int = 3,
-        thin_nside: int | None = None,
+        thin_hpx_level: int | None = None,
         winner: str = "random",
         winner_seed: int = 0,
         read_ahead: bool = True,
@@ -537,8 +537,8 @@ class NNJAWideLoader(NNJAArchiveLoader):
                 serving `ir_channels` is discovered and preferred, per `_sensor_root`.
             obs_context_hours: Hours relative to target time, as in UFSUnifiedLoader.
             data_spacing: Hours between DA windows.
-            thin_nside: Retain one footprint per (sensor, platform, NESTED pixel)
-                at this nside. None keeps every footprint.
+            thin_hpx_level: Retain one footprint per (sensor, platform, NESTED pixel)
+                at this HEALPix level. None keeps every footprint.
             winner: Which footprint of a cell to retain, one of WINNER_POLICIES.
             winner_seed: Seed for 'random', and for the draw sequence of 'resample'.
             read_ahead: Fetch the next row group while the current one converts.
@@ -578,20 +578,17 @@ class NNJAWideLoader(NNJAArchiveLoader):
         # channel_table's mean and stddev are kelvin, so they say nothing about a radiance.
         if ir_units == "radiance" and normalize:
             raise ValueError("ir_units='radiance' needs normalize=False")
-        if thin_nside is not None:
-            order = int(thin_nside).bit_length() - 1
-            if 1 << order != int(thin_nside) or not 0 <= order <= ARCHIVE_HPX_ORDER:
-                raise ValueError(
-                    f"thin_nside must be a power of two up to "
-                    f"{1 << ARCHIVE_HPX_ORDER}, got {thin_nside}"
-                )
+        if thin_hpx_level is not None and not 0 <= thin_hpx_level <= ARCHIVE_HPX_ORDER:
+            raise ValueError(
+                f"thin_hpx_level must be in [0, {ARCHIVE_HPX_ORDER}], got {thin_hpx_level}"
+            )
         self.channel_table_path = channel_table_path
         self.sensors = tuple(sensors)
         self.archive_root = archive_root
         self.table_source = table_source
         self.obs_context_hours = obs_context_hours
         self.data_spacing = data_spacing
-        self.thin_nside = thin_nside
+        self.thin_hpx_level = thin_hpx_level
         self.winner = winner
         self.winner_seed = winner_seed
         # Redrawn per sel_time under 'resample', fixed otherwise. One draw covers the
@@ -845,7 +842,7 @@ class NNJAWideLoader(NNJAArchiveLoader):
     ) -> np.ndarray:
         """Winner indices from one compiled pass over the key columns."""
         said = _numpy(table["platform_id"])
-        pixels_per_platform = 12 * self.thin_nside * self.thin_nside
+        pixels_per_platform = 12 * 4**self.thin_hpx_level
         # Cells flatten as code * pixels_per_platform + pixel, so the table must reach
         # the largest code present, and codes rise with SAID: take the largest SAID's
         codes = int(SAID_TO_PLATFORM_CODE[said.max()]) + 1
@@ -853,7 +850,7 @@ class NNJAWideLoader(NNJAArchiveLoader):
             codes * pixels_per_platform, _PACKED_EMPTY, dtype=np.uint64
         )
         # Levels to climb; the kernel shifts by twice this, two bits per quadtree level.
-        levels_up = ARCHIVE_HPX_ORDER - (int(self.thin_nside).bit_length() - 1)
+        levels_up = ARCHIVE_HPX_ORDER - self.thin_hpx_level
         _FUSED_SELECT(
             _numpy(table["hpx2048_nest"]),
             said,
@@ -893,7 +890,7 @@ class NNJAWideLoader(NNJAArchiveLoader):
         # compile time, so a row group holding one takes the staged path. Filling the null instead
         # would let a positionless row win a cell and then drop in transform, losing the cell.
         if (
-            self.thin_nside is not None
+            self.thin_hpx_level is not None
             and _FUSED_SELECT is not None
             and not pixel_column.null_count
         ):
@@ -922,12 +919,12 @@ class NNJAWideLoader(NNJAArchiveLoader):
             # `candidate_rows` maps positions in the arrays below back to source rows, so
             # the returned index addresses the original table whether or not screening ran.
             if keep_mask is None:
-                if self.thin_nside is None:
+                if self.thin_hpx_level is None:
                     return None
                 candidate_rows = np.arange(table.num_rows, dtype=np.int64)
             else:
                 candidate_rows = np.flatnonzero(keep_mask)
-                if self.thin_nside is None:
+                if self.thin_hpx_level is None:
                     return candidate_rows
 
         # The table had rows but the screen kept none of them, so there is nothing to
@@ -938,12 +935,12 @@ class NNJAWideLoader(NNJAArchiveLoader):
         # NESTED is a quadtree, so coarsening is a right shift of two bits per level
         with cpu_timing_range("nnja.select.key"):
             pixel = _numpy(pixel_column)[candidate_rows].astype(np.int64)
-            levels_up = ARCHIVE_HPX_ORDER - (int(self.thin_nside).bit_length() - 1)
+            levels_up = ARCHIVE_HPX_ORDER - self.thin_hpx_level
             parent_pixel = pixel >> (2 * levels_up)
             platform_code = SAID_TO_PLATFORM_CODE[
                 _numpy(table["platform_id"])[candidate_rows]
             ]
-            pixels_per_platform = 12 * self.thin_nside * self.thin_nside
+            pixels_per_platform = 12 * 4**self.thin_hpx_level
             cell = platform_code * pixels_per_platform + parent_pixel
 
         # Lower score wins its cell; zeros everywhere means the earliest row wins, since
@@ -1384,7 +1381,7 @@ if __name__ == "__main__":
     loader = NNJAWideLoader(
         sensors=sensors,
         obs_context_hours=(-3, +3),
-        thin_nside=64,
+        thin_hpx_level=6,
     )
 
     windows = loader._interval_times(sample_time)

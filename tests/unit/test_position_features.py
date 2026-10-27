@@ -99,6 +99,6 @@ def test_dense_preset_is_the_released_one_plus_its_listed_changes():
     assert dense.sensor_embedder_config.features_position
     assert dense.latlon_decode.fp32_output
     obs = dense.obs_config
-    assert (obs.nnja_thin_nside, obs.nnja_satwnd_thin_hpx_level) == (128, 6)
+    assert (obs.nnja_sat_thin_hpx_level, obs.nnja_satwnd_thin_hpx_level) == (7, 6)
     assert obs.nnja_max_quality_mark == 3
     assert obs.nnja_pressure_height_fill == "sonde" and obs.nnja_balloon_drift

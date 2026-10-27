@@ -260,7 +260,7 @@ def _get_sat_loader(
     return NNJAWideLoader(
         sensors=sensors,
         obs_context_hours=(obs_config.context_start, obs_config.context_end),
-        thin_nside=obs_config.nnja_thin_nside,
+        thin_hpx_level=obs_config.nnja_sat_thin_hpx_level,
         ir_channels=obs_config.nnja_ir_channels,
         fov_keep_range={
             sensor: scan_geometry.SCAN_GEOMETRY[sensor].keep for sensor in sensors

@@ -418,7 +418,7 @@ def test_provider_flags_in_e2s_columns_drop_footprints(sensor, column, bad):
     def rows(flags, window):
         loader = NNJAWideLoader(
             [sensor],
-            thin_nside=None,
+            thin_hpx_level=None,
             normalize=False,
             drop_source_flagged=flags,
             table_source={sensor: tables},
@@ -444,7 +444,7 @@ def test_wide_loader_reads_tables_like_an_archive_file(tmp_path):
             out.write_table(table.filter(pa.array(window == value)))
 
     def load(**source):
-        loader = NNJAWideLoader(["atms"], thin_nside=1, normalize=False, **source)
+        loader = NNJAWideLoader(["atms"], thin_hpx_level=0, normalize=False, **source)
         return as_table(
             asyncio.run(loader.sel_time(pd.DatetimeIndex([CYCLE])))["obs_v2"][0]
         )

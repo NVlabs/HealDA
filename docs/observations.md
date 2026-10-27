@@ -59,7 +59,7 @@ The released HealDA v2 checkpoint was trained on the NNJA archive, built from th
 NNJA BUFR feeds, with the `v2-nnja-latlon-dense` configuration in
 `healda/cli/train.py`. Settings named below take that configuration's values, among them:
 
-- Satellite sounders are thinned at HEALPix nside 128, `nnja_thin_nside`.
+- Satellite sounders are thinned at HEALPix level 7, `nnja_sat_thin_hpx_level`.
 - Satellite winds are thinned at HEALPix level 6, `nnja_satwnd_thin_hpx_level`.
 - PrepBUFR reports with quality marks up to 3 are kept, `nnja_max_quality_mark`.
 - Radiosonde levels sit at their drifted position and time, `nnja_balloon_drift`.

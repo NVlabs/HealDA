@@ -72,9 +72,9 @@ WINDOWS = (TARGET, TARGET + pd.Timedelta(hours=3))
 ROWS = 512
 
 # Coarse enough that the 512 footprints of a window collide in every cell.
-NSIDE = 16
+THIN_LEVEL = 4
 PARENTS = 64
-CHILD_BITS = 2 * (wide.ARCHIVE_HPX_ORDER - (NSIDE.bit_length() - 1))
+CHILD_BITS = 2 * (wide.ARCHIVE_HPX_ORDER - THIN_LEVEL)
 
 MEAN = 250.0
 STDDEV = 5.0
@@ -277,7 +277,7 @@ def loader_for(archive_root: str | None = None, **overrides) -> NNJAWideLoader:
         "channel_table_path": build_channel_table(),
         "sensors": ("atms",),
         "archive_root": archive_root or build_archive(),
-        "thin_nside": NSIDE,
+        "thin_hpx_level": THIN_LEVEL,
         "fov_keep_range": {s: scan_geometry.SCAN_GEOMETRY[s].keep for s in MICROWAVE},
     }
     options.update(overrides)
@@ -309,7 +309,7 @@ def cell_keys(table: pa.Table, index: np.ndarray) -> np.ndarray:
     """The (platform, coarse pixel) cell each selected footprint represents."""
     pixel = wide._numpy(table["hpx2048_nest"]).astype(np.int64)[index] >> CHILD_BITS
     platform = wide._numpy(table["platform_id"])[index].astype(np.int64)
-    return platform * (12 * NSIDE * NSIDE) + pixel
+    return platform * (12 * 4**THIN_LEVEL) + pixel
 
 
 def test_winner_hash_is_deterministic_and_positionally_unbiased():
@@ -393,9 +393,9 @@ def test_synoptic_keeps_the_footprint_nearest_an_analysis_hour():
     )
 
 
-@pytest.mark.parametrize("thin_nside", [None, NSIDE])
-def test_footprints_without_a_pixel_are_dropped(thin_nside):
-    loader = loader_for(build_archive(nulls=True), thin_nside=thin_nside)
+@pytest.mark.parametrize("thin_hpx_level", [None, THIN_LEVEL])
+def test_footprints_without_a_pixel_are_dropped(thin_hpx_level):
+    loader = loader_for(build_archive(nulls=True), thin_hpx_level=thin_hpx_level)
     table = read_window(loader)
     unlocated = np.flatnonzero(
         ~table["hpx2048_nest"].is_valid().to_numpy(zero_copy_only=False)
@@ -440,7 +440,7 @@ def test_read_plan_is_cached():
 
 
 def test_expansion_reproduces_the_wide_values():
-    loader = loader_for(thin_nside=None, normalize=False)
+    loader = loader_for(thin_hpx_level=None, normalize=False)
     plan = plan_for(loader)
     table = read_window(loader)
     kept = loader.select(table, "atms")
@@ -482,7 +482,7 @@ def test_a_denial_targets_metop_b_amsua_only():
     loader = loader_for(
         archive_root=build_archive("amsua"),
         sensors=("amsua",),
-        thin_nside=None,
+        thin_hpx_level=None,
         fov_keep_range={},
         normalize=False,
         channel_denials=(
@@ -638,7 +638,7 @@ def sensor_window(sensor, **overrides):
         build_archive(sensor),
         sensors=(sensor,),
         normalize=False,
-        thin_nside=None,
+        thin_hpx_level=None,
         **overrides,
     )
     plan = plan_for(loader, sensor=sensor)
@@ -775,7 +775,7 @@ def test_iasi_radiance_at_or_below_zero_is_invalid():
 def test_a_footprint_without_geometry_is_dropped_in_every_channel(column):
     # The metadata featurizer fouriers these unguarded, so a null here reaches the model as
     # NaN and poisons the step's whole gradient. Real archive days carry a few.
-    loader = loader_for(thin_nside=None, normalize=False)
+    loader = loader_for(thin_hpx_level=None, normalize=False)
     plan = plan_for(loader)
     table = read_window(loader)
     spoiled = wide._numpy(table[column]).copy()
@@ -843,7 +843,7 @@ def test_cris_screens_and_angles_on_field_of_regard():
     loader = loader_for(
         build_archive("cris"),
         sensors=("cris",),
-        thin_nside=None,
+        thin_hpx_level=None,
         normalize=False,
         fov_keep_range={"cris": keep},
     )
@@ -874,7 +874,7 @@ def test_cris_screens_and_angles_on_field_of_regard():
 
 
 def test_zenith_is_emitted_signed_by_scan_side():
-    loader = loader_for(thin_nside=None, normalize=False)
+    loader = loader_for(thin_hpx_level=None, normalize=False)
     plan = plan_for(loader)
     table = read_window(loader)
     kept = loader.select(table, "atms")
@@ -893,7 +893,7 @@ def test_zenith_is_emitted_signed_by_scan_side():
 
 
 def test_out_of_range_cells_are_dropped_and_the_rest_normalized():
-    loader = loader_for(build_archive(invalid=True), thin_nside=None)
+    loader = loader_for(build_archive(invalid=True), thin_hpx_level=None)
     plan = plan_for(loader)
     table = read_window(loader)
     kept = loader.select(table, "atms")
@@ -1007,7 +1007,7 @@ def test_kelvin_columns_skip_planck_and_match_the_radiance_columns():
         kelvin_table = kelvin_table.append_column(field, values)
 
     kelvin_loader = loader_for(
-        build_archive("cris"), sensors=("cris",), normalize=False, thin_nside=None
+        build_archive("cris"), sensors=("cris",), normalize=False, thin_hpx_level=None
     )
     kelvin_plan = kelvin_loader.read_plan("cris", DAY, kelvin_table.schema)
     assert kelvin_plan.holds_kelvin
