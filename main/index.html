@@ -334,6 +334,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#inference-with-earth2studio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inference with Earth2Studio
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#install" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -565,6 +576,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#inference-with-earth2studio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inference with Earth2Studio
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#install" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -721,14 +743,17 @@
 <p><a href="https://github.com/NVlabs/HealDA/actions/workflows/pre-commit.yml"><img alt="pre-commit" src="https://img.shields.io/github/actions/workflow/status/NVlabs/HealDA/pre-commit.yml?branch=main&amp;label=pre-commit&amp;style=flat-square" /></a>
 <a href="https://github.com/NVlabs/HealDA/actions/workflows/license-check.yml"><img alt="license-check" src="https://img.shields.io/github/actions/workflow/status/NVlabs/HealDA/license-check.yml?branch=main&amp;label=license-check&amp;style=flat-square" /></a>
 <a href="https://github.com/NVlabs/HealDA/actions/workflows/docs.yml"><img alt="docs" src="https://img.shields.io/github/actions/workflow/status/NVlabs/HealDA/docs.yml?branch=main&amp;label=docs&amp;style=flat-square" /></a></p>
+<p><img alt="HealDA v2 architecture" src="assets/images/healda_v2_architecture.png" /></p>
 <p>HealDA is an experimental package for observation-conditioned, HEALPix-grid
 atmospheric data assimilation. It contains the model architecture, distributed
 training, inference, and data loaders for prepared observations (Parquet) and
 target analysis states, with the observation filtering, thinning and
 normalization applied on load. It does not include raw-data ETL.</p>
-<blockquote>
-<p>This code is provided for research and development purposes only.</p>
-</blockquote>
+<p>📖 <a href="https://arxiv.org/abs/2601.17636">arXiv (v1)</a> 📦 <a href="https://huggingface.co/nvidia/healda-v2">Checkpoints</a> 📚 <a href="https://nvlabs.github.io/HealDA/">Documentation</a></p>
+<h2 id="inference-with-earth2studio">Inference with Earth2Studio<a class="headerlink" href="#inference-with-earth2studio" title="Permanent link">&para;</a></h2>
+<p>Inference with the published checkpoint on NNJA observations is provided in
+<a href="https://github.com/NVIDIA/earth2studio">Earth2Studio</a> as <code>HealDAv2</code>; see the
+<a href="https://github.com/NVIDIA/earth2studio/blob/main/examples/05_data_assimilation/04_healda_v2.py">HealDA v2 example</a>.</p>
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
 <p>HealDA requires Python 3.11 or newer, PyTorch with CUDA support, and a compatible
 GPU software stack.</p>
