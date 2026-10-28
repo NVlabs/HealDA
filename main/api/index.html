@@ -505,6 +505,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#healda.inference.DAModel.run_analysis_unified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_analysis_unified
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#healda.inference.DAModel.to_physical" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -575,6 +586,56 @@
     <span class="md-ellipsis">
       
         analysis_tables_long
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observation-table-schemas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observation table schemas
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#healda.observations.schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        schema
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="schema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#healda.observations.schema.table_schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        table_schema
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#healda.observations.schema.validate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        validate
       
     </span>
   </a>
@@ -744,6 +805,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#healda.inference.DAModel.run_analysis_unified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_analysis_unified
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#healda.inference.DAModel.to_physical" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -814,6 +886,56 @@
     <span class="md-ellipsis">
       
         analysis_tables_long
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observation-table-schemas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observation table schemas
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#healda.observations.schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        schema
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="schema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#healda.observations.schema.table_schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        table_schema
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#healda.observations.schema.validate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        validate
       
     </span>
   </a>
@@ -912,8 +1034,9 @@
         <p>Analyses from a trained HealDA checkpoint and observation tables.</p>
 <p><code>load_da_model</code> rebuilds the network the way the run trained it, from the
 <code>loop.json</code> the checkpoint carries; <code>DAModel.run_analysis</code> runs the recipe's own
-observation loaders and transform on in-memory cycle tables and returns physical
-fields. Downstream wrappers (Earth2Studio) build on this and add nothing to the
+observation loaders and transform on in-memory cycle tables, and
+<code>DAModel.run_analysis_unified</code> the transform alone on a unified table; both return
+physical fields. Downstream wrappers (Earth2Studio) build on this and add nothing to the
 numerics.</p>
 
 
@@ -1075,7 +1198,7 @@ numerics.</p>
 
 <a href="#healda.inference.DAModel.run_analysis" class="headerlink" title="Permanent link">&para;</a></h4>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run_analysis</span><span class="p">(</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">analysis_times</span><span class="p">,</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">analysis_times</span><span class="p">:</span> <span class="n"><span title="healda.inference.AnalysisTimes">AnalysisTimes</span></span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">satellite_tables</span><span class="p">:</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span></span><span class="p">]</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1087,10 +1210,272 @@ numerics.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Physical-space analyses <code>(b, C, lat, lon)</code>, one per analysis time.</p>
+        <p>Analyses from per-family observation tables, run through the recipe's loaders.</p>
 <p>Each analysis is the last frame of a <code>time_length</code> window fed with the
-observations of every frame. <code>satellite_tables</code> is keyed by sensor; a stream
-or sensor not passed contributes no observations.</p>
+observations of every frame. The loaders quality control, thin and normalize the
+tables as in training. Analyses run one at a time.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>analysis_times</code>
+            </td>
+            <td>
+                  <code><span title="healda.inference.AnalysisTimes">AnalysisTimes</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Analysis times, UTC, anything <code>pd.DatetimeIndex</code> accepts.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>satellite_tables</code>
+            </td>
+            <td>
+                  <code><span title="collections.abc.Mapping">Mapping</span>[<span title="str">str</span>, <span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Per sensor name, <code>{cycle: table}</code> in
+<code>schema.table_schema(sensor)</code>. A sensor not passed contributes no
+observations.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>gpsro_tables</code>
+            </td>
+            <td>
+                  <code><span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>{cycle: table}</code> in <code>schema.table_schema("gpsro")</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>satwnd_tables</code>
+            </td>
+            <td>
+                  <code><span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>{cycle: table}</code> in <code>schema.table_schema("satwnd")</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>prepbufr_tables</code>
+            </td>
+            <td>
+                  <code><span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>{cycle: table}</code> in <code>schema.table_schema("prepbufr")</code>.
+A family not passed contributes no observations.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(len(analysis_times), len(self.channels), 721, 1440)</code> float32 analyses in</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>physical units on the 0.25 degree lat/lon grid, on <code>self.device</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="healda.inference.DAModel.run_analysis_unified" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">run_analysis_unified</span>
+
+
+<a href="#healda.inference.DAModel.run_analysis_unified" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run_analysis_unified</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">analysis_times</span><span class="p">:</span> <span class="n"><span title="healda.inference.AnalysisTimes">AnalysisTimes</span></span><span class="p">,</span> <span class="n">observations</span><span class="p">:</span> <span class="n"><span title="pyarrow.Table">Table</span></span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="torch.Tensor">Tensor</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Analyses from a unified observation table, skipping the loaders.</p>
+<p>Each frame reads the rows whose <code>DA_window</code> is one of its windows and passes
+them to featurization unchanged. Analyses run one at a time.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>analysis_times</code>
+            </td>
+            <td>
+                  <code><span title="healda.inference.AnalysisTimes">AnalysisTimes</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Analysis times, UTC, anything <code>pd.DatetimeIndex</code> accepts.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>observations</code>
+            </td>
+            <td>
+                  <code><span title="pyarrow.Table">Table</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>One table in <code>schema.table_schema("unified")</code>, rows already
+thinned, quality controlled and normalized; rows outside the analyses'
+windows are not read.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(len(analysis_times), len(self.channels), 721, 1440)</code> float32 analyses in</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>physical units on the 0.25 degree lat/lon grid, on <code>self.device</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>observations</code> does not match the unified schema, or a read row
+holds a <code>sensor_id</code> the transform does not group or an id outside the
+network's embedding tables.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
 
     </div>
@@ -1135,8 +1520,8 @@ or sensor not passed contributes no observations.</p>
 
 <a href="#healda.inference.load_da_model" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">load_da_model</span><span class="p">(</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">checkpoint</span><span class="p">,</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">device</span><span class="p">,</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">checkpoint</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="os.PathLike">PathLike</span></span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">device</span><span class="p">:</span> <span class="n"><span title="torch.device">device</span></span> <span class="o">|</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">extra_filters</span><span class="p">:</span> <span class="n"><span title="healda.observations.system.ObsFilters">ObsFilters</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="            DAModel
@@ -1150,11 +1535,126 @@ or sensor not passed contributes no observations.</p>
     <div class="doc doc-contents ">
 
         <p>Rebuild the trained network and its observation pipeline from a checkpoint.</p>
-<p><code>checkpoint</code> is a <code>.checkpoint</code> file written by <code>healda-train</code>. The recipe is
-the <code>loop.json</code> stored in it. Only the NNJA 0.25 degree recipe
-is supported. <code>extra_filters</code> defaults to <code>inference_filters()</code>: the dated
-channel denials, and the provider quality flags of tables that carry them. The first
-call downloads the ERA5 static fields into the healda cache.</p>
+<p>The recipe is the <code>loop.json</code> stored in the checkpoint; it must be an NNJA lat/lon
+recipe. The first call downloads the ERA5 static fields into the healda
+cache.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>checkpoint</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="os.PathLike">PathLike</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A <code>.checkpoint</code> file written by <code>healda-train</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>device</code>
+            </td>
+            <td>
+                  <code><span title="torch.device">device</span> | <span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Device the network runs on.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>extra_filters</code>
+            </td>
+            <td>
+                  <code><span title="healda.observations.system.ObsFilters">ObsFilters</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Observations removed beyond the recipe's own filters. Defaults to
+<code>inference_filters()</code>: the dated channel denials, and the provider quality
+flags of tables that carry them.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="            DAModel
+
+
+  
+      dataclass
+   (healda.inference.DAModel)" href="#healda.inference.DAModel">DAModel</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The model, ready for <code>run_analysis</code> and <code>run_analysis_unified</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The checkpoint has no <code>loop.json</code> or is not an NNJA lat/lon
+recipe.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
 
     </div>
@@ -1301,6 +1801,120 @@ The function returns once the streams are cut. Each <code>{cycle: table}</code> 
 <code>NNJAObsConv(original_event=True)</code> frame of any PrepBUFR and GPS-RO variables,
 <code>satwnd</code> an <code>NNJAObsSatwnd</code> frame and <code>sat</code> an <code>NNJAObsSat</code> frame of any of
 <code>sensors</code>.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="observation-table-schemas">Observation table schemas<a class="headerlink" href="#observation-table-schemas" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="healda.observations.schema" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-module"></code>            <span class="doc doc-object-name doc-module-name">healda.observations.schema</span>
+
+
+<a href="#healda.observations.schema" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Arrow schemas of the observation tables healda reads and emits.</p>
+<p>The documented API is <code>table_schema</code> and <code>validate</code>. They are the contracts of two ways in:</p>
+<ul>
+<li>the NNJA archive tables, per family (<code>table_schema("prepbufr")</code>, ...) and per satellite
+  sensor (<code>table_schema(sensor, ir_channels)</code>), which the NNJA loaders and
+  <code>adapters.e2s_nnja.analysis_tables</code> read;</li>
+<li>the unified table, <code>table_schema("unified")</code>, one row per observation, which
+  <code>DAModel.run_analysis_unified</code> takes.</li>
+</ul>
+<p><code>get_combined_observation_schema</code> holds the UFS archive's observation columns; the
+unified table adds <code>local_channel_id</code> and <code>sensor_id</code>. Conventional observations with
+several components (u, v) are one row per component.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="healda.observations.schema.table_schema" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">table_schema</span>
+
+
+<a href="#healda.observations.schema.table_schema" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">table_schema</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">kind</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">ir_channels</span><span class="p">:</span> <span class="n"><span title="str">str</span></span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="o">|</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="collections.abc.Sequence">Sequence</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">]]</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pyarrow.Schema">Schema</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The schema of <code>kind</code>: <code>"prepbufr"</code>, <code>"gpsro"</code>, <code>"satwnd"</code>, a satellite
+sensor, or <code>"unified"</code>.</p>
+<p>For a satellite sensor, <code>ir_channels</code> is a preset name (<code>"ir32"</code>, <code>"ir48"</code>) or a
+mapping of sounder to channel numbers; the channels it names are required, and
+without it every channel of the sensor's vocabulary is optional and at least one is
+required. IASI and CrIS columns are brightness temperature in K.</p>
+<p><code>"unified"</code> is the table <code>DAModel.run_analysis_unified</code> takes and the NNJA
+loaders emit: one row per observation, thinned, quality controlled and normalized.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="healda.observations.schema.validate" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">validate</span>
+
+
+<a href="#healda.observations.schema.validate" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">validate</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">table</span><span class="p">:</span> <span class="n"><span title="pyarrow.Table">Table</span></span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">kind</span><span class="p">:</span> <span class="n"><span title="str">str</span></span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">ir_channels</span><span class="p">:</span> <span class="n"><span title="str">str</span></span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="o">|</span> <span class="n"><span title="collections.abc.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="collections.abc.Sequence">Sequence</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">]]</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Raise ValueError naming every column of <code>table</code> that <code>kind</code>'s reader cannot read.</p>
+<p><code>kind</code> is as in <code>table_schema</code>. For a satellite sensor, the value columns are checked
+as brightness temperature when <code>table</code> has any, as the loader reads them.</p>
 
 
     </div>

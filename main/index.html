@@ -737,6 +737,8 @@ Each call downloads the NNJA BUFR files it needs and decodes them on the fly wit
 (<a href="observations/"><code>docs/observations.md</code></a>), <code>healda-inference-local</code> runs the model
 over a date range and writes the analyses to a Zarr store. The scripts that build this
 archive, also based on earth2bufr, are not yet released.</p>
+<p>The <a href="observations/#observation-pipeline">observation pipeline</a> describes each stage
+from raw observations to the model, and where your own observations can enter it.</p>
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
 <p>HealDA requires Python 3.11 or newer, PyTorch with CUDA support, and a compatible
 GPU software stack.</p>
@@ -813,13 +815,15 @@ installed (see <a href="#install">Install</a>).</p>
 <p>Set <code>PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True</code> for training and inference. The
 observation count changes from batch to batch, which causes memory fragmentation in
 PyTorch's caching allocator. With it enabled, training the released recipe needs about 150 GB of
-GPU memory. Activation checkpointing (<code>gradient_checkpointing</code>,
-<code>gradient_checkpointing_last_n</code>) can reduce this for GPUs with less memory, such as the
-H100.</p>
+GPU memory.</p>
+<p>Activation checkpointing lowers this for GPUs with less memory. <code>gradient_checkpointing=2</code>
+checkpoints whole transformer blocks and saves about 4 GB per block;
+<code>gradient_checkpointing_last_n=N</code> applies it to the last <code>N</code> of the 18 blocks (0 for all).
+Checkpointing the last 6 blocks takes training from about 150 GB to about 125 GB, within a
+141 GB H200. Checkpointing all 18 takes it to about 70 GB, within an 80 GB H100.</p>
 <p>Each analysis of the released checkpoint reads about 200 million observation tokens.
-Through Earth2Studio's <code>HealDAv2</code> on one H100 80 GB, one process peaks at 42 GiB of GPU
-memory and 41 GiB of host memory, including decoding the observations. Run
-<code>healda-inference-local</code> with <code>--prefetch-factor 2</code> to stay within host memory.</p>
+Through Earth2Studio's <code>HealDAv2</code>, one analysis needs about 40 GB of GPU memory and 40 GB
+of host memory, including decoding the observations.</p>
 <h2 id="prepared-observation-input">Prepared observation input<a class="headerlink" href="#prepared-observation-input" title="Permanent link">&para;</a></h2>
 <p>Training reads prepared Parquet observations from the NNJA archive (<code>NNJA_ROOT</code>),
 the source the checkpoints are trained on. The older UFS replay archive

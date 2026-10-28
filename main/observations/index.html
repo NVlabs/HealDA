@@ -363,6 +363,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#observation-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observation pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#nnja-archive" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -545,6 +556,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#observation-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observation pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#nnja-archive" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -705,9 +727,84 @@ loader and checkpoint.</p>
 <p>NNJA is the source the checkpoints are trained on. The UFS replay archive is an
 earlier source, kept for older runs and described at the end. Each source is
 self-contained: an NNJA run does not need the UFS archive.</p>
-<p>The two vocabularies assign different <code>Global_Channel_ID</code> values, so a
-checkpoint trained against one archive cannot read the other. Pick the source
-the checkpoint was trained on.</p>
+<p>The two sources hold different observations, prepared differently. The UFS replay
+archive holds the observations GSI thinned and quality controlled in the UFS replay;
+the NNJA archive holds the full NCEP record, which healda's loaders screen and thin.
+Their sensors, channel vocabularies (<code>Global_Channel_ID</code>), normalization statistics
+and quality control differ, so a checkpoint works only with the source it was trained
+on.</p>
+<h2 id="observation-pipeline">Observation pipeline<a class="headerlink" href="#observation-pipeline" title="Permanent link">&para;</a></h2>
+<p>Observations reach the model through five sequential stages:</p>
+<ol>
+<li><strong>Raw observations</strong> (CPU): one table per family, PrepBUFR, GPS-RO and satellite
+   winds, and one per satellite sensor. Contract: <code>schema.table_schema(kind)</code>, with
+   <code>ir_channels</code> for a satellite sensor. To change it, replace stages 1 and 2
+   together.</li>
+<li><strong>Loading</strong> (CPU): screen and quality control, thin, drop dated channel denials and
+   provider-flagged footprints, convert units and normalize, then emit stage 3. To change
+   it, see <code>build_obs_loader</code> in <code>datasets/da/tasks.py</code>, <code>observations/loaders/nnja_*.py</code>
+   and <code>observations/loaders/combined.py</code>.</li>
+<li><strong>Processed observations</strong> (CPU): one unified table for every family, one row per
+   observation, values normalized. Contract: <code>schema.table_schema("unified")</code>. To plug in
+   here, see <code>DAModel.run_analysis_unified</code>.</li>
+<li><strong>Featurization</strong> (CPU or GPU, no learned weights): the HEALPix pixel at the model
+   level, time, geometry and position features, and the values and ids packed into a
+   <code>UnifiedObservation</code>. To change it, see <code>TransformV2.transform_observations</code> in
+   <code>datasets/da/transform.py</code> and <code>observations/preprocessing/features.py</code>.</li>
+<li><strong>Learned model</strong> (GPU): the observation tokenizer embeds the features with the
+   channel, platform and observation-type ids, then the transformer. See
+   <code>tokenize_observations</code> in <code>models/dit.py</code> and <code>ObsTokenizerFiLM</code> in
+   <code>models/obs_embedding/point_embed_v2.py</code>.</li>
+</ol>
+<p>The entry points:</p>
+<table>
+<thead>
+<tr>
+<th>input</th>
+<th>enters at</th>
+<th>contract</th>
+<th>healda runs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NNJA archive under <code>NNJA_ROOT</code>, read by <code>healda-inference-local</code></td>
+<td>1, on disk</td>
+<td><code>table_schema</code></td>
+<td>2 to 5</td>
+</tr>
+<tr>
+<td>per-family tables, <code>DAModel.run_analysis(times, prepbufr_tables=..., gpsro_tables=..., satwnd_tables=..., satellite_tables=...)</code></td>
+<td>1, in memory</td>
+<td><code>table_schema</code></td>
+<td>2 to 5</td>
+</tr>
+<tr>
+<td>unified table, <code>DAModel.run_analysis_unified(times, table)</code></td>
+<td>3</td>
+<td><code>table_schema("unified")</code></td>
+<td>4 and 5</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>NNJA archive</strong>: the layout is in <a href="#nnja-archive">NNJA archive</a>.</li>
+<li><strong>Per-family tables</strong>: per-cycle tables in the archive schemas, keyed by the cycle of
+  the file they come from. Earth2Studio's <code>HealDAv2</code> builds them with
+  <code>adapters.e2s_nnja.analysis_tables</code>, which derives the archive columns with the same
+  code as the offline ETL that produced the training data. The loaders thin, quality
+  control and normalize them as they do the archive.</li>
+<li><strong>Unified table</strong>: one table; concatenate several with <code>pyarrow.concat_tables</code>. The
+  caller does thinning, quality control and normalization. Each analysis reads the rows
+  whose <code>DA_window</code> is one of its frames' windows, and passes them to stage 4 unchanged.
+  The caller supplies ids and normalized values consistent with the model it runs: for
+  the released checkpoint, the packaged vocabulary and statistics,
+  <code>loaders.combined.channel_table(nnja_conv=True)</code>; a modified model defines its own.
+  <code>run_analysis_unified</code> raises for a <code>Global_Channel_ID</code>, <code>Platform_ID</code> or <code>Observation_Type</code>
+  outside the network's embedding tables, and for a <code>sensor_id</code> the transform does not
+  group.</li>
+</ul>
+<p>New channels or platforms need a model whose embedding tables cover their ids.</p>
 <h2 id="nnja-archive">NNJA archive<a class="headerlink" href="#nnja-archive" title="Permanent link">&para;</a></h2>
 <p>Set <code>NNJA_ROOT</code>. Files live under <code>NNJA_ROOT/parquet</code> in the following
 layouts, one per observation family:</p>
@@ -716,20 +813,19 @@ layouts, one per observation family:</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>parquet/gpsro_v3/YYYY/gdas.YYYYMMDD.tHHz.gpsro.tm00.bufr_d.parquet
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>parquet/satwnd_v2/YYYYMMDD.parquet
 </code></pre></div>
-<p>Wide satellite files require <code>latitude</code>, <code>longitude</code>, <code>time_utc</code>, <code>da_window</code>,
-<code>platform_id</code>, <code>satellite_zenith_angle</code>, <code>solar_zenith_angle</code>,
-<code>field_of_view</code>, and <code>hpx2048_nest</code>, plus sensor-specific observation columns
-whose names and metadata match the packaged sensor vocabulary.</p>
-<p>Conventional cycle files require <code>XOB</code>, <code>YOB</code>, <code>DHR</code>, <code>POB</code>, and <code>TYP</code>, plus
-the value and quality-mark columns for each enabled variable; with
-<code>nnja_balloon_drift</code> also <code>XDR</code>, <code>YDR</code> and <code>HRDR</code>. GPS radio
-occultation files require <code>bending_angle</code>, <code>qfro</code>, <code>obs_time</code>,
-<code>impact_parameter</code>, <code>earth_radius_curvature</code>, and <code>satellite_id</code>.</p>
-<p>Satellite wind (atmospheric motion vector) files require <code>time_utc</code>, <code>da_window</code>,
-<code>latitude</code>, <code>longitude</code>, <code>hpx4096_nest</code>, <code>wind_u_derived</code>,
-<code>wind_v_derived</code>, <code>assigned_pressure</code>, <code>gsi_observation_type</code>,
-<code>gsi_type_mapping_tier</code>, <code>wind_computation_method</code>, <code>ncep_dump_subtype</code>, and
-<code>cycle</code>.</p>
+<p>The columns, Arrow types and field metadata each family is read with are in
+<code>healda.observations.schema</code>: <code>table_schema("prepbufr")</code>, <code>table_schema("gpsro")</code>,
+<code>table_schema("satwnd")</code>, and <code>table_schema(sensor, ir_channels)</code> for a satellite
+sensor. Each field's metadata <code>description</code> gives its unit and meaning; a field with
+<code>healda.required = false</code> is read when present. <code>nnja_balloon_drift</code> also reads <code>XDR</code>,
+<code>YDR</code> and <code>HRDR</code>, and <code>nnja_withhold_stations</code> reads <code>SID</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">healda.observations</span><span class="w"> </span><span class="kn">import</span> <span class="n">schema</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">table_schema</span><span class="p">(</span><span class="s2">&quot;cris&quot;</span><span class="p">,</span> <span class="s2">&quot;ir32&quot;</span><span class="p">))</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">schema</span><span class="o">.</span><span class="n">validate</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="s2">&quot;prepbufr&quot;</span><span class="p">)</span>  <span class="c1"># or &quot;gpsro&quot;, &quot;satwnd&quot;, a sensor name, &quot;unified&quot;</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">schema</span><span class="o">.</span><span class="n">validate</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="s2">&quot;cris&quot;</span><span class="p">,</span> <span class="n">ir_channels</span><span class="o">=</span><span class="s2">&quot;ir32&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><code>validate</code> raises <code>ValueError</code> naming every missing or mistyped column.</p>
 <p>An NNJA run needs only <code>NNJA_ROOT</code>. The conventional channel vocabulary, its
 validity bounds and its normalization statistics all ship with the package.</p>
 <h2 id="matching-a-trained-checkpoint">Matching a trained checkpoint<a class="headerlink" href="#matching-a-trained-checkpoint" title="Permanent link">&para;</a></h2>
@@ -876,8 +972,9 @@ loader changes on load:</p>
 (<code>inference_filters</code> in <code>observations/system.py</code>):</p>
 <ul>
 <li><strong>Provider quality flags</strong>: footprints that the data provider flags for bad
-  calibration or corrupted data are dropped. The flags and bits per sensor are
-  <code>SOURCE_QUALITY_FLAGS</code> in <code>loaders/nnja_wide.py</code>: CrIS scan and field-of-view quality,
+  calibration or corrupted data are dropped. The flags per sensor are
+  <code>SOURCE_QUALITY_FLAGS</code> in <code>observations/schema.py</code> and their bits <code>SOURCE_FLAG_BITS</code>
+  in <code>loaders/nnja_wide.py</code>: CrIS scan and field-of-view quality,
   IASI <code>QGFQ</code>, and ATMS scan, granule and channel quality. A flag applies only where the
   input carries its column. Earth2Studio's <code>NNJAObsSat</code> carries them in its per-channel
   <code>quality</code> column (ATMS channel quality and CrIS <code>NFQF</code>, from which the field-of-view
@@ -898,15 +995,12 @@ loader changes on load:</p>
 </ul>
 <h2 id="ufs-replay-archive-legacy">UFS replay archive (legacy)<a class="headerlink" href="#ufs-replay-archive-legacy" title="Permanent link">&para;</a></h2>
 <p>Set <code>UFS_OBS_PATH</code> to a local directory or object-store URL. The root contains:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>channel_table.parquet
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>&lt;sensor&gt;/YYYYMMDD/0.parquet
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>channel_table.parquet
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>&lt;sensor&gt;/YYYYMMDD/0.parquet
 </code></pre></div>
-<p>Each observation file uses the long schema: one row per observation value.
-Required model-facing columns are <code>Latitude</code>, <code>Longitude</code>,
-<code>Absolute_Obs_Time</code>, <code>DA_window</code>, <code>Platform_ID</code>, <code>Observation</code>, and
-<code>Global_Channel_ID</code>. Sensor-specific nullable fields are
-<code>Sat_Zenith_Angle</code>, <code>Sol_Zenith_Angle</code>, <code>Scan_Angle</code>, <code>Pressure</code>, <code>Height</code>,
-<code>Observation_Type</code>, <code>QC_Flag</code>, and <code>Analysis_Use_Flag</code>.</p>
+<p>Each observation file holds the columns of <code>get_combined_observation_schema()</code> in
+<code>observations/schema.py</code>, one row per observation value, values in physical units; the
+loader normalizes them.</p>
 <p><code>channel_table.parquet</code> maps every <code>Global_Channel_ID</code> to normalization and
 identity metadata. It must contain <code>Global_Channel_ID</code>, <code>min_valid</code>,
 <code>max_valid</code>, <code>sensor_id</code>, <code>is_conv</code>, <code>name</code>, <code>mean</code>, and <code>stddev</code>. IDs must be
