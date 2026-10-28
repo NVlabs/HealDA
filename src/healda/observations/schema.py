@@ -12,9 +12,8 @@ The documented API is `table_schema` and `validate`. They are the contracts of t
 - the unified table, `table_schema("unified")`, one row per observation, which
   `DAModel.run_analysis_unified` takes.
 
-`get_combined_observation_schema` holds the UFS archive's observation columns; the
-unified table adds `local_channel_id` and `sensor_id`. Conventional observations with
-several components (u, v) are one row per component.
+Each row of the unified table is one scalar measurement: a radiosonde level with u, v, t
+and q is four rows, and a satellite footprint is one row per channel.
 """
 
 from collections.abc import Mapping, Sequence

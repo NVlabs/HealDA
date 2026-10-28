@@ -56,6 +56,7 @@ plugins:
           paths: [src]
           options:
             docstring_style: google
+            docstring_section_style: list
             show_source: false
             show_root_heading: true
             show_root_full_path: true
