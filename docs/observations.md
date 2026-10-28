@@ -26,18 +26,21 @@ on.
 
 ## Observation pipeline
 
+![Observation pipeline](assets/images/observation_pipeline_light.svg#gh-light-mode-only)
+![Observation pipeline](assets/images/observation_pipeline_dark.svg#gh-dark-mode-only)
+
 Observations reach the model through five sequential stages:
 
-1. **Raw observations** (CPU): one table per family, PrepBUFR, GPS-RO and satellite
-   winds, and one per satellite sensor. Contract: `schema.table_schema(kind)`, with
+1. **Per-family tables** (CPU): the raw observations, one table per family, PrepBUFR,
+   GPS-RO and satellite winds, and one per satellite sensor. Contract: `schema.table_schema(kind)`, with
    `ir_channels` for a satellite sensor. To change it, replace stages 1 and 2
    together.
-2. **Loading** (CPU): screen and quality control, thin, drop dated channel denials and
+2. **Loaders** (CPU): screen and quality control, thin, drop dated channel denials and
    provider-flagged footprints, convert units and normalize, then emit stage 3. To change
    it, see `build_obs_loader` in `datasets/da/tasks.py`, `observations/loaders/nnja_*.py`
    and `observations/loaders/combined.py`.
-3. **Processed observations** (CPU): one unified table for every family, one row per
-   observation, values normalized. Contract: `schema.table_schema("unified")`. To plug in
+3. **Unified table** (CPU): the processed observations, one table for every family, one
+   row per observation, values normalized. Contract: `schema.table_schema("unified")`. To plug in
    here, see `DAModel.run_analysis_unified`.
 4. **Featurization** (CPU or GPU, no learned weights): the HEALPix pixel at the model
    level, time, geometry and position features, and the values and ids packed into a

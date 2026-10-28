@@ -90,3 +90,9 @@
   --md-code-hl-generic-color: #d4d4d4;
   --md-code-hl-variable-color: #9cdcfe;
 }
+
+/* GitHub's theme-only image suffixes, for this site's scheme names. */
+[data-md-color-scheme="light"] img[src$="#gh-dark-mode-only"],
+[data-md-color-scheme="dark"] img[src$="#gh-light-mode-only"] {
+  display: none;
+}
