@@ -734,18 +734,20 @@ Their sensors, channel vocabularies (<code>Global_Channel_ID</code>), normalizat
 and quality control differ, so a checkpoint works only with the source it was trained
 on.</p>
 <h2 id="observation-pipeline">Observation pipeline<a class="headerlink" href="#observation-pipeline" title="Permanent link">&para;</a></h2>
+<p><img alt="Observation pipeline" src="../assets/images/observation_pipeline_light.svg#gh-light-mode-only" />
+<img alt="Observation pipeline" src="../assets/images/observation_pipeline_dark.svg#gh-dark-mode-only" /></p>
 <p>Observations reach the model through five sequential stages:</p>
 <ol>
-<li><strong>Raw observations</strong> (CPU): one table per family, PrepBUFR, GPS-RO and satellite
-   winds, and one per satellite sensor. Contract: <code>schema.table_schema(kind)</code>, with
+<li><strong>Per-family tables</strong> (CPU): the raw observations, one table per family, PrepBUFR,
+   GPS-RO and satellite winds, and one per satellite sensor. Contract: <code>schema.table_schema(kind)</code>, with
    <code>ir_channels</code> for a satellite sensor. To change it, replace stages 1 and 2
    together.</li>
-<li><strong>Loading</strong> (CPU): screen and quality control, thin, drop dated channel denials and
+<li><strong>Loaders</strong> (CPU): screen and quality control, thin, drop dated channel denials and
    provider-flagged footprints, convert units and normalize, then emit stage 3. To change
    it, see <code>build_obs_loader</code> in <code>datasets/da/tasks.py</code>, <code>observations/loaders/nnja_*.py</code>
    and <code>observations/loaders/combined.py</code>.</li>
-<li><strong>Processed observations</strong> (CPU): one unified table for every family, one row per
-   observation, values normalized. Contract: <code>schema.table_schema("unified")</code>. To plug in
+<li><strong>Unified table</strong> (CPU): the processed observations, one table for every family, one
+   row per observation, values normalized. Contract: <code>schema.table_schema("unified")</code>. To plug in
    here, see <code>DAModel.run_analysis_unified</code>.</li>
 <li><strong>Featurization</strong> (CPU or GPU, no learned weights): the HEALPix pixel at the model
    level, time, geometry and position features, and the values and ids packed into a

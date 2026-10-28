@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 100 1280 600" width="1280" height="600" role="img" aria-label="Observation flow: offline ETL and online Earth2Studio both produce per-family tables in one schema, which healda's loaders turn into the unified table the model reads">
+  <style>
+text { font-family: "IBM Plex Sans", "Segoe UI", Helvetica, Arial, sans-serif; fill: #1c2330; }
+.h { font-size: 16px; font-weight: 600; }
+.t { font-size: 13px; fill: #5b6577; }
+.m { font-family: "IBM Plex Mono", Menlo, Consolas, monospace; font-size: 12px; }
+.lane { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; }
+.off-box { fill: #fbf1e4; stroke: #a8641a; stroke-width: 1.5; }
+.on-box { fill: #e8f0fa; stroke: #2563a8; stroke-width: 1.5; }
+.core-box { fill: #eceff4; stroke: #2f3b4f; stroke-width: 1.5; }
+.src-box { fill: #ffffff; stroke: #1c2330; stroke-width: 1.5; }
+.contract { fill: #ffffff; stroke: #1c2330; stroke-width: 2.5; }
+.entry { stroke: #0f7f7a; stroke-width: 3; }
+.entry-t { fill: #0f7f7a; font-size: 13px; font-weight: 600; }
+.arrow { stroke: #9aa4b5; stroke-width: 2; fill: none; marker-end: url(#head); }
+.arrow-off { stroke: #a8641a; }
+.arrow-on { stroke: #2563a8; }
+.head { fill: #9aa4b5; }
+.badge { fill: #1c2330; }
+.badge-t { fill: #ffffff; font-size: 12px; font-weight: 600; }
+.off-t { fill: #a8641a; }
+.on-t { fill: #2563a8; }
+.strip { fill: none; stroke: #9aa4b5; stroke-dasharray: 4 4; }
+.tag { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; fill: #5b6577; }
+</style>
+<rect x="0" y="100" width="1280" height="600" fill="#ffffff"/>
+  <defs>
+    <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head" d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+
+
+  <!-- Source -->
+  <rect class="src-box" x="40" y="300" width="180" height="110" rx="6"/>
+  <text class="h" x="56" y="332">NCEP BUFR</text>
+  <text class="t" x="56" y="354">NNJA dumps on S3</text>
+  <text class="t" x="56" y="374">PrepBUFR, GPS-RO,</text>
+  <text class="t" x="56" y="392">satwnd, IR/MW sounders</text>
+
+  <!-- Offline lane -->
+  <text class="lane off-t" x="262" y="136">OFFLINE · ARCHIVE (TRAINING, INFERENCE-LOCAL)</text>
+  <rect class="off-box" x="262" y="150" width="220" height="110" rx="6"/>
+  <text class="h" x="278" y="180">healda NNJA ETL</text>
+  <text class="t" x="278" y="202">decode with earth2bufr,</text>
+  <text class="t" x="278" y="220">derive, write Parquet</text>
+  <text class="t" x="278" y="244">scripts to be released</text>
+
+  <rect class="off-box" x="520" y="150" width="216" height="110" rx="6"/>
+  <text class="h" x="536" y="180">Parquet archive</text>
+  <text class="t" x="536" y="202">full source record</text>
+  <text class="t" x="536" y="220">training, inference-local</text>
+  <text class="m" x="536" y="244">NNJA_ROOT/parquet</text>
+
+  <!-- Online lane -->
+  <text class="lane on-t" x="262" y="436">ONLINE · EARTH2STUDIO HealDAv2</text>
+  <rect class="on-box" x="262" y="450" width="220" height="110" rx="6"/>
+  <text class="h" x="278" y="480">Earth2Studio NNJA</text>
+  <text class="t" x="278" y="502">fetch per call, decode</text>
+  <text class="t" x="278" y="520">with earth2bufr</text>
+  <text class="m" x="278" y="544">NNJAObsSat, NNJAObsConv</text>
+
+  <rect class="on-box" x="520" y="450" width="216" height="110" rx="6"/>
+  <text class="h" x="536" y="480">healda adapter</text>
+  <text class="t" x="536" y="502">same derivations as ETL;</text>
+  <text class="t" x="536" y="520">only columns loaders read</text>
+  <text class="m" x="536" y="544">analysis_tables</text>
+
+  <!-- Contract: stage 1, entry point -->
+  <rect class="contract entry" x="776" y="262" width="200" height="196" rx="6"/>
+  <circle class="badge" cx="956" cy="282" r="12"/><text class="badge-t" x="952" y="286">1</text>
+  <text class="h" x="792" y="296">Per-family tables</text>
+  <text class="t" x="792" y="320">PrepBUFR, GPS-RO,</text>
+  <text class="t" x="792" y="338">satwnd, one per sensor</text>
+  <text class="m" x="792" y="370">table_schema(kind)</text>
+  <text class="t" x="792" y="390">kind: family or sensor</text>
+  <text class="t" x="792" y="414">validate(table, kind)</text>
+  <text class="entry-t" x="792" y="442">entry: run_analysis</text>
+
+  <!-- Arrows: source to lanes, lanes to contract -->
+  <path class="arrow arrow-off" d="M130,300 V205 H258"/>
+  <path class="arrow arrow-on" d="M130,410 V505 H258"/>
+  <path class="arrow arrow-off" d="M482,205 H516"/>
+  <path class="arrow arrow-on" d="M482,505 H516"/>
+  <path class="arrow arrow-off" d="M736,205 H756 V320 H772"/>
+  <path class="arrow arrow-on" d="M736,505 H756 V390 H772"/>
+
+  <!-- Pipeline: stages 2-5 -->
+  <text class="tag" x="1014" y="122">HEALDA · SAME FOR BOTH</text>
+  <rect class="core-box" x="1014" y="134" width="226" height="92" rx="6"/>
+  <circle class="badge" cx="1220" cy="154" r="12"/><text class="badge-t" x="1216" y="158">2</text>
+  <text class="h" x="1030" y="162">Loaders (CPU)</text>
+  <text class="t" x="1030" y="184">QC, thin, denials,</text>
+  <text class="t" x="1030" y="202">normalize</text>
+
+  <rect class="core-box entry" x="1014" y="252" width="226" height="110" rx="6"/>
+  <circle class="badge" cx="1220" cy="272" r="12"/><text class="badge-t" x="1216" y="276">3</text>
+  <text class="h" x="1030" y="280">Unified table (CPU)</text>
+  <text class="t" x="1030" y="302">one row per observation</text>
+  <text class="m" x="1030" y="324">table_schema("unified")</text>
+  <text class="entry-t" x="1030" y="348">entry: run_analysis_unified</text>
+
+  <rect class="core-box" x="1014" y="388" width="226" height="92" rx="6"/>
+  <circle class="badge" cx="1220" cy="408" r="12"/><text class="badge-t" x="1216" y="412">4</text>
+  <text class="h" x="1030" y="416">Featurization (GPU)</text>
+  <text class="t" x="1030" y="438">pixel, time, geometry;</text>
+  <text class="t" x="1030" y="456">no learned weights</text>
+
+  <rect class="core-box" x="1014" y="506" width="226" height="92" rx="6"/>
+  <circle class="badge" cx="1220" cy="526" r="12"/><text class="badge-t" x="1216" y="530">5</text>
+  <text class="h" x="1030" y="534">Learned model (GPU)</text>
+  <text class="t" x="1030" y="556">observation tokenizer,</text>
+  <text class="t" x="1030" y="574">transformer</text>
+
+  <rect class="src-box" x="1014" y="624" width="226" height="54" rx="6"/>
+  <text class="h" x="1030" y="657">Analysis</text>
+
+  <path class="arrow" d="M976,300 H994 V180 H1010"/>
+  <path class="arrow" d="M1127,226 L1127,248"/>
+  <path class="arrow" d="M1127,362 L1127,384"/>
+  <path class="arrow" d="M1127,480 L1127,502"/>
+  <path class="arrow" d="M1127,598 L1127,620"/>
+
+  <!-- Shared strip -->
+  <rect class="strip" x="262" y="598" width="714" height="80" rx="6"/>
+  <text class="tag" x="278" y="622">SHARED BY BOTH ROUTES</text>
+  <text class="t" x="278" y="644">earth2bufr decoder · derivation code in healda.observations.preprocessing</text>
+  <text class="t" x="278" y="664">(HEALPix pixels, satwnd GSI types, GPS-RO pressure) · loaders, featurization, model</text>
+
+  <!-- Legend -->
+  <text class="tag" x="40" y="622">LEGEND</text>
+  <circle class="badge" cx="52" cy="642" r="10"/><text class="badge-t" x="48" y="646">n</text>
+  <text class="t" x="70" y="647">stage n in the docs</text>
+  <rect class="core-box entry" x="42" y="660" width="20" height="14" rx="3"/>
+  <text class="t" x="70" y="672">entry point</text>
+</svg>
