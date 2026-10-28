@@ -243,6 +243,9 @@ def _healda_kernel(
         cute.arch.mbarrier_wait(bqk, ph)
         cute.copy(cp_Q, cp_Q.partition_S(sA), cp_Q.retile(tSrQ))
         cute.copy(cp_K, cp_K.partition_S(sB), cp_K.retile(tSrK))
+        # The TMA refill below writes sA and sB through the async proxy; order this warp's
+        # generic reads of them first.
+        cute.arch.fence_proxy("async.shared", space="cta")
         cute.arch.sync_warp()
 
         if it + 1 < nit:
@@ -306,6 +309,9 @@ def _healda_kernel(
 
         frg = _MKTL(tS)
         cute.copy(tiled_s2g, tS, frg)
+        # sC holds V and then stages O; the TMA refill of V below writes it through the async
+        # proxy, so order this warp's generic stores and loads of sC first.
+        cute.arch.fence_proxy("async.shared", space="cta")
         cute.arch.sync_warp()
 
         gO = cute.make_tensor(o5[(None, pair, None, head, None)].iterator, ocopy)
