@@ -1217,134 +1217,78 @@ tables as in training. Analyses run one at a time.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Description</th>
-          <th>Default</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                <code>analysis_times</code>
-            </td>
-            <td>
-                  <code><span title="healda.inference.AnalysisTimes">AnalysisTimes</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Analysis times, UTC, anything <code>pd.DatetimeIndex</code> accepts.</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>satellite_tables</code>
-            </td>
-            <td>
-                  <code><span title="collections.abc.Mapping">Mapping</span>[<span title="str">str</span>, <span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span>] | None</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Per sensor name, <code>{cycle: table}</code> in
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>analysis_times</code></b>
+              (<code><span title="healda.inference.AnalysisTimes">AnalysisTimes</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>Analysis times, UTC, anything <code>pd.DatetimeIndex</code> accepts.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>satellite_tables</code></b>
+              (<code><span title="collections.abc.Mapping">Mapping</span>[<span title="str">str</span>, <span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span>] | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Per sensor name, <code>{cycle: table}</code> in
 <code>schema.table_schema(sensor)</code>. A sensor not passed contributes no
 observations.</p>
-              </div>
-            </td>
-            <td>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>gpsro_tables</code></b>
+              (<code><span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span> | None</code>, default:
                   <code>None</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>gpsro_tables</code>
-            </td>
-            <td>
-                  <code><span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span> | None</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p><code>{cycle: table}</code> in <code>schema.table_schema("gpsro")</code>.</p>
-              </div>
-            </td>
-            <td>
+)
+          –
+          <div class="doc-md-description">
+            <p><code>{cycle: table}</code> in <code>schema.table_schema("gpsro")</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>satwnd_tables</code></b>
+              (<code><span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span> | None</code>, default:
                   <code>None</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>satwnd_tables</code>
-            </td>
-            <td>
-                  <code><span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span> | None</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p><code>{cycle: table}</code> in <code>schema.table_schema("satwnd")</code>.</p>
-              </div>
-            </td>
-            <td>
+)
+          –
+          <div class="doc-md-description">
+            <p><code>{cycle: table}</code> in <code>schema.table_schema("satwnd")</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>prepbufr_tables</code></b>
+              (<code><span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span> | None</code>, default:
                   <code>None</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>prepbufr_tables</code>
-            </td>
-            <td>
-                  <code><span title="healda.observations.loaders.nnja_base.CycleTableSource">CycleTableSource</span> | None</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p><code>{cycle: table}</code> in <code>schema.table_schema("prepbufr")</code>.
+)
+          –
+          <div class="doc-md-description">
+            <p><code>{cycle: table}</code> in <code>schema.table_schema("prepbufr")</code>.
 A family not passed contributes no observations.</p>
-              </div>
-            </td>
-            <td>
-                  <code>None</code>
-            </td>
-          </tr>
-      </tbody>
-    </table>
+          </div>
+        </li>
+    </ul>
 
 
-    <p><span class="doc-section-title">Returns:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="torch.Tensor">Tensor</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p><code>(len(analysis_times), len(self.channels), 721, 1440)</code> float32 analyses in</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="torch.Tensor">Tensor</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>physical units on the 0.25 degree lat/lon grid, on <code>self.device</code>.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="torch.Tensor">Tensor</span></code>
+          –
+          <div class="doc-md-description">
+            <p><code>(len(analysis_times), len(self.channels), 721, 1440)</code> float32 analyses in</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code><span title="torch.Tensor">Tensor</span></code>
+          –
+          <div class="doc-md-description">
+            <p>physical units on the 0.25 degree lat/lon grid, on <code>self.device</code>.</p>
+          </div>
+        </li>
+    </ul>
 
 
     </div>
@@ -1372,110 +1316,59 @@ them to featurization unchanged. Analyses run one at a time.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Description</th>
-          <th>Default</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                <code>analysis_times</code>
-            </td>
-            <td>
-                  <code><span title="healda.inference.AnalysisTimes">AnalysisTimes</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Analysis times, UTC, anything <code>pd.DatetimeIndex</code> accepts.</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>observations</code>
-            </td>
-            <td>
-                  <code><span title="pyarrow.Table">Table</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>One table in <code>schema.table_schema("unified")</code>, rows already
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>analysis_times</code></b>
+              (<code><span title="healda.inference.AnalysisTimes">AnalysisTimes</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>Analysis times, UTC, anything <code>pd.DatetimeIndex</code> accepts.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>observations</code></b>
+              (<code><span title="pyarrow.Table">Table</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>One table in <code>schema.table_schema("unified")</code>, rows already
 thinned, quality controlled and normalized; rows outside the analyses'
 windows are not read.</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-      </tbody>
-    </table>
+          </div>
+        </li>
+    </ul>
 
 
-    <p><span class="doc-section-title">Returns:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="torch.Tensor">Tensor</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p><code>(len(analysis_times), len(self.channels), 721, 1440)</code> float32 analyses in</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="torch.Tensor">Tensor</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>physical units on the 0.25 degree lat/lon grid, on <code>self.device</code>.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="torch.Tensor">Tensor</span></code>
+          –
+          <div class="doc-md-description">
+            <p><code>(len(analysis_times), len(self.channels), 721, 1440)</code> float32 analyses in</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code><span title="torch.Tensor">Tensor</span></code>
+          –
+          <div class="doc-md-description">
+            <p>physical units on the 0.25 degree lat/lon grid, on <code>self.device</code>.</p>
+          </div>
+        </li>
+    </ul>
 
 
 <p><span class="doc-section-title">Raises:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="ValueError">ValueError</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p><code>observations</code> does not match the unified schema, or a read row
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="ValueError">ValueError</span></code>
+            –
+          <div class="doc-md-description">
+            <p><code>observations</code> does not match the unified schema, or a read row
 holds a <code>sensor_id</code> the transform does not group or an id outside the
 network's embedding tables.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
+          </div>
+        </li>
+    </ul>
 
 
     </div>
@@ -1541,120 +1434,66 @@ cache.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Description</th>
-          <th>Default</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                <code>checkpoint</code>
-            </td>
-            <td>
-                  <code><span title="str">str</span> | <span title="os.PathLike">PathLike</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>A <code>.checkpoint</code> file written by <code>healda-train</code>.</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>device</code>
-            </td>
-            <td>
-                  <code><span title="torch.device">device</span> | <span title="str">str</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Device the network runs on.</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>extra_filters</code>
-            </td>
-            <td>
-                  <code><span title="healda.observations.system.ObsFilters">ObsFilters</span> | None</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Observations removed beyond the recipe's own filters. Defaults to
+    <ul>
+        <li class="doc-section-item field-body">
+            <b><code>checkpoint</code></b>
+              (<code><span title="str">str</span> | <span title="os.PathLike">PathLike</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>A <code>.checkpoint</code> file written by <code>healda-train</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>device</code></b>
+              (<code><span title="torch.device">device</span> | <span title="str">str</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>Device the network runs on.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+            <b><code>extra_filters</code></b>
+              (<code><span title="healda.observations.system.ObsFilters">ObsFilters</span> | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Observations removed beyond the recipe's own filters. Defaults to
 <code>inference_filters()</code>: the dated channel denials, and the provider quality
 flags of tables that carry them.</p>
-              </div>
-            </td>
-            <td>
-                  <code>None</code>
-            </td>
-          </tr>
-      </tbody>
-    </table>
+          </div>
+        </li>
+    </ul>
 
 
-    <p><span class="doc-section-title">Returns:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                  <code><a class="autorefs autorefs-internal" title="            DAModel
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><a class="autorefs autorefs-internal" title="            DAModel
 
 
   
       dataclass
    (healda.inference.DAModel)" href="#healda.inference.DAModel">DAModel</a></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>The model, ready for <code>run_analysis</code> and <code>run_analysis_unified</code>.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
+          –
+          <div class="doc-md-description">
+            <p>The model, ready for <code>run_analysis</code> and <code>run_analysis_unified</code>.</p>
+          </div>
+        </li>
+    </ul>
 
 
 <p><span class="doc-section-title">Raises:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="ValueError">ValueError</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>The checkpoint has no <code>loop.json</code> or is not an NNJA lat/lon
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="ValueError">ValueError</span></code>
+            –
+          <div class="doc-md-description">
+            <p>The checkpoint has no <code>loop.json</code> or is not an NNJA lat/lon
 recipe.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
+          </div>
+        </li>
+    </ul>
 
 
     </div>
@@ -1837,9 +1676,8 @@ The function returns once the streams are cut. Each <code>{cycle: table}</code> 
 <li>the unified table, <code>table_schema("unified")</code>, one row per observation, which
   <code>DAModel.run_analysis_unified</code> takes.</li>
 </ul>
-<p><code>get_combined_observation_schema</code> holds the UFS archive's observation columns; the
-unified table adds <code>local_channel_id</code> and <code>sensor_id</code>. Conventional observations with
-several components (u, v) are one row per component.</p>
+<p>Each row of the unified table is one scalar measurement: a radiosonde level with u, v, t
+and q is four rows, and a satellite footprint is one row per channel.</p>
 
 
 
