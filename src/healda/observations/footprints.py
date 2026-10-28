@@ -45,14 +45,14 @@ _SIGNED = {
 class FootprintBlock:
     """One sensor's selected footprints of one row group.
 
-    ``values`` is (channels, footprints) float32; ``valid`` marks the cells that become
-    long rows, None meaning every cell. ``footprint_columns`` holds one value per
+    ``values`` is (channels, footprints) float32; ``valid``, of the same shape, marks the
+    measurements that become long rows. ``footprint_columns`` holds one value per
     footprint under its unified column name; the channel ids one value per channel.
     """
 
     sensor_id: int
     values: np.ndarray
-    valid: np.ndarray | None
+    valid: np.ndarray
     footprint_columns: dict[str, np.ndarray]
     global_channel_id: np.ndarray
     local_channel_id: np.ndarray
@@ -63,15 +63,7 @@ class FootprintBlock:
 
     @property
     def num_rows(self) -> int:
-        if self.valid is None:
-            return self.values.size
         return int(np.count_nonzero(self.valid))
-
-    def cell_mask(self) -> np.ndarray:
-        """``valid``, materialized first when every cell is valid, for clearing cells."""
-        if self.valid is None:
-            self.valid = np.ones(self.values.shape, dtype=bool)
-        return self.valid
 
     def channel_columns(self) -> dict[str, np.ndarray]:
         return {
@@ -99,65 +91,34 @@ def bits(tensor: torch.Tensor) -> torch.Tensor:
     return tensor if signed is None else tensor.view(signed)
 
 
-@dataclasses.dataclass(frozen=True)
-class LongCells:
-    """The valid cells of a block: how many each channel keeps, and their footprints,
-    channel after channel."""
-
-    counts: list[int]
-    footprint: torch.Tensor
-
-
-def long_cells(block: FootprintBlock, device: torch.device | str) -> LongCells | None:
-    """The block's valid cells on ``device``; None when every cell is valid.
-
-    One nonzero per channel row rather than one over the matrix: the per-row index is
-    the footprint itself, where a flat index needs a division per cell.
-    """
-    if block.valid is None:
-        return None
-    counts = np.count_nonzero(block.valid, axis=1).tolist()
-    valid = as_tensor(block.valid, device)
-    footprint = torch.empty(sum(counts), dtype=torch.int64, device=device)
-    offset = 0
-    for channel, count in enumerate(counts):
-        footprint[offset : offset + count] = valid[channel].nonzero().squeeze(1)
-        offset += count
-    return LongCells(counts, footprint)
+def valid_measurements(
+    block: FootprintBlock, device: torch.device | str
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """(channel, footprint) index of each valid measurement, channel-major, on
+    ``device``."""
+    return as_tensor(block.valid, device).nonzero(as_tuple=True)
 
 
 def expand_column(
-    block: FootprintBlock, name: str, cells: LongCells | None, out: torch.Tensor
+    block: FootprintBlock,
+    name: str,
+    measurements: tuple[torch.Tensor, torch.Tensor],
+    out: torch.Tensor,
 ) -> None:
-    """Write column ``name`` of the block's long rows into ``out``, 1-D of ``num_rows``.
+    """Write column ``name``, one value per valid measurement, into ``out``.
 
-    ``cells`` is ``long_cells`` on ``out``'s device.
+    ``measurements`` is ``valid_measurements`` on ``out``'s device.
     """
     out = bits(out)
-    if name in CHANNEL_COLUMNS or name == OBSERVATION:
-        source = block.values if name == OBSERVATION else block.channel_columns()[name]
-        source = as_tensor(source, out.device)
-        if cells is None:
-            grid = out.view(block.values.shape)
-            grid.copy_(
-                source if name == OBSERVATION else source[:, None].expand_as(grid)
-            )
-            return
-        offset = 0
-        for channel, count in enumerate(cells.counts):
-            rows = out[offset : offset + count]
-            if name == OBSERVATION:
-                footprint = cells.footprint[offset : offset + count]
-                torch.index_select(source[channel], 0, footprint, out=rows)
-            else:
-                rows.copy_(source[channel].expand(count))
-            offset += count
-        return
-    column = as_tensor(block.footprint_columns[name], out.device)
-    if cells is None:
-        out.view(block.values.shape).copy_(column.expand(block.values.shape))
+    channel, footprint = measurements
+    if name == OBSERVATION:
+        out.copy_(as_tensor(block.values, out.device)[channel, footprint])
+    elif name in CHANNEL_COLUMNS:
+        source = as_tensor(block.channel_columns()[name], out.device)
+        torch.index_select(source, 0, channel, out=out)
     else:
-        torch.index_select(column, 0, cells.footprint, out=out)
+        source = as_tensor(block.footprint_columns[name], out.device)
+        torch.index_select(source, 0, footprint, out=out)
 
 
 def expand(block: FootprintBlock, schema: pa.Schema) -> pa.Table:
@@ -168,19 +129,24 @@ def expand(block: FootprintBlock, schema: pa.Schema) -> pa.Table:
     """
     long_rows = block.num_rows
     arrays: dict[str, pa.Array] = {}
+    # A block is a channels x footprints matrix of measurements. Each output row is one
+    # measurement: its value from the matrix, its channel ids from its channel, and its
+    # position, time and angles from its footprint.
     sources = {
         OBSERVATION: block.values,
         **block.channel_columns(),
         **block.footprint_columns,
     }
     with cpu_timing_range("nnja.expand"):
-        cells = long_cells(block, "cpu")
+        measurements = valid_measurements(block, "cpu")
         for name, source in sources.items():
+            # Spread `source` out to one value per measurement row.
             expanded = np.empty(long_rows, dtype=source.dtype)
-            expand_column(block, name, cells, as_tensor(expanded, "cpu"))
+            expand_column(block, name, measurements, as_tensor(expanded, "cpu"))
             arrays[name] = pa.array(expanded, type=schema.field(name).type)
 
     with cpu_timing_range("nnja.expand.table"):
+        # A block holds one sensor; schema columns the block lacks become nulls.
         arrays[SENSOR_ID.name] = pa.array(
             np.full(long_rows, block.sensor_id, dtype=np.uint16), type=SENSOR_ID.type
         )

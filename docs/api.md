@@ -19,6 +19,14 @@ The entry points HealDA supports for use from other code. Everything else under
         - analysis_tables
         - analysis_tables_long
 
+## Observation table schemas
+
+::: healda.observations.schema
+    options:
+      members:
+        - table_schema
+        - validate
+
 ## Command-line entry points
 
 `healda-train` and `healda-inference-local` are the installed console scripts.

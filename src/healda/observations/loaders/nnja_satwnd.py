@@ -41,7 +41,12 @@ from healda.observations.loaders.archive_row_groups import (
     window_row_groups,
     window_rows,
 )
-from healda.observations.schema import long_table
+from healda.observations.schema import (
+    long_table,
+    optional_columns,
+    required_columns,
+    table_schema,
+)
 from healda.observations.loaders.threads import configure_arrow_pools, thread_pool
 from healda.observations.sensors import (
     CONV_CHANNELS,
@@ -67,33 +72,8 @@ SATWND_TYPE_MAX = max(SATWND_REPORT_TYPES)
 ARCHIVE_HPX_LEVEL = 12
 U_LOCAL_CHANNEL_ID = 6
 V_LOCAL_CHANNEL_ID = 7
-REQUIRED_COLUMNS = (
-    "time_utc",
-    "da_window",
-    "latitude",
-    "longitude",
-    "hpx4096_nest",
-    "wind_u_derived",
-    "wind_v_derived",
-    "assigned_pressure",
-    "gsi_observation_type",
-    "gsi_type_mapping_tier",
-    # satwnd_qc screens on SWCM and uses it to identify layer winds.
-    "wind_computation_method",
-    # The quarantine keys on the source subset.
-    "ncep_dump_subtype",
-    # Source file identity, which the quarantine keys on. da_window cannot
-    # substitute: it splits one cycle across two windows.
-    "cycle",
-)
-OPTIONAL_COLUMNS = (
-    "sdmedit_wind_quality_mark",
-    "satellite_zenith_angle",
-    "gsi_internal_subtype",
-    # GNAP-resolved QI. The promoted per_cent_confidence scalar is not read:
-    # it is the lowest GNAP, which is qify for EUMETSAT and JMA.
-    "quality_diagnostics",
-)
+REQUIRED_COLUMNS = required_columns(table_schema("satwnd"))
+OPTIONAL_COLUMNS = optional_columns(table_schema("satwnd"))
 
 # One type can carry two provenances -- 241 is INSAT via prepdata (NC005024/25)
 # and GOES-R via the GSI sattab (NC005099) -- so the tier rides in QC_Flag,

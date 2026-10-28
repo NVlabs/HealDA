@@ -1116,6 +1116,14 @@ class DiT(torch.nn.Module):
         tokenizer = self._get_backbone_obs_tokenizer()
         return tokenizer(unified_obs), attention_packing
 
+    def observation_id_bounds(self) -> dict[str, int]:
+        """Exclusive upper bound of each id column of the unified table the backbone
+        tokenizer embeds; empty without one, as the per-sensor embedders bound ids per
+        sensor."""
+        if self.backbone_obs_tokenizer is None:
+            return {}
+        return self.backbone_obs_tokenizer.id_bounds()
+
     def tokenize_observations(
         self, unified_obs: UnifiedObservation
     ) -> UnifiedObservation:

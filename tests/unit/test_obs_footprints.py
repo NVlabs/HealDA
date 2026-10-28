@@ -18,7 +18,7 @@ from healda.observations.footprints import (
     FootprintBlock,
     expand,
     expand_column,
-    long_cells,
+    valid_measurements,
 )
 from healda.observations.loaders import combined
 from healda.observations.loaders.nnja_wide import NNJAWideLoader
@@ -34,7 +34,7 @@ def make_block(sensor, channels, footprints, seed, valid="random"):
     shape = (channels, footprints)
     mask = {
         "random": rng.random(shape) < 0.6,
-        "all": None,
+        "all": np.ones(shape, dtype=bool),
         "none": np.zeros(shape, dtype=bool),
     }[valid]
     start = np.datetime64("2025-01-02T21:00", "ns")
@@ -60,10 +60,7 @@ def make_block(sensor, channels, footprints, seed, valid="random"):
 
 def reference_rows(block, name):
     """Long rows as per-channel flatnonzero, the order expand_column promises."""
-    valid = (
-        np.ones(block.values.shape, dtype=bool) if block.valid is None else block.valid
-    )
-    channel, footprint = np.nonzero(valid)
+    channel, footprint = np.nonzero(block.valid)
     if name == "Observation":
         return block.values[channel, footprint]
     if name == "Global_Channel_ID":
@@ -77,14 +74,14 @@ def reference_rows(block, name):
 @pytest.mark.parametrize("valid", ["random", "all", "none"])
 def test_expand_column_matches_the_channel_major_reference(device, valid):
     block = make_block("atms", 5, 33, seed=1, valid=valid)
-    cells = long_cells(block, device)
+    measurements = valid_measurements(block, device)
     names = ["Observation", "Global_Channel_ID", "local_channel_id"]
     for name in names + list(block.footprint_columns):
         expected = reference_rows(block, name)
         out = np.empty(block.num_rows, dtype=expected.dtype)
         tensor = torch.from_numpy(out.view(np.int64) if out.dtype.kind == "M" else out)
         moved = tensor.to(device)
-        expand_column(block, name, cells, moved)
+        expand_column(block, name, measurements, moved)
         tensor.copy_(moved.cpu())
         np.testing.assert_array_equal(out, expected, err_msg=name)
 
@@ -93,7 +90,7 @@ def test_a_cleared_cell_drops_exactly_its_row():
     schema = NNJAWideLoader(sensors=["amsua"]).output_schema
     block = make_block("amsua", 3, 10, seed=2, valid="all")
     before = expand(block, schema)
-    block.cell_mask()[1, 4] = False
+    block.valid[1, 4] = False
     after = expand(block, schema)
     keep = np.ones(30, dtype=bool)
     keep[1 * 10 + 4] = False

@@ -28,8 +28,22 @@ __all__ = [
     "CycleTableSource",
     "SampleDropout",
     "archive_cycle_and_window",
+    "da_windows",
     "row_generator",
 ]
+
+
+def da_windows(
+    target: datetime, obs_context_hours: tuple[int, int], data_spacing: int = 3
+) -> pd.DatetimeIndex:
+    """The DA windows, each named by its end, whose rows the analysis at `target` reads."""
+    # DA windows are end-aligned: the first starts one spacing after the context.
+    start, end = obs_context_hours
+    return pd.date_range(
+        target + pd.Timedelta(hours=start + data_spacing),
+        target + pd.Timedelta(hours=end),
+        freq=f"{data_spacing}h",
+    )
 
 
 class NNJAArchiveLoader:
@@ -53,13 +67,7 @@ class NNJAArchiveLoader:
         )
 
     def _interval_times(self, target: datetime) -> pd.DatetimeIndex:
-        # DA windows are end-aligned: the first starts one spacing after the context.
-        start, end = self.obs_context_hours
-        return pd.date_range(
-            target + pd.Timedelta(hours=start + self.data_spacing),
-            target + pd.Timedelta(hours=end),
-            freq=f"{self.data_spacing}h",
-        )
+        return da_windows(target, self.obs_context_hours, self.data_spacing)
 
     @staticmethod
     def _numpy(table: pa.Table, name: str, dtype=None) -> np.ndarray:

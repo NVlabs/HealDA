@@ -31,6 +31,9 @@ With observations already prepared in the NNJA archive layout
 over a date range and writes the analyses to a Zarr store. The scripts that build this
 archive, also based on earth2bufr, are not yet released.
 
+The [observation pipeline](docs/observations.md#observation-pipeline) describes each stage
+from raw observations to the model, and where your own observations can enter it.
+
 ## Install
 
 HealDA requires Python 3.11 or newer, PyTorch with CUDA support, and a compatible

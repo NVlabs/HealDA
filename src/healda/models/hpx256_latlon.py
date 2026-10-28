@@ -288,6 +288,9 @@ class Hpx256LatlonModel(nn.Module):
     def tokenize_observations(self, unified_obs):
         return self.backbone.tokenize_observations(unified_obs)
 
+    def observation_id_bounds(self) -> dict[str, int]:
+        return self.backbone.observation_id_bounds()
+
     def _decode_frames(self, latent, second, day, timestamp):
         if self.last_frame_only:
             latent, second, day, timestamp = (

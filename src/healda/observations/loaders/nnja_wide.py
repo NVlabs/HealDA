@@ -38,6 +38,14 @@ from healda.observations.loaders.archive_row_groups import (
 
 from healda.observations.footprints import FootprintBlock
 from healda.observations.protocols import ObservationBatch, Observations, as_table
+from healda.observations.schema import (
+    KELVIN_PREFIX,
+    RADIANCE_PREFIXES,
+    SCAN_POSITION_COLUMN,
+    SENSOR_VALUE_PREFIX,
+    SOURCE_QUALITY_FLAGS,
+    VALUE_UNIT_KEY,
+)
 from healda.observations.loaders.threads import configure_arrow_pools, thread_pool
 from healda.observations.sensors import PLATFORM_NAME_TO_ID
 from healda.observations.sensors_nnja import (
@@ -80,45 +88,10 @@ SAID_TO_PLATFORM_NAME = {
     784: "aqua",
 }
 
-# Value columns to load. Note: for MW sounders, we only have choice for ATMS (which comes with both TMANT and TMBR). Rest are called "TMBR"
-# but are actually TMANT. Only N15/16 AMSUA is actually TMBR. There is a deterministic per platform/fov/sensor to apply the TMANT->TMBR antenna correction
-# Also note GSI UFS replay ran ta2tb=false, so ingested as is.
-SENSOR_VALUE_PREFIX = {
-    "amsua": "brightness_temperature",
-    "amsub": "brightness_temperature",
-    "mhs": "brightness_temperature",
-    "atms": "antenna_temperature",
-    "airs": "brightness_temperature",
-    "iasi": "spectral_radiance",
-    "cris": "spectral_radiance_code",
-}
-
-# Published as radiance, not kelvin; `transform` inverts Planck before the range check.
-RADIANCE_PREFIXES = ("spectral_radiance", "spectral_radiance_code")
-# Radiance-sensor channel columns that hold brightness temperature, declared by the field
-# metadata VALUE_UNIT_KEY = b"K"; `transform` reads them without a Planck inversion.
-KELVIN_PREFIX = "brightness_temperature"
-VALUE_UNIT_KEY = b"nnja.value_unit"
-
 IR_SOUNDERS = tuple(
     name for name, config in SENSOR_CONFIGS.items() if config.sensor_type == "infrared"
 )
 
-# CrIS names the detector in its 3x3 array field_of_view and the cross-track look
-# field_of_regard; the look is the scan position. Elsewhere field_of_view is the position.
-SCAN_POSITION_COLUMN = {"cris": "field_of_regard"}
-# Per-footprint source quality flags, each nonzero when the provider marks the footprint
-# degraded. fov_quality_bad is derived in the ir48 store from fov_quality, 2025-01-01 on.
-# A dotted name reads one field of a per-channel struct; any channel flagged flags the footprint.
-SOURCE_QUALITY_FLAGS = {
-    "cris": ("scan_quality", "fov_quality_bad"),
-    "iasi": ("summary_quality",),
-    "atms": (
-        "scan_quality",
-        "granule_quality",
-        "channel_auxiliary.list.element.channel_quality",
-    ),
-}
 # The bits that flag, where not every bit does (LSB = 0). ATMS granule_quality bits 4-10;
 # ATMS channel_quality bits 1-8, bit 9 being the Moon in the space view.
 # fov_quality (NFQF) bits that set CrIS fov_quality_bad in any band (LSB 14, 15).
@@ -1024,13 +997,9 @@ class NNJAWideLoader(NNJAArchiveLoader):
             located = np.isfinite(footprint_columns[GEOMETRY_COLUMNS[0]])
             for name in GEOMETRY_COLUMNS[1:]:
                 located &= np.isfinite(footprint_columns[name])
-            valid: np.ndarray | None = (
-                None
-                if located.all()
-                else np.broadcast_to(
-                    located, (plan.channel_count, footprint_count)
-                ).copy()
-            )
+            valid = np.broadcast_to(
+                located, (plan.channel_count, footprint_count)
+            ).copy()
 
         # One value per (channel, footprint): fill the matrix a channel at a time, flagging
         # out-of-range cells and zscoring
@@ -1067,12 +1036,6 @@ class NNJAWideLoader(NNJAArchiveLoader):
                     and screened.max() <= plan.max_valid[index]
                 )
                 if not all_in_range:
-                    if valid is None:
-                        # Geometry left nothing to mask, so this channel is the first to need
-                        # the matrix.
-                        valid = np.ones(
-                            (plan.channel_count, footprint_count), dtype=bool
-                        )
                     # A row view: the `&=` below lands in `valid`, which is what gets returned.
                     channel_valid = valid[index]
                     np.greater_equal(screened, plan.min_valid[index], out=in_bound)
@@ -1129,7 +1092,7 @@ class NNJAWideLoader(NNJAArchiveLoader):
                 hit &= obs_time < end
             if hit.any():
                 for row in rows:
-                    block.cell_mask()[row, hit] = False
+                    block.valid[row, hit] = False
 
     def _scoped_rules(
         self, sensor: str, dropout: SampleDropout
@@ -1163,12 +1126,11 @@ class NNJAWideLoader(NNJAArchiveLoader):
                 continue
             for row in np.flatnonzero(block.global_channel_id == global_channel_id):
                 targeted = platform == platform_id
-                if block.valid is not None:
-                    targeted &= block.valid[row]
+                targeted &= block.valid[row]
                 footprints = np.flatnonzero(targeted)
                 if footprints.size:
                     dropped = rng.random(footprints.size) < probability
-                    block.cell_mask()[row, footprints[dropped]] = False
+                    block.valid[row, footprints[dropped]] = False
 
     def to_footprints(
         self,

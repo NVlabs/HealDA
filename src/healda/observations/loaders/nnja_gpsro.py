@@ -43,7 +43,13 @@ from healda.observations.loaders.nnja_base import (
     NNJAArchiveLoader,
 )
 
-from healda.observations.schema import long_table
+from healda.observations.schema import (
+    GPSRO_ONE_OF,
+    long_table,
+    optional_columns,
+    required_columns,
+    table_schema,
+)
 from healda.observations.loaders.threads import configure_arrow_pools, thread_pool
 from healda.observations.sensors import (
     CONV_CHANNELS,
@@ -64,25 +70,8 @@ GPS_LEGACY_SAIDS = frozenset(
     {3, 5, 42, 43, 44, 267, 269, 750, 751, 752, 753, 754, 755, 803, 804, 825}
 )
 
-CORE_COLUMNS = (
-    "bending_angle",
-    "qfro",
-    "obs_time",
-    "impact_parameter",
-    "earth_radius_curvature",
-    "satellite_id",
-)
-OPTIONAL_COLUMNS = (
-    "tangent_latitude",
-    "tangent_longitude",
-    "occ_latitude",
-    "occ_longitude",
-    "impact_height_m",
-    "heit_at_impact_m",
-    "dry_pressure_hpa",
-    "standard_atmosphere_pressure_hpa",
-    "blended_pressure_5km_hpa",
-)
+CORE_COLUMNS = required_columns(table_schema("gpsro"))
+OPTIONAL_COLUMNS = optional_columns(table_schema("gpsro"))
 
 
 @dataclass(frozen=True)
@@ -356,10 +345,9 @@ class NNJAGpsroLoader(NNJAArchiveLoader):
         missing = set(CORE_COLUMNS) - available
         if missing:
             raise ValueError(f"{origin}: missing required columns {sorted(missing)}")
-        if "occ_latitude" not in available and "tangent_latitude" not in available:
-            raise ValueError(f"{origin}: need occ_latitude or tangent_latitude")
-        if "occ_longitude" not in available and "tangent_longitude" not in available:
-            raise ValueError(f"{origin}: need occ_longitude or tangent_longitude")
+        for occ, tangent in GPSRO_ONE_OF:
+            if occ not in available and tangent not in available:
+                raise ValueError(f"{origin}: need {occ} or {tangent}")
 
     def _cycle_sources(self, cycle: pd.Timestamp, halves: list[bool]):
         """Yield ``(table, halves it may serve)`` for one cycle."""

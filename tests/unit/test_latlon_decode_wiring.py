@@ -84,6 +84,19 @@ def test_lev6_arms_resolve_the_geometry_they_claim(name):
 
 
 @pytest.mark.parametrize("name", LEV6_ARMS)
+def test_the_network_bounds_the_ids_its_tokenizer_embeds(name):
+    loop = LOOPS[name]
+    net = _build(loop.model_config)
+    bounds = net.observation_id_bounds()
+    tokenizer = net.backbone_obs_tokenizer
+    assert bounds == {
+        "Observation_Type": tokenizer.embed_table.num_embeddings,
+        "Global_Channel_ID": loop.model_config.sensor_embedder_config.max_global_channels,
+        "Platform_ID": tokenizer.platform_embedding.num_embeddings,
+    }
+
+
+@pytest.mark.parametrize("name", LEV6_ARMS)
 def test_latlon_arms_read_the_latlon_task_not_the_bare_one(name):
     """A latlon_decode arm must resolve ``dataset`` to the ``_latlon`` variant.
 

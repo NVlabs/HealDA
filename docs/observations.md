@@ -17,9 +17,62 @@ NNJA is the source the checkpoints are trained on. The UFS replay archive is an
 earlier source, kept for older runs and described at the end. Each source is
 self-contained: an NNJA run does not need the UFS archive.
 
-The two vocabularies assign different `Global_Channel_ID` values, so a
-checkpoint trained against one archive cannot read the other. Pick the source
-the checkpoint was trained on.
+The two sources hold different observations, prepared differently. The UFS replay
+archive holds the observations GSI thinned and quality controlled in the UFS replay;
+the NNJA archive holds the full NCEP record, which healda's loaders screen and thin.
+Their sensors, channel vocabularies (`Global_Channel_ID`), normalization statistics
+and quality control differ, so a checkpoint works only with the source it was trained
+on.
+
+## Observation pipeline
+
+Observations reach the model through five sequential stages:
+
+1. **Raw observations** (CPU): one table per family, PrepBUFR, GPS-RO and satellite
+   winds, and one per satellite sensor. Contract: `schema.table_schema(kind)`, with
+   `ir_channels` for a satellite sensor. To change it, replace stages 1 and 2
+   together.
+2. **Loading** (CPU): screen and quality control, thin, drop dated channel denials and
+   provider-flagged footprints, convert units and normalize, then emit stage 3. To change
+   it, see `build_obs_loader` in `datasets/da/tasks.py`, `observations/loaders/nnja_*.py`
+   and `observations/loaders/combined.py`.
+3. **Processed observations** (CPU): one unified table for every family, one row per
+   observation, values normalized. Contract: `schema.table_schema("unified")`. To plug in
+   here, see `DAModel.run_analysis_unified`.
+4. **Featurization** (CPU or GPU, no learned weights): the HEALPix pixel at the model
+   level, time, geometry and position features, and the values and ids packed into a
+   `UnifiedObservation`. To change it, see `TransformV2.transform_observations` in
+   `datasets/da/transform.py` and `observations/preprocessing/features.py`.
+5. **Learned model** (GPU): the observation tokenizer embeds the features with the
+   channel, platform and observation-type ids, then the transformer. See
+   `tokenize_observations` in `models/dit.py` and `ObsTokenizerFiLM` in
+   `models/obs_embedding/point_embed_v2.py`.
+
+The entry points:
+
+| input | enters at | contract | healda runs |
+| --- | --- | --- | --- |
+| NNJA archive under `NNJA_ROOT`, read by `healda-inference-local` | 1, on disk | `table_schema` | 2 to 5 |
+| per-family tables, `DAModel.run_analysis(times, prepbufr_tables=..., gpsro_tables=..., satwnd_tables=..., satellite_tables=...)` | 1, in memory | `table_schema` | 2 to 5 |
+| unified table, `DAModel.run_analysis_unified(times, table)` | 3 | `table_schema("unified")` | 4 and 5 |
+
+- **NNJA archive**: the layout is in [NNJA archive](#nnja-archive).
+- **Per-family tables**: per-cycle tables in the archive schemas, keyed by the cycle of
+  the file they come from. Earth2Studio's `HealDAv2` builds them with
+  `adapters.e2s_nnja.analysis_tables`, which derives the archive columns with the same
+  code as the offline ETL that produced the training data. The loaders thin, quality
+  control and normalize them as they do the archive.
+- **Unified table**: one table; concatenate several with `pyarrow.concat_tables`. The
+  caller does thinning, quality control and normalization. Each analysis reads the rows
+  whose `DA_window` is one of its frames' windows, and passes them to stage 4 unchanged.
+  The caller supplies ids and normalized values consistent with the model it runs: for
+  the released checkpoint, the packaged vocabulary and statistics,
+  `loaders.combined.channel_table(nnja_conv=True)`; a modified model defines its own.
+  `run_analysis_unified` raises for a `Global_Channel_ID`, `Platform_ID` or `Observation_Type`
+  outside the network's embedding tables, and for a `sensor_id` the transform does not
+  group.
+
+New channels or platforms need a model whose embedding tables cover their ids.
 
 ## NNJA archive
 
@@ -33,22 +86,22 @@ parquet/gpsro_v3/YYYY/gdas.YYYYMMDD.tHHz.gpsro.tm00.bufr_d.parquet
 parquet/satwnd_v2/YYYYMMDD.parquet
 ```
 
-Wide satellite files require `latitude`, `longitude`, `time_utc`, `da_window`,
-`platform_id`, `satellite_zenith_angle`, `solar_zenith_angle`,
-`field_of_view`, and `hpx2048_nest`, plus sensor-specific observation columns
-whose names and metadata match the packaged sensor vocabulary.
+The columns, Arrow types and field metadata each family is read with are in
+`healda.observations.schema`: `table_schema("prepbufr")`, `table_schema("gpsro")`,
+`table_schema("satwnd")`, and `table_schema(sensor, ir_channels)` for a satellite
+sensor. Each field's metadata `description` gives its unit and meaning; a field with
+`healda.required = false` is read when present. `nnja_balloon_drift` also reads `XDR`,
+`YDR` and `HRDR`, and `nnja_withhold_stations` reads `SID`.
 
-Conventional cycle files require `XOB`, `YOB`, `DHR`, `POB`, and `TYP`, plus
-the value and quality-mark columns for each enabled variable; with
-`nnja_balloon_drift` also `XDR`, `YDR` and `HRDR`. GPS radio
-occultation files require `bending_angle`, `qfro`, `obs_time`,
-`impact_parameter`, `earth_radius_curvature`, and `satellite_id`.
+```python
+from healda.observations import schema
 
-Satellite wind (atmospheric motion vector) files require `time_utc`, `da_window`,
-`latitude`, `longitude`, `hpx4096_nest`, `wind_u_derived`,
-`wind_v_derived`, `assigned_pressure`, `gsi_observation_type`,
-`gsi_type_mapping_tier`, `wind_computation_method`, `ncep_dump_subtype`, and
-`cycle`.
+print(schema.table_schema("cris", "ir32"))
+schema.validate(table, "prepbufr")  # or "gpsro", "satwnd", a sensor name, "unified"
+schema.validate(table, "cris", ir_channels="ir32")
+```
+
+`validate` raises `ValueError` naming every missing or mistyped column.
 
 An NNJA run needs only `NNJA_ROOT`. The conventional channel vocabulary, its
 validity bounds and its normalization statistics all ship with the package.
@@ -195,8 +248,9 @@ loader changes on load:
 (`inference_filters` in `observations/system.py`):
 
 - **Provider quality flags**: footprints that the data provider flags for bad
-  calibration or corrupted data are dropped. The flags and bits per sensor are
-  `SOURCE_QUALITY_FLAGS` in `loaders/nnja_wide.py`: CrIS scan and field-of-view quality,
+  calibration or corrupted data are dropped. The flags per sensor are
+  `SOURCE_QUALITY_FLAGS` in `observations/schema.py` and their bits `SOURCE_FLAG_BITS`
+  in `loaders/nnja_wide.py`: CrIS scan and field-of-view quality,
   IASI `QGFQ`, and ATMS scan, granule and channel quality. A flag applies only where the
   input carries its column. Earth2Studio's `NNJAObsSat` carries them in its per-channel
   `quality` column (ATMS channel quality and CrIS `NFQF`, from which the field-of-view
@@ -224,12 +278,9 @@ channel_table.parquet
 <sensor>/YYYYMMDD/0.parquet
 ```
 
-Each observation file uses the long schema: one row per observation value.
-Required model-facing columns are `Latitude`, `Longitude`,
-`Absolute_Obs_Time`, `DA_window`, `Platform_ID`, `Observation`, and
-`Global_Channel_ID`. Sensor-specific nullable fields are
-`Sat_Zenith_Angle`, `Sol_Zenith_Angle`, `Scan_Angle`, `Pressure`, `Height`,
-`Observation_Type`, `QC_Flag`, and `Analysis_Use_Flag`.
+Each observation file holds the columns of `get_combined_observation_schema()` in
+`observations/schema.py`, one row per observation value, values in physical units; the
+loader normalizes them.
 
 `channel_table.parquet` maps every `Global_Channel_ID` to normalization and
 identity metadata. It must contain `Global_Channel_ID`, `min_valid`,

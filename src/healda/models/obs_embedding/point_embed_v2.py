@@ -276,6 +276,19 @@ class ObsTokenizerFiLM(torch.nn.Module):
             return FILM_BWD_TRITON
         return FILM_BWD_CUTEDSL
 
+    def id_bounds(self) -> dict[str, int]:
+        """Rows of each id embedding, keyed by the unified-table column that indexes it."""
+        global_ids = self.use_global_channel_platform_ids
+        channel = "Global_Channel_ID" if global_ids else "local_channel_id"
+        bounds = {
+            "Observation_Type": self.embed_table.num_embeddings,
+            channel: self.channel_embedding.num_embeddings,
+        }
+        # Local platform ids are mapped by the transform, not read from a column.
+        if global_ids and self.platform_embedding is not None:
+            bounds["Platform_ID"] = self.platform_embedding.num_embeddings
+        return bounds
+
     # --- Pure-PyTorch reference path (used when use_fused_mlp=False) -----------
     # The two helpers below + the else-branch of forward() spell out the tokenizer
     # math step by step. With use_fused_mlp=True they are bypassed:

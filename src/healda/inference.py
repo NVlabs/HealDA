@@ -4,8 +4,9 @@
 
 ``load_da_model`` rebuilds the network the way the run trained it, from the
 ``loop.json`` the checkpoint carries; ``DAModel.run_analysis`` runs the recipe's own
-observation loaders and transform on in-memory cycle tables and returns physical
-fields. Downstream wrappers (Earth2Studio) build on this and add nothing to the
+observation loaders and transform on in-memory cycle tables, and
+``DAModel.run_analysis_unified`` the transform alone on a unified table; both return
+physical fields. Downstream wrappers (Earth2Studio) build on this and add nothing to the
 numerics.
 """
 
@@ -13,10 +14,12 @@ import asyncio
 import dataclasses
 import gc
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
 import torch
 from torch._dynamo.utils import counters as dynamo_counters
 
@@ -32,11 +35,15 @@ from healda.datasets.da.tasks import (
 from healda.datasets.da.transform import TransformV2
 from healda.datasets.da.hourly_latlon_dataset import NLAT as LATLON_NLAT
 from healda.datasets.da.hourly_latlon_dataset import NLON as LATLON_NLON
+from healda.observations import schema
 from healda.observations.system import ObsFilters, inference_filters
 from healda.observations.loaders import threads as obs_threads
-from healda.observations.loaders.nnja_base import CycleTableSource
+from healda.observations.loaders.nnja_base import CycleTableSource, da_windows
 from healda.observations.preprocessing.ir_spectral import ir_channel_preset
 from healda.training.checkpoint import Checkpoint
+
+# What run_analysis and run_analysis_unified take as analysis times.
+AnalysisTimes = pd.DatetimeIndex | Sequence[pd.Timestamp | str]
 
 # Obs pool threads while an analysis runs; training keeps the pool's default size
 INFERENCE_OBS_WORKERS = 32
@@ -96,20 +103,33 @@ class DAModel:
 
     def run_analysis(
         self,
-        analysis_times,
+        analysis_times: AnalysisTimes,
         *,
         satellite_tables: Mapping[str, CycleTableSource] | None = None,
         gpsro_tables: CycleTableSource | None = None,
         satwnd_tables: CycleTableSource | None = None,
         prepbufr_tables: CycleTableSource | None = None,
     ) -> torch.Tensor:
-        """Physical-space analyses ``(b, C, lat, lon)``, one per analysis time.
+        """Analyses from per-family observation tables, run through the recipe's loaders.
 
         Each analysis is the last frame of a ``time_length`` window fed with the
-        observations of every frame. ``satellite_tables`` is keyed by sensor; a stream
-        or sensor not passed contributes no observations.
+        observations of every frame. The loaders quality control, thin and normalize the
+        tables as in training. Analyses run one at a time.
+
+        Args:
+            analysis_times: Analysis times, UTC, anything ``pd.DatetimeIndex`` accepts.
+            satellite_tables: Per sensor name, ``{cycle: table}`` in
+                ``schema.table_schema(sensor)``. A sensor not passed contributes no
+                observations.
+            gpsro_tables: ``{cycle: table}`` in ``schema.table_schema("gpsro")``.
+            satwnd_tables: ``{cycle: table}`` in ``schema.table_schema("satwnd")``.
+            prepbufr_tables: ``{cycle: table}`` in ``schema.table_schema("prepbufr")``.
+                A family not passed contributes no observations.
+
+        Returns:
+            ``(len(analysis_times), len(self.channels), 721, 1440)`` float32 analyses in
+            physical units on the 0.25 degree lat/lon grid, on ``self.device``.
         """
-        times = pd.DatetimeIndex(analysis_times)
         # Training runs several dataloader worker processes that share the CPUs; an
         # analysis runs in one process with every CPU to itself.
         obs_threads.set_workers(
@@ -126,21 +146,92 @@ class DAModel:
             satwnd_table_source={} if satwnd_tables is None else satwnd_tables,
             prepbufr_table_source={} if prepbufr_tables is None else prepbufr_tables,
         )
-        frame_times = [self.frame_times(t) for t in times]
-        loaded = _run_coroutine(self._sel_all(loader, frame_times))
-        cftimes = [
-            [healda.utils.datetime.as_cftime(t) for t in window]
-            for window in frame_times
-        ]
-        frames = [
-            [{"obs_v2": obs["obs_v2"][i]} for i in range(self.loop.time_length)]
-            for obs in loaded
-        ]
-        return self.to_physical(self._forward(cftimes, frames))
+        # One analysis per time, run alone (batch size 1); they stack on the batch axis.
+        analyses = []
+        for time in pd.DatetimeIndex(analysis_times):
+            frame_times = self.frame_times(time)
+            loaded = _run_coroutine(loader.sel_time(frame_times))
+            frames = [{"obs_v2": obs} for obs in loaded["obs_v2"]]
+            analyses.append(self._analysis(frame_times, frames))
+        return torch.cat(analyses)
+
+    def run_analysis_unified(
+        self, analysis_times: AnalysisTimes, observations: pa.Table
+    ) -> torch.Tensor:
+        """Analyses from a unified observation table, skipping the loaders.
+
+        Each frame reads the rows whose ``DA_window`` is one of its windows and passes
+        them to featurization unchanged. Analyses run one at a time.
+
+        Args:
+            analysis_times: Analysis times, UTC, anything ``pd.DatetimeIndex`` accepts.
+            observations: One table in ``schema.table_schema("unified")``, rows already
+                thinned, quality controlled and normalized; rows outside the analyses'
+                windows are not read.
+
+        Returns:
+            ``(len(analysis_times), len(self.channels), 721, 1440)`` float32 analyses in
+            physical units on the 0.25 degree lat/lon grid, on ``self.device``.
+
+        Raises:
+            ValueError: ``observations`` does not match the unified schema, or a read row
+                holds a ``sensor_id`` the transform does not group or an id outside the
+                network's embedding tables.
+        """
+        times = pd.DatetimeIndex(analysis_times)
+        obs = self.loop.obs_config
+        context = (obs.context_start, obs.context_end)
+        windows = {
+            t: da_windows(t, context) for time in times for t in self.frame_times(time)
+        }
+        table = self._unified_table(observations)
+        needed = pd.DatetimeIndex(sorted(set().union(*windows.values())))
+        table = table.filter(pc.is_in(table["DA_window"], pa.array(needed.values)))
+        self._check_ids(table)
+        # One analysis per time, run alone (batch size 1); they stack on the batch axis.
+        analyses = []
+        for time in times:
+            frame_times = self.frame_times(time)
+            frames = [_frame_rows(table, windows[t]) for t in frame_times]
+            analyses.append(self._analysis(frame_times, frames))
+        return torch.cat(analyses)
 
     @staticmethod
-    async def _sel_all(loader, frame_times):
-        return await asyncio.gather(*(loader.sel_time(w) for w in frame_times))
+    def _unified_table(table: pa.Table) -> pa.Table:
+        schema.validate(table, "unified")
+        unified = schema.table_schema("unified")
+        return schema.long_table(
+            {
+                field.name: table[field.name].cast(field.type)
+                for field in unified
+                if field.name in table.column_names
+            },
+            unified,
+        )
+
+    def _check_ids(self, table: pa.Table) -> None:
+        sensors = set(pc.unique(table[schema.SENSOR_ID.name]).to_pylist())
+        unknown = sorted(sensors - set(self.transform.sensor_ids))
+        if unknown:
+            raise ValueError(
+                f"sensor_id {unknown} are not among the transform's sensors "
+                f"{list(self.transform.sensor_ids)}"
+            )
+        for column, rows in self.net.observation_id_bounds().items():
+            largest = pc.max(table[column]).as_py()
+            if largest is not None and largest >= rows:
+                raise ValueError(
+                    f"{column} {largest} is outside the network's embedding table of "
+                    f"{rows} rows"
+                )
+
+    def _analysis(
+        self, frame_times: pd.DatetimeIndex, frames: list[dict]
+    ) -> torch.Tensor:
+        """``(1, C, lat, lon)`` physical-space analysis from one window's frames,
+        ``frames[t]["obs_v2"]``, the frame layout the transform shares with training."""
+        times = [[healda.utils.datetime.as_cftime(t) for t in frame_times]]
+        return self.to_physical(self._forward(times, [frames]))
 
     def _forward(self, times, frames) -> torch.Tensor:
         """Model-space analysis ``(b, C, lat, lon)``, the last frame, for one batch."""
@@ -183,6 +274,15 @@ class DAModel:
         return to_physical(
             prediction, self.loop, restore_fill=self.loop.use_masked_domain_loss
         )
+
+
+def _frame_rows(table: pa.Table, windows: pd.DatetimeIndex) -> dict[str, pa.Table]:
+    """The frame of `table`'s rows in `windows`, one sensor per record batch as the
+    transform takes them."""
+    rows = table.filter(pc.is_in(table["DA_window"], pa.array(windows.values)))
+    sensors = rows[schema.SENSOR_ID.name]
+    parts = [rows.filter(pc.equal(sensors, s)) for s in pc.unique(sensors)]
+    return {"obs_v2": pa.concat_tables(parts) if parts else rows}
 
 
 def to_physical(
@@ -251,25 +351,37 @@ def read_training_loop(checkpoint) -> TrainingLoop:
 
 
 def load_da_model(
-    checkpoint,
-    device,
+    checkpoint: str | os.PathLike,
+    device: torch.device | str,
     *,
     extra_filters: ObsFilters | None = None,
 ) -> DAModel:
     """Rebuild the trained network and its observation pipeline from a checkpoint.
 
-    ``checkpoint`` is a ``.checkpoint`` file written by ``healda-train``. The recipe is
-    the ``loop.json`` stored in it. Only the NNJA 0.25 degree recipe
-    is supported. ``extra_filters`` defaults to ``inference_filters()``: the dated
-    channel denials, and the provider quality flags of tables that carry them. The first
-    call downloads the ERA5 static fields into the healda cache.
+    The recipe is the ``loop.json`` stored in the checkpoint; it must be an NNJA lat/lon
+    recipe. The first call downloads the ERA5 static fields into the healda
+    cache.
+
+    Args:
+        checkpoint: A ``.checkpoint`` file written by ``healda-train``.
+        device: Device the network runs on.
+        extra_filters: Observations removed beyond the recipe's own filters. Defaults to
+            ``inference_filters()``: the dated channel denials, and the provider quality
+            flags of tables that carry them.
+
+    Returns:
+        The model, ready for ``run_analysis`` and ``run_analysis_unified``.
+
+    Raises:
+        ValueError: The checkpoint has no ``loop.json`` or is not an NNJA lat/lon
+            recipe.
     """
     device = torch.device(device)
     loop = read_training_loop(checkpoint)
     obs = loop.obs_config
     if not (loop.latlon_decode and obs.use_nnja_sat and obs.use_nnja_conv):
         raise ValueError(
-            "load_da_model supports only the NNJA lat/lon recipe (latlon_decode with "
+            "load_da_model supports only an NNJA lat/lon recipe (latlon_decode with "
             "use_nnja_sat and use_nnja_conv)"
         )
     net = loop.get_network()

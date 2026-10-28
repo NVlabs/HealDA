@@ -38,11 +38,10 @@ from healda.config.variables import VARIABLE_CONFIGS
 from healda.datasets import static_data
 from healda.observations.footprints import (
     FootprintBlock,
-    LongCells,
     as_tensor,
     bits,
     expand_column,
-    long_cells,
+    valid_measurements,
 )
 from healda.observations.packing import pixel_packing
 from healda.observations.protocols import Observations
@@ -441,6 +440,11 @@ class TransformV2:
             return torch.zeros((0, 0), dtype=torch.long, device=device)
         return torch.stack(luts).to(device)
 
+    @property
+    def sensor_ids(self) -> tuple[int, ...]:
+        """The ``sensor_id`` of each of ``sensors``, in order."""
+        return tuple(self._sensor_name_to_id[name] for name in self.sensors)
+
     @functools.cached_property
     def _ordered_sensor_ids(self) -> torch.Tensor:
         if not self.sensors:
@@ -530,9 +534,13 @@ class TransformV2:
         """Materialize the obs columns the model consumes, one tensor each, on ``device``.
 
         Footprint blocks expand into their slice of each tensor. Consecutive record
-        batches are gathered by one `to_numpy` per column: copying chunk by chunk is much
-        slower on highly fragmented input, where every per-chunk GIL release hands off to
-        a waiting copy thread. Columns fill in parallel on the obs thread pool.
+        batches become one table whose columns are chunked arrays over the batches' own
+        buffers (no copy), and each column is gathered by one `to_numpy`, which copies
+        every chunk into one array inside a single C++ call. Converting and copying chunk
+        by chunk instead costs a Python round trip per chunk, and on highly fragmented
+        input (thousands of small batches) every per-chunk GIL release hands off to a
+        waiting copy thread, which dominates. Columns fill in parallel on the obs thread
+        pool.
         """
         runs: list[tuple[pa.Table | FootprintBlock, int]] = []
         batches: list[pa.RecordBatch] = []
@@ -555,17 +563,22 @@ class TransformV2:
         }
         pool = threads.thread_pool()
         offset = 0
+        # Each run fills the next `count` rows of every output tensor.
         for run, count in runs:
+            # This run's row slice of each tensor, keyed by its unified column name.
             out = {
                 column: tensors[key][offset : offset + count]
                 for column, key in _OBS_TENSOR_COLUMNS.items()
             }
+            # A footprint block expands to one row per valid measurement on `device`;
+            # a long table's columns are copied as they are.
             if isinstance(run, FootprintBlock):
                 fill = functools.partial(
-                    _fill_from_block, run, long_cells(run, device), out
+                    _fill_from_block, run, valid_measurements(run, device), out
                 )
             else:
                 fill = functools.partial(_fill_from_table, run, out)
+            # One column per pool task.
             list(pool.map(fill, _OBS_TENSOR_COLUMNS))
             offset += count
         return tensors
@@ -931,12 +944,12 @@ def collate(obj: Any) -> Any:
 
 def _fill_from_block(
     block: FootprintBlock,
-    cells: LongCells | None,
+    measurements: tuple[torch.Tensor, torch.Tensor] | None,
     out: dict[str, torch.Tensor],
     column: str,
 ) -> None:
     if block.has_column(column):
-        expand_column(block, column, cells, out[column])
+        expand_column(block, column, measurements, out[column])
     else:
         # The columns a satellite row leaves null, as a long table's to_numpy gives them.
         out[column].fill_(0 if column in _OBS_FILL_ZERO else float("nan"))

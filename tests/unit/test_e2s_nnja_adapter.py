@@ -20,6 +20,7 @@ from healda.observations.loaders.nnja_wide import NNJAWideLoader
 from healda.observations.preprocessing import ir_spectral, satwnd_gsi_types
 from healda.observations.preprocessing.gpsro_pressure import derive_level_coordinates
 from healda.observations.preprocessing.sat_helpers import hpx_nest_pixels
+from healda.observations import schema
 from healda.observations.protocols import as_table
 
 CYCLE = pd.Timestamp("2022-01-01T00")
@@ -604,3 +605,28 @@ def test_a_frame_without_a_required_column_is_rejected():
     renamed.attrs = atms.attrs
     with pytest.raises(ValueError, match=r"sat\['atms'\]: .*\['quality'\]"):
         e2s_nnja.analysis_tables(sat={"atms": renamed}, **kwargs)
+
+
+def test_adapter_tables_validate_against_the_schema():
+    atms = _sat_frame("atms", np.arange(1, 23)).assign(quality=0)
+    cris = _sat_frame("cris", sorted(ir_spectral.ir_channel_preset("ir32")["cris"]), 4)
+    tables = e2s_nnja.analysis_tables(
+        prepbufr=_wide_conv(_conv_frame()),
+        gpsro=_wide_conv(_gps_frame(CYCLE)),
+        satwnd=_wide_satwnd(_wind_frame()),
+        sat={
+            "atms": _wide_sat(atms, "atms"),
+            "cris": _wide_sat(cris.assign(quality=0), "cris"),
+        },
+        ir_channels="ir32",
+    )
+    streams = [
+        ("prepbufr", tables["prepbufr_tables"]),
+        ("gpsro", tables["gpsro_tables"]),
+        ("satwnd", tables["satwnd_tables"]),
+        *tables["satellite_tables"].items(),
+    ]
+    for kind, by_cycle in streams:
+        assert by_cycle, kind
+        for table in dict(by_cycle).values():
+            schema.validate(table, kind, ir_channels="ir32")

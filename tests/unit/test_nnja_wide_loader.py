@@ -531,7 +531,7 @@ def test_dated_denial_drops_its_channel_only_inside_its_span():
         block = FootprintBlock(
             sensor_id=SENSOR_NAME_TO_ID["amsua"],
             values=np.zeros((2, 2), dtype=np.float32),
-            valid=None,
+            valid=np.ones((2, 2), dtype=bool),
             footprint_columns={
                 "Platform_ID": np.array([metop_c, metop_b], dtype=np.uint16),
                 "Absolute_Obs_Time": np.full(

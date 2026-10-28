@@ -37,7 +37,7 @@ from healda.observations.loaders.nnja_base import (
     row_generator,
 )
 
-from healda.observations.schema import long_table
+from healda.observations.schema import long_table, required_columns, table_schema
 from healda.observations.loaders.threads import configure_arrow_pools, thread_pool
 from healda.observations.loaders.nnja_gpsro import GPS_LEGACY_SAIDS, NNJAGpsroLoader
 from healda.observations.loaders.nnja_satwnd import (
@@ -150,7 +150,7 @@ SURFACE_WIND_TYPES = (280, 281, 287)
 # Radiosonde and pibal winds, the reports the "sonde" height fill applies to.
 SONDE_WIND_REPORT_TYPES = (220, 221)
 
-CORE_COLUMNS = ("XOB", "YOB", "DHR", "POB", "TYP")
+CORE_COLUMNS = required_columns(table_schema("prepbufr"))
 OPTIONAL_METADATA_COLUMNS = ("ZOB", "CAT", "ELV")
 
 
