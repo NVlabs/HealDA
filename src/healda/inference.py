@@ -128,7 +128,9 @@ class DAModel:
 
         Returns:
             ``(len(analysis_times), len(self.channels), 721, 1440)`` float32 analyses in
-            physical units on the 0.25 degree lat/lon grid, on ``self.device``.
+            physical units on the 0.25 degree lat/lon grid, on ``self.device``. Bounded
+            channels (humidity, water columns, snow depth, soil moisture, sea ice and
+            cloud fractions) are clipped to ``state_transforms.PHYSICAL_BOUNDS``.
         """
         # Training runs several dataloader worker processes that share the CPUs; an
         # analysis runs in one process with every CPU to itself.
@@ -171,7 +173,9 @@ class DAModel:
 
         Returns:
             ``(len(analysis_times), len(self.channels), 721, 1440)`` float32 analyses in
-            physical units on the 0.25 degree lat/lon grid, on ``self.device``.
+            physical units on the 0.25 degree lat/lon grid, on ``self.device``. Bounded
+            channels (humidity, water columns, snow depth, soil moisture, sea ice and
+            cloud fractions) are clipped to ``state_transforms.PHYSICAL_BOUNDS``.
 
         Raises:
             ValueError: ``observations`` does not match the unified schema, or a read row
@@ -270,9 +274,13 @@ class DAModel:
             return out.out[:, :, -1].float()
 
     def to_physical(self, prediction: torch.Tensor) -> torch.Tensor:
-        """Model space ``(b, C, lat, lon)`` -> physical units, fills re-imposed."""
+        """Model space ``(b, C, lat, lon)`` -> physical units, bounded channels clipped
+        to their physical range, fills re-imposed."""
         return to_physical(
-            prediction, self.loop, restore_fill=self.loop.use_masked_domain_loss
+            prediction,
+            self.loop,
+            restore_fill=self.loop.use_masked_domain_loss,
+            clamp=True,
         )
 
 

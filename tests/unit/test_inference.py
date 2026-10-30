@@ -145,6 +145,21 @@ def test_to_physical_denormalizes_inverts_tcw_and_restores_the_sst_fill(masked):
     assert torch.all(physical[:, 2][..., ~ocean] == land_value)
 
 
+def test_to_physical_clips_bounded_channels():
+    # era5_104ch predicts tcw as a residual on tcwv, so both are present
+    channels = ["tcwv", "tcw", "Q500", "tcc", "T500"]
+    batch_info = BatchInfo(channels=channels, center=np.zeros(5), scales=np.ones(5))
+    model = _model(batch_info=batch_info)
+    values = torch.tensor([1.0, 0.0, -1e-4, 1.2, -5.0])
+    prediction = values.view(1, 5, 1, 1).expand(1, 5, 721, 1440)
+
+    physical = model.to_physical(prediction)
+
+    assert torch.all(physical[:, 2] == 0.0)
+    assert torch.all(physical[:, 3] == 1.0)
+    assert torch.all(physical[:, 4] == -5.0)
+
+
 def test_packaged_denials_name_real_channels():
     rows = load_denials()
     assert rows
