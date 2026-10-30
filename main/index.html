@@ -822,8 +822,8 @@ checkpoints whole transformer blocks and saves about 4 GB per block;
 Checkpointing the last 6 blocks takes training from about 150 GB to about 125 GB, within a
 141 GB H200. Checkpointing all 18 takes it to about 70 GB, within an 80 GB H100.</p>
 <p>Each analysis of the released checkpoint reads about 200 million observation tokens.
-Through Earth2Studio's <code>HealDAv2</code>, one analysis needs about 40 GB of GPU memory and 40 GB
-of host memory, including decoding the observations.</p>
+Through Earth2Studio's <code>HealDAv2</code>, one analysis needs about 36 GB of GPU memory, within a
+40 GB card, and about 40 GB of host memory, including decoding the observations.</p>
 <h2 id="prepared-observation-input">Prepared observation input<a class="headerlink" href="#prepared-observation-input" title="Permanent link">&para;</a></h2>
 <p>Training reads prepared Parquet observations from the NNJA archive (<code>NNJA_ROOT</code>),
 the source the checkpoints are trained on. The older UFS replay archive

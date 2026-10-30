@@ -1285,7 +1285,21 @@ A family not passed contributes no observations.</p>
               <code><span title="torch.Tensor">Tensor</span></code>
           –
           <div class="doc-md-description">
-            <p>physical units on the 0.25 degree lat/lon grid, on <code>self.device</code>.</p>
+            <p>physical units on the 0.25 degree lat/lon grid, on <code>self.device</code>. Bounded</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code><span title="torch.Tensor">Tensor</span></code>
+          –
+          <div class="doc-md-description">
+            <p>channels (humidity, water columns, snow depth, soil moisture, sea ice and</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code><span title="torch.Tensor">Tensor</span></code>
+          –
+          <div class="doc-md-description">
+            <p>cloud fractions) are clipped to <code>state_transforms.PHYSICAL_BOUNDS</code>.</p>
           </div>
         </li>
     </ul>
@@ -1351,7 +1365,21 @@ windows are not read.</p>
               <code><span title="torch.Tensor">Tensor</span></code>
           –
           <div class="doc-md-description">
-            <p>physical units on the 0.25 degree lat/lon grid, on <code>self.device</code>.</p>
+            <p>physical units on the 0.25 degree lat/lon grid, on <code>self.device</code>. Bounded</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code><span title="torch.Tensor">Tensor</span></code>
+          –
+          <div class="doc-md-description">
+            <p>channels (humidity, water columns, snow depth, soil moisture, sea ice and</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code><span title="torch.Tensor">Tensor</span></code>
+          –
+          <div class="doc-md-description">
+            <p>cloud fractions) are clipped to <code>state_transforms.PHYSICAL_BOUNDS</code>.</p>
           </div>
         </li>
     </ul>
@@ -1388,7 +1416,8 @@ network's embedding tables.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Model space <code>(b, C, lat, lon)</code> -&gt; physical units, fills re-imposed.</p>
+        <p>Model space <code>(b, C, lat, lon)</code> -&gt; physical units, bounded channels clipped
+to their physical range, fills re-imposed.</p>
 
 
     </div>
