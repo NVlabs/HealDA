@@ -729,14 +729,16 @@ target analysis states, with the observation filtering, thinning and
 normalization applied on load. It does not include raw-data ETL.</p>
 <p>📖 <a href="https://arxiv.org/abs/2601.17636">arXiv (v1)</a> 📦 <a href="https://huggingface.co/nvidia/healda-v2">Checkpoints</a> 📚 <a href="https://nvlabs.github.io/HealDA/">Documentation</a></p>
 <h2 id="inference">Inference<a class="headerlink" href="#inference" title="Permanent link">&para;</a></h2>
-<p>Earth2Studio runs the released checkpoint on NNJA observations as <code>HealDAv2</code>; see the
+<p>Earth2Studio runs the HealDA v2 checkpoint on NNJA observations as <code>HealDAv2</code>; see the
 <a href="https://github.com/NVIDIA/earth2studio/blob/main/examples/05_data_assimilation/04_healda_v2.py">HealDA v2 example</a>.
 Each call downloads the NNJA BUFR files it needs and decodes them on the fly with
 <a href="https://github.com/NVIDIA/earth2bufr">earth2bufr</a>.</p>
 <p>With observations already prepared in the NNJA archive layout
 (<a href="observations/"><code>docs/observations.md</code></a>), <code>healda-inference-local</code> runs the model
 over a date range and writes the analyses to a Zarr store. The scripts that build this
-archive, also based on earth2bufr, are not yet released.</p>
+archive, also based on earth2bufr, are not yet released. Its tables follow
+<code>healda.observations.schema.table_schema</code>, and <code>schema.validate</code> checks a table against it;
+see <a href="observations/#nnja-archive">NNJA archive</a>.</p>
 <p>The <a href="observations/#observation-pipeline">observation pipeline</a> describes each stage
 from raw observations to the model, and where your own observations can enter it.</p>
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
@@ -761,18 +763,20 @@ implementations.</p>
 <h2 id="training">Training<a class="headerlink" href="#training" title="Permanent link">&para;</a></h2>
 <p><code>healda-train</code> is the packaged entry point. Training recipes are named presets
 in <code>healda.cli.train</code>; nested <code>--loop.*</code> options expose the underlying
-dataclasses. Option names retain underscores.</p>
+dataclasses. Option names retain underscores. The v2 checkpoint is the
+<code>v2-nnja-latlon-dense</code> configuration.</p>
 <p>Set paths through environment variables or a <code>.env</code> file:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ERA5_HPX64_104CH_ZARR</span><span class="o">=</span>/data/era5_hpx64_104ch.zarr
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">NNJA_ROOT</span><span class="o">=</span>/data/nnja/
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CHECKPOINT_ROOT</span><span class="o">=</span>/runs
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span>-m<span class="w"> </span>healda.cli.train<span class="w"> </span>--name<span class="w"> </span>debug-single-gpu<span class="w"> </span>--output_dir<span class="w"> </span>/runs
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ERA5_HOURLY_ROOT</span><span class="o">=</span>/data/era5_hourly/<span class="w">            </span><span class="c1"># 0.25 degree ERA5 HDF5 year files</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ERA5_HOURLY_EXT_ROOT</span><span class="o">=</span>/data/era5_hourly_ext/<span class="w">     </span><span class="c1"># &lt;variable&gt;/&lt;year&gt;.h5</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">NNJA_ROOT</span><span class="o">=</span>/data/nnja/
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CHECKPOINT_ROOT</span><span class="o">=</span>/runs
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span>-m<span class="w"> </span>healda.cli.train<span class="w"> </span>--name<span class="w"> </span>debug-single-gpu<span class="w"> </span>--output_dir<span class="w"> </span>/runs
 </code></pre></div>
-<p>This smoke recipe is minimal in duration, not in data requirements. It expects
-the prepared state Zarr and NNJA observation archive used by the selected
-recipe. See <a href="https://github.com/NVlabs/HealDA/blob/main/examples/training/minimal.sh"><code>examples/training/minimal.sh</code></a>.</p>
+<p><code>debug-single-gpu</code> is a quick check: the v2 model at reduced depth and time length 1,
+on one GPU. It needs the ERA5 and NNJA archives prepared. See
+<a href="https://github.com/NVlabs/HealDA/blob/main/examples/training/minimal.sh"><code>examples/training/minimal.sh</code></a>.</p>
 <h3 id="resume-and-fine-tune">Resume and fine-tune<a class="headerlink" href="#resume-and-fine-tune" title="Permanent link">&para;</a></h3>
 <p>Reusing the same <code>--output_dir</code> and <code>--name</code> automatically resumes the newest
 valid <code>training-state-*.checkpoint</code> in that run directory. An alternate run can
@@ -787,7 +791,7 @@ learning-rate schedule (warm-up and decay) runs from the start: give a fine-tuni
 preset its own schedule. Resuming the original run instead continues it at the end of
 its schedule. See
 <a href="https://github.com/NVlabs/HealDA/blob/main/examples/fine_tuning/from_checkpoint.sh"><code>examples/fine_tuning/from_checkpoint.sh</code></a>,
-which uses the HEALPix smoke recipe and does not load the 0.25 degree checkpoints.</p>
+which fine-tunes the v2 checkpoint.</p>
 <h2 id="configuration-structure">Configuration structure<a class="headerlink" href="#configuration-structure" title="Permanent link">&para;</a></h2>
 <p>Configuration has three layers:</p>
 <ol>
@@ -809,21 +813,21 @@ be divisible by <code>time_parallel * space_parallel</code>; the video length mu
 compatible with time sharding. FSDP with <code>space_parallel &gt; 1</code> is not wired.
 Multi-process and multi-node configurations require CUDA/NCCL.</p>
 <h2 id="hardware">Hardware<a class="headerlink" href="#hardware" title="Permanent link">&para;</a></h2>
-<p>The released checkpoint was trained on 32 GB300 GPUs, with 8-way time parallelism and
+<p>The v2 checkpoint was trained on 32 GB300 GPUs, with 8-way time parallelism and
 4-way data parallelism, at about 90,000 samples per 4 hours with the CuTe DSL kernels
 installed (see <a href="#install">Install</a>).</p>
 <p>Set <code>PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True</code> for training and inference. The
 observation count changes from batch to batch, which causes memory fragmentation in
-PyTorch's caching allocator. With it enabled, training the released recipe needs about 150 GB of
+PyTorch's caching allocator. With it enabled, training the v2 configuration needs about 150 GB of
 GPU memory.</p>
 <p>Activation checkpointing lowers this for GPUs with less memory. <code>gradient_checkpointing=2</code>
 checkpoints whole transformer blocks and saves about 4 GB per block;
 <code>gradient_checkpointing_last_n=N</code> applies it to the last <code>N</code> of the 18 blocks (0 for all).
 Checkpointing the last 6 blocks takes training from about 150 GB to about 125 GB, within a
 141 GB H200. Checkpointing all 18 takes it to about 70 GB, within an 80 GB H100.</p>
-<p>Each analysis of the released checkpoint reads about 200 million observation tokens.
+<p>Each analysis of the v2 checkpoint reads about 200 million observation tokens.
 Through Earth2Studio's <code>HealDAv2</code>, one analysis needs about 36 GB of GPU memory, within a
-40 GB card, and about 40 GB of host memory, including decoding the observations.</p>
+40 GB card, and about 40 GB of host memory.</p>
 <h2 id="prepared-observation-input">Prepared observation input<a class="headerlink" href="#prepared-observation-input" title="Permanent link">&para;</a></h2>
 <p>Training reads prepared Parquet observations from the NNJA archive (<code>NNJA_ROOT</code>),
 the source the checkpoints are trained on. The older UFS replay archive

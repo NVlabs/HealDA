@@ -530,32 +530,34 @@
 <h1 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h1>
 <p>The scripts below live in the repository and are included here verbatim.</p>
 <h2 id="minimal-training-run">Minimal training run<a class="headerlink" href="#minimal-training-run" title="Permanent link">&para;</a></h2>
-<p><code>examples/training/minimal.sh</code> runs the single-GPU smoke recipe. It is minimal in
-duration, not in data requirements: it expects the prepared state Zarr and the NNJA
-observation archive used by the selected recipe.</p>
+<p><code>examples/training/minimal.sh</code> runs <code>debug-single-gpu</code>, a quick check: the HealDA v2
+model at reduced depth and time length 1, on one GPU. It needs
+the ERA5 and NNJA archives prepared.</p>
 <div class="highlight"><span class="filename">examples/training/minimal.sh</span><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="ch">#!/usr/bin/env bash</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># SPDX-License-Identifier: Apache-2.0</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nb">set</span><span class="w"> </span>-euo<span class="w"> </span>pipefail
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># The smoke preset is short but still requires compatible prepared assets.</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>:<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ERA5_HPX64_104CH_ZARR</span><span class="p">:?set the packed state Zarr path</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>:<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">NNJA_ROOT</span><span class="p">:?set the NNJA observation archive root</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="nv">OUTPUT_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">OUTPUT_DIR</span><span class="k">:-</span><span class="p">./training-runs</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Quick check: the HealDA v2 model at reduced depth and time length 1, on one GPU.</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="c1"># Needs the ERA5 and NNJA archives prepared.</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>:<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ERA5_HOURLY_ROOT</span><span class="p">:?set the 0.25 degree ERA5 HDF5 root</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>:<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ERA5_HOURLY_EXT_ROOT</span><span class="p">:?set the ERA5 extra-variable root</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>:<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">NNJA_ROOT</span><span class="p">:?set the NNJA observation archive root</span><span class="si">}</span><span class="s2">&quot;</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">  </span>-m<span class="w"> </span>healda.cli.train<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">  </span>--name<span class="w"> </span>debug-single-gpu<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">  </span>--output_dir<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">OUTPUT_DIR</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="c1"># Run this command again with the same name and output directory to resume the</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="c1"># newest valid training-state checkpoint automatically.</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="nv">OUTPUT_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">OUTPUT_DIR</span><span class="k">:-</span><span class="p">./training-runs</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">  </span>-m<span class="w"> </span>healda.cli.train<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">  </span>--name<span class="w"> </span>debug-single-gpu<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">  </span>--output_dir<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">OUTPUT_DIR</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="c1"># Run this command again with the same name and output directory to resume the</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="c1"># newest valid training-state checkpoint automatically.</span>
 </code></pre></div>
 <h2 id="fine-tune-from-a-checkpoint">Fine-tune from a checkpoint<a class="headerlink" href="#fine-tune-from-a-checkpoint" title="Permanent link">&para;</a></h2>
-<p><code>examples/fine_tuning/from_checkpoint.sh</code> initializes model weights from a checkpoint
-with <code>--finetune_from</code>. Optimizer and iterator state are not restored, so give a
+<p><code>examples/fine_tuning/from_checkpoint.sh</code> fine-tunes the v2 checkpoint with
+<code>--finetune_from</code>. Optimizer and iterator state are not restored, so give a
 fine-tuning preset its own learning-rate schedule.</p>
 <div class="highlight"><span class="filename">examples/fine_tuning/from_checkpoint.sh</span><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="ch">#!/usr/bin/env bash</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1"># SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION &amp; AFFILIATES. All rights reserved.</span>
@@ -564,21 +566,24 @@ fine-tuning preset its own learning-rate schedule.</p>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nb">set</span><span class="w"> </span>-euo<span class="w"> </span>pipefail
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># Experimental only: this workflow has not been scientifically validated.</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>:<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ERA5_HPX64_104CH_ZARR</span><span class="p">:?set the packed state Zarr path</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>:<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">NNJA_ROOT</span><span class="p">:?set the NNJA observation archive root</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>:<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">BASE_CHECKPOINT</span><span class="p">:?set a compatible training-state checkpoint</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="nv">OUTPUT_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">OUTPUT_DIR</span><span class="k">:-</span><span class="p">./fine-tuning-runs</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="nv">RUN_NAME</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">RUN_NAME</span><span class="k">:-</span><span class="nv">debug</span><span class="p">-single-gpu</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="c1"># The HealDA v2 configuration runs 8-way time parallel: 8 GPUs, about 150 GB each (README,</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1"># Hardware).</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>:<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ERA5_HOURLY_ROOT</span><span class="p">:?set the 0.25 degree ERA5 HDF5 root</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>:<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ERA5_HOURLY_EXT_ROOT</span><span class="p">:?set the ERA5 extra-variable root</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>:<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">NNJA_ROOT</span><span class="p">:?set the NNJA observation archive root</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>:<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">BASE_CHECKPOINT</span><span class="p">:?set the v2 training-state checkpoint</span><span class="si">}</span><span class="s2">&quot;</span>
 <a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">  </span>-m<span class="w"> </span>healda.cli.train<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">  </span>--name<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">RUN_NAME</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">  </span>--output_dir<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">OUTPUT_DIR</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">  </span>--finetune_from<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">BASE_CHECKPOINT</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>
-<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="c1"># If OUTPUT_DIR/RUN_NAME already contains a valid checkpoint, normal resume</span>
-<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="c1"># takes precedence and BASE_CHECKPOINT is not loaded.</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="nv">OUTPUT_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">OUTPUT_DIR</span><span class="k">:-</span><span class="p">./fine-tuning-runs</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="nv">RUN_NAME</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">RUN_NAME</span><span class="k">:-</span><span class="nv">v2</span><span class="p">-nnja-latlon-dense</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>torchrun<span class="w"> </span>--standalone<span class="w"> </span>--nproc-per-node<span class="o">=</span><span class="m">8</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">  </span>-m<span class="w"> </span>healda.cli.train<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">  </span>--name<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">RUN_NAME</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">  </span>--output_dir<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">OUTPUT_DIR</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">  </span>--finetune_from<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">BASE_CHECKPOINT</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="c1"># If OUTPUT_DIR/RUN_NAME already contains a valid checkpoint, normal resume</span>
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="c1"># takes precedence and BASE_CHECKPOINT is not loaded.</span>
 </code></pre></div>
 
 

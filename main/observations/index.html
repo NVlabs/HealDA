@@ -800,7 +800,7 @@ on.</p>
   caller does thinning, quality control and normalization. Each analysis reads the rows
   whose <code>DA_window</code> is one of its frames' windows, and passes them to stage 4 unchanged.
   The caller supplies ids and normalized values consistent with the model it runs: for
-  the released checkpoint, the packaged vocabulary and statistics,
+  the HealDA v2 checkpoint, the packaged vocabulary and statistics,
   <code>loaders.combined.channel_table(nnja_conv=True)</code>; a modified model defines its own.
   <code>run_analysis_unified</code> raises for a <code>Global_Channel_ID</code>, <code>Platform_ID</code> or <code>Observation_Type</code>
   outside the network's embedding tables, and for a <code>sensor_id</code> the transform does not
@@ -831,7 +831,7 @@ sensor. Each field's metadata <code>description</code> gives its unit and meanin
 <p>An NNJA run needs only <code>NNJA_ROOT</code>. The conventional channel vocabulary, its
 validity bounds and its normalization statistics all ship with the package.</p>
 <h2 id="matching-a-trained-checkpoint">Matching a trained checkpoint<a class="headerlink" href="#matching-a-trained-checkpoint" title="Permanent link">&para;</a></h2>
-<p>The released HealDA v2 checkpoint was trained on the NNJA archive, built from the
+<p>The v2 checkpoint was trained on the NNJA archive, built from the
 NNJA BUFR feeds, with the <code>v2-nnja-latlon-dense</code> configuration in
 <code>healda/cli/train.py</code>. Settings named below take that configuration's values, among them:</p>
 <ul>
