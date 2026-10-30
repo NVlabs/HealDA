@@ -21,7 +21,7 @@ normalization applied on load. It does not include raw-data ETL.
 
 ## Inference
 
-Earth2Studio runs the released checkpoint on NNJA observations as `HealDAv2`; see the
+Earth2Studio runs the HealDA v2 checkpoint on NNJA observations as `HealDAv2`; see the
 [HealDA v2 example](https://github.com/NVIDIA/earth2studio/blob/main/examples/05_data_assimilation/04_healda_v2.py).
 Each call downloads the NNJA BUFR files it needs and decodes them on the fly with
 [earth2bufr](https://github.com/NVIDIA/earth2bufr).
@@ -29,7 +29,9 @@ Each call downloads the NNJA BUFR files it needs and decodes them on the fly wit
 With observations already prepared in the NNJA archive layout
 ([`docs/observations.md`](docs/observations.md)), `healda-inference-local` runs the model
 over a date range and writes the analyses to a Zarr store. The scripts that build this
-archive, also based on earth2bufr, are not yet released.
+archive, also based on earth2bufr, are not yet released. Its tables follow
+`healda.observations.schema.table_schema`, and `schema.validate` checks a table against it;
+see [NNJA archive](docs/observations.md#nnja-archive).
 
 The [observation pipeline](docs/observations.md#observation-pipeline) describes each stage
 from raw observations to the model, and where your own observations can enter it.
@@ -69,12 +71,14 @@ HealDA is licensed under the [Apache License 2.0](LICENSE).
 
 `healda-train` is the packaged entry point. Training recipes are named presets
 in `healda.cli.train`; nested `--loop.*` options expose the underlying
-dataclasses. Option names retain underscores.
+dataclasses. Option names retain underscores. The v2 checkpoint is the
+`v2-nnja-latlon-dense` configuration.
 
 Set paths through environment variables or a `.env` file:
 
 ```bash
-export ERA5_HPX64_104CH_ZARR=/data/era5_hpx64_104ch.zarr
+export ERA5_HOURLY_ROOT=/data/era5_hourly/            # 0.25 degree ERA5 HDF5 year files
+export ERA5_HOURLY_EXT_ROOT=/data/era5_hourly_ext/     # <variable>/<year>.h5
 export NNJA_ROOT=/data/nnja/
 export CHECKPOINT_ROOT=/runs
 
@@ -82,9 +86,9 @@ torchrun --standalone --nproc-per-node=1 \
   -m healda.cli.train --name debug-single-gpu --output_dir /runs
 ```
 
-This smoke recipe is minimal in duration, not in data requirements. It expects
-the prepared state Zarr and NNJA observation archive used by the selected
-recipe. See [`examples/training/minimal.sh`](examples/training/minimal.sh).
+`debug-single-gpu` is a quick check: the v2 model at reduced depth and time length 1,
+on one GPU. It needs the ERA5 and NNJA archives prepared. See
+[`examples/training/minimal.sh`](examples/training/minimal.sh).
 
 ### Resume and fine-tune
 
@@ -104,7 +108,7 @@ learning-rate schedule (warm-up and decay) runs from the start: give a fine-tuni
 preset its own schedule. Resuming the original run instead continues it at the end of
 its schedule. See
 [`examples/fine_tuning/from_checkpoint.sh`](examples/fine_tuning/from_checkpoint.sh),
-which uses the HEALPix smoke recipe and does not load the 0.25 degree checkpoints.
+which fine-tunes the v2 checkpoint.
 
 ## Configuration structure
 
@@ -132,13 +136,13 @@ Multi-process and multi-node configurations require CUDA/NCCL.
 
 ## Hardware
 
-The released checkpoint was trained on 32 GB300 GPUs, with 8-way time parallelism and
+The v2 checkpoint was trained on 32 GB300 GPUs, with 8-way time parallelism and
 4-way data parallelism, at about 90,000 samples per 4 hours with the CuTe DSL kernels
 installed (see [Install](#install)).
 
 Set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` for training and inference. The
 observation count changes from batch to batch, which causes memory fragmentation in
-PyTorch's caching allocator. With it enabled, training the released recipe needs about 150 GB of
+PyTorch's caching allocator. With it enabled, training the v2 configuration needs about 150 GB of
 GPU memory.
 
 Activation checkpointing lowers this for GPUs with less memory. `gradient_checkpointing=2`
@@ -147,9 +151,9 @@ checkpoints whole transformer blocks and saves about 4 GB per block;
 Checkpointing the last 6 blocks takes training from about 150 GB to about 125 GB, within a
 141 GB H200. Checkpointing all 18 takes it to about 70 GB, within an 80 GB H100.
 
-Each analysis of the released checkpoint reads about 200 million observation tokens.
+Each analysis of the v2 checkpoint reads about 200 million observation tokens.
 Through Earth2Studio's `HealDAv2`, one analysis needs about 36 GB of GPU memory, within a
-40 GB card, and about 40 GB of host memory, including decoding the observations.
+40 GB card, and about 40 GB of host memory.
 
 ## Prepared observation input
 

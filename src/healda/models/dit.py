@@ -48,7 +48,6 @@ from healda.models.attention import (
     TEMPORAL_ATTN_EINSUM,
     TemporalAttention,
     SpatialAttention,
-    SpatioTemporalAttention,
     TESpatialAttention,
     DiskSpatialAttention,
 )
@@ -300,11 +299,9 @@ class TransformerBlock(nn.Module):
         # 1. Self-Attn
         self.norm1 = AdaLayerNormZero(dim, emb_channels=emb_channels)
 
+        attn_cls = _spatial_attention_cls(attention_backend, pixel_order, fused_qk_norm)
         self.temporal_attn = None
         if temporal_attention:
-            attn_cls = _spatial_attention_cls(
-                attention_backend, pixel_order, fused_qk_norm
-            )
             self.temporal_attn_norm = AdaLayerNormTemporalAttn(dim, emb_channels)
             self.temporal_attn = TemporalAttention(
                 embed_dim=dim,
@@ -314,8 +311,6 @@ class TransformerBlock(nn.Module):
                 causal_window=temporal_causal_window,
                 temporal_attn_impl=fused_temporal_attn,
             )
-        else:
-            attn_cls = SpatioTemporalAttention
 
         self.attn1 = attn_cls(
             query_dim=dim,
@@ -726,12 +721,6 @@ class DiT(torch.nn.Module):
         self._obs_hpx_level = obs_hpx_level
         attention_backend = normalize_attention_backend(attention_backend)
         self.spatial_token_order = pipeline_token_order(attention_backend)
-        if attention_backend.startswith("disk") and not temporal_attention:
-            # SpatioTemporalAttention is dense global, so the disk would be silently unused
-            # while the whole pipeline still ran in nest.
-            raise NotImplementedError(
-                f"attention_backend={attention_backend!r} requires temporal_attention=True."
-            )
         self.temporal_attention = temporal_attention
         self.compile_dit = compile_dit
         self.as_vit = as_vit

@@ -288,7 +288,7 @@ class TrainingLoop(loop.TrainingLoopBase):
     gradient_checkpointing_last_n: int = 0
     pos_emb_gains: bool = False
     compile_dit: bool = False  # Enable torch.compile for DiT _forward_DiT
-    dit_temporal_attention: bool = True  # if False then full attention
+    dit_temporal_attention: bool = True  # if False, spatial attention only
     dit_temporal_attention_causal: bool = True  # if False then full attention
     # Number of frames each frame can attend to (including itself) in temporal
     # attention; only used when dit_temporal_attention_causal=True. None means full context.
@@ -1787,16 +1787,17 @@ LOOPS["v2-nnja-latlon-beta"] = LOOPS[NNJA_LATLON]  # HealDA v2 beta
 # which is named after --name.
 LOOPS["v2-nnja-latlon-final"] = LOOPS[NNJA_LATLON]
 
-# End-to-end single-GPU training smoke test.
+# End-to-end training smoke test of HealDA v2 at reduced depth and time length 1, on one GPU.
 LOOPS["debug-single-gpu"] = dataclasses.replace(
-    LOOPS[NNJA_HPX64],
-    architecture="dit-5B-d128-2L",
+    LOOPS[NNJA_LATLON_DENSE_POS],
+    architecture="dit-5B-d128-2L-lev6",
     fsdp=False,
     time_parallel=1,
     space_parallel=1,
     time_length=1,
     batch_size=1,
-    gradient_checkpointing=0,
+    gradient_checkpointing=2,
+    gradient_checkpointing_last_n=0,
     dataloader_num_workers=0,
     compile_dit=False,
     compile_optimizer=False,

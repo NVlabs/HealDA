@@ -24,7 +24,7 @@ def test_training_loop_reuses_the_dataset_transform(monkeypatch):
         return FakeDataset()
 
     monkeypatch.setattr(train_mod, "build_training_dataset", fake_build)
-    loop = dataclasses.replace(train_mod.LOOPS["v2-ufs-hpx64"])
+    loop = dataclasses.replace(train_mod.LOOPS["v2-nnja-latlon-dense"])
     assert loop.task is not None
     loop._device_mesh = SimpleNamespace(get_local_rank=lambda dim: 0, shape=(1, 1, 1))
 

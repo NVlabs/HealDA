@@ -69,7 +69,7 @@ The entry points:
   caller does thinning, quality control and normalization. Each analysis reads the rows
   whose `DA_window` is one of its frames' windows, and passes them to stage 4 unchanged.
   The caller supplies ids and normalized values consistent with the model it runs: for
-  the released checkpoint, the packaged vocabulary and statistics,
+  the HealDA v2 checkpoint, the packaged vocabulary and statistics,
   `loaders.combined.channel_table(nnja_conv=True)`; a modified model defines its own.
   `run_analysis_unified` raises for a `Global_Channel_ID`, `Platform_ID` or `Observation_Type`
   outside the network's embedding tables, and for a `sensor_id` the transform does not
@@ -111,7 +111,7 @@ validity bounds and its normalization statistics all ship with the package.
 
 ## Matching a trained checkpoint
 
-The released HealDA v2 checkpoint was trained on the NNJA archive, built from the
+The v2 checkpoint was trained on the NNJA archive, built from the
 NNJA BUFR feeds, with the `v2-nnja-latlon-dense` configuration in
 `healda/cli/train.py`. Settings named below take that configuration's values, among them:
 

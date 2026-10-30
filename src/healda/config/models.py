@@ -27,7 +27,7 @@ ARCHITECTURES: dict[str, Arch] = {
     "dit-l-lev4": Arch(level_in=6, level_model=4),
     "dit-5B": Arch(level_in=6, level_model=5, num_layers=32),
     "dit-5B-d128": Arch(level_in=6, level_model=5, num_layers=32),
-    "dit-5B-d128-2L": Arch(level_in=6, level_model=5, num_layers=2),
+    "dit-5B-d128-2L-lev6": Arch(level_in=6, level_model=6, num_layers=2),
     "dit-5B-d128-16L-lev6": Arch(level_in=6, level_model=6, num_layers=16),
     "dit-5B-d128-18L-lev6": Arch(level_in=6, level_model=6, num_layers=18),
 }

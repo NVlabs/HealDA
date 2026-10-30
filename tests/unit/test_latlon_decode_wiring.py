@@ -10,6 +10,7 @@ import torch
 import healda.models
 from healda.config.models import ARCHITECTURES
 from healda.datasets.da.tasks import TASK_CONFIGS
+from healda.models.attention import DiskSpatialAttention
 from healda.models.hpx256_latlon import Hpx256LatlonModel
 from healda.cli.train import LOOPS, TrainingLoop
 
@@ -60,13 +61,13 @@ def test_every_architecture_runs_in_the_order_the_transform_packs(architecture):
     assert net._level_in == loop.resolved_hpx_in_level
 
 
-def test_disk_attention_needs_temporal_attention():
-    """Otherwise the pipeline reorders to nest and the disk is never used."""
-    loop = TrainingLoop(
-        attention_backend="disk-nest:10.46", dit_temporal_attention=False
-    )
-    with pytest.raises(NotImplementedError, match="requires temporal_attention"):
-        _build(loop.model_config)
+def test_disk_attention_without_temporal_attention():
+    """Spatial and temporal attention are independent: one frame keeps the disk."""
+    loop = TrainingLoop(attention_backend="disk-nest:10.46", time_length=1)
+    net = _build(loop.model_config)
+    for block in net.transformer_blocks:
+        assert isinstance(block.attn1, DiskSpatialAttention)
+        assert block.temporal_attn is None
 
 
 @pytest.mark.parametrize("name", LEV6_ARMS)

@@ -728,26 +728,3 @@ class SpatialAttention(Attention):
     def set_domain_parallel_group(self, group):
         processor = TEAttnProcessor(domain_parallel_group=group)
         self.set_processor(processor)
-
-
-class SpatioTemporalAttention(Attention):
-    def forward(
-        self,
-        hidden_states,
-        attention_mask,
-        encoder_hidden_states,
-        **cross_attention_kwargs,
-    ):
-        b, t, x, c = hidden_states.shape
-        hidden_states = hidden_states.reshape(b, t * x, c)
-        out = super().forward(
-            hidden_states,
-            encoder_hidden_states=encoder_hidden_states,
-            attention_mask=attention_mask,
-            **cross_attention_kwargs,
-        )
-        return out.reshape(b, t, x, c)
-
-    def set_domain_parallel_group(self, group):
-        processor = TEAttnProcessor(domain_parallel_group=group)
-        self.set_processor(processor)

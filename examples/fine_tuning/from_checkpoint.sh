@@ -5,14 +5,17 @@
 set -euo pipefail
 
 # Experimental only: this workflow has not been scientifically validated.
-: "${ERA5_HPX64_104CH_ZARR:?set the packed state Zarr path}"
+# The HealDA v2 configuration runs 8-way time parallel: 8 GPUs, about 150 GB each (README,
+# Hardware).
+: "${ERA5_HOURLY_ROOT:?set the 0.25 degree ERA5 HDF5 root}"
+: "${ERA5_HOURLY_EXT_ROOT:?set the ERA5 extra-variable root}"
 : "${NNJA_ROOT:?set the NNJA observation archive root}"
-: "${BASE_CHECKPOINT:?set a compatible training-state checkpoint}"
+: "${BASE_CHECKPOINT:?set the v2 training-state checkpoint}"
 
 OUTPUT_DIR="${OUTPUT_DIR:-./fine-tuning-runs}"
-RUN_NAME="${RUN_NAME:-debug-single-gpu}"
+RUN_NAME="${RUN_NAME:-v2-nnja-latlon-dense}"
 
-torchrun --standalone --nproc-per-node=1 \
+torchrun --standalone --nproc-per-node=8 \
   -m healda.cli.train \
   --name "${RUN_NAME}" \
   --output_dir "${OUTPUT_DIR}" \
