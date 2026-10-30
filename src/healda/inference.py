@@ -12,6 +12,7 @@ numerics.
 
 import asyncio
 import dataclasses
+import functools
 import gc
 import os
 from collections.abc import Mapping, Sequence
@@ -35,7 +36,7 @@ from healda.datasets.da.tasks import (
 from healda.datasets.da.transform import TransformV2
 from healda.datasets.da.hourly_latlon_dataset import NLAT as LATLON_NLAT
 from healda.datasets.da.hourly_latlon_dataset import NLON as LATLON_NLON
-from healda.observations import schema
+from healda.observations import schema, types
 from healda.observations.system import ObsFilters, inference_filters
 from healda.observations.loaders import threads as obs_threads
 from healda.observations.loaders.nnja_base import CycleTableSource, da_windows
@@ -242,8 +243,19 @@ class DAModel:
         graphs_before = dynamo_counters["stats"]["unique_graphs"]
         # The packed tensors never leave transform_observations, and `unified_obs` is
         # rebound to its tokens, so neither is held into the network.
+        autocast = functools.partial(
+            torch.autocast,
+            device_type=self.device.type,
+            dtype=torch.bfloat16,
+            enabled=self.device.type == "cuda" and self.loop.bf16,
+        )
+
+        def tokenize(rows: types.UnifiedObservation) -> torch.Tensor:
+            with torch.no_grad(), autocast():
+                return self.net.tokenize_observations(rows).obs_tokens
+
         unified_obs, encodings = self.transform.transform_observations(
-            times, frames, self.device
+            times, frames, self.device, tokenize=tokenize
         )
         with torch.inference_mode():
             second_of_day = encodings["second_of_day"].to(self.device)
@@ -251,12 +263,9 @@ class DAModel:
             # The lat/lon model rebuilds its condition; this is the placeholder training
             # feeds.
             condition = torch.zeros(b, 1, t, 1, device=self.device)
-            with torch.autocast(
-                device_type=self.device.type,
-                dtype=torch.bfloat16,
-                enabled=self.device.type == "cuda" and self.loop.bf16,
-            ):
-                unified_obs = self.net.tokenize_observations(unified_obs)
+            with autocast():
+                # The analysis has no observation decoder; the forward reads the tokens.
+                unified_obs = self.net.tokenize_observations(unified_obs).tokens_only()
                 out = self.net(
                     condition,
                     noise_labels=torch.zeros(b, device=self.device),

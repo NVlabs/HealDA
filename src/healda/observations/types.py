@@ -143,6 +143,29 @@ class UnifiedObservation:
             lengths=torch.zeros(1, B, T, dtype=torch.long, device=device),
         )
 
+    def tokens_only(self) -> "UnifiedObservation":
+        """This observation with the columns its ``obs_tokens`` were built from emptied:
+        ``float_metadata`` dropped, and the value, channel, platform and obs-type columns
+        replaced by empty tensors, so their memory is freed (4.5 GiB at 200 M obs).
+
+        For the pixel-attention forward, which reads only ``obs_tokens`` and
+        ``attention_packing``. A network that decodes the observations
+        (``obs_decoder``) reads the emptied columns and needs the full observation.
+        """
+        emptied = (
+            "obs",
+            "local_channel",
+            "local_platform",
+            "obs_type",
+            "global_channel",
+            "global_platform",
+        )
+        return dataclasses.replace(
+            self,
+            float_metadata=None,
+            **{name: getattr(self, name).new_empty(0) for name in emptied},
+        )
+
     @property
     def batch_dims(self):
         """Return (batch, time) shape from 3D offsets (S, B, T)."""

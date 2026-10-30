@@ -69,6 +69,10 @@ _OBS_TENSOR_COLUMNS = {
 _OBS_FILL_ZERO = frozenset({"Platform_ID", "Observation_Type"})
 
 
+# Rows featurized and tokenized at a time in inference; only one chunk of float_metadata exists
+TOKENIZE_CHUNK_ROWS = 1 << 22
+
+
 def _tensor_dtype(field_type: pa.DataType) -> torch.dtype:
     # Timestamps travel as int64 nanoseconds since the epoch, which the featurization reads back.
     if pa.types.is_timestamp(field_type):
@@ -693,7 +697,8 @@ class TransformV2:
         self,
         times: list[list[cftime.datetime]],
         frames: list[list[dict]],
-        device: torch.device | str = "cpu",
+        device: torch.device | str,
+        tokenize: Callable[[types.UnifiedObservation], torch.Tensor],
     ) -> tuple[types.UnifiedObservation, dict[str, torch.Tensor]]:
         """Turn observations into the model's observation features, for
         ``DAModel.run_analysis``: the observation part of ``transform`` (packing into one
@@ -705,12 +710,20 @@ class TransformV2:
         ``transform`` always packs. ``frames[b][t]["obs_v2"]`` is an ``Observations`` or a
         long table.
 
+        Args:
+            tokenize: The network's tokenizer, ``UnifiedObservation`` -> (n, d) tokens.
+                On CUDA, rows are featurized and tokenized ``TOKENIZE_CHUNK_ROWS`` at a
+                time, so ``float_metadata`` is never whole and the result carries
+                ``obs_tokens`` instead.
+
         Returns:
             The ``UnifiedObservation`` and the time encodings ``second_of_day``,
             ``day_of_year`` and ``timestamp``, each (B, T).
         """
         packed, lengths = self._process_obs(times, frames, device)
-        packed, lengths, pix, packing = self._sort_on_device(packed, lengths, device)
+        packed, lengths, pix, packing = self._sort_on_device(
+            packed, lengths, device, tokenize
+        )
         unified_obs = self._featurize(packed, lengths, pix, packing, device)
         return unified_obs, _time_encodings(times)
 
@@ -795,6 +808,7 @@ class TransformV2:
         unsorted: dict[str, torch.Tensor],
         lengths: torch.Tensor,
         device: torch.device | str,
+        tokenize: Callable[[types.UnifiedObservation], torch.Tensor] | None = None,
     ) -> tuple[
         dict[str, torch.Tensor],
         torch.Tensor,
@@ -810,7 +824,8 @@ class TransformV2:
         the returned ones exist. Callers use the returned columns.
 
         Returns ``(tensors, lengths, pix, packing)``: tensors include ``float_metadata`` on
-        CUDA; pix (N,) int32 numbered in ``pixel_order``; packing, the per-pixel counts and
+        CUDA, or ``obs_tokens`` when ``tokenize`` runs (see ``transform_observations``);
+        pix (N,) int32 numbered in ``pixel_order``; packing, the per-pixel counts and
         offsets, None without ``attention_prepack``.
         """
         lengths = lengths.to(device, non_blocking=True)
@@ -836,12 +851,18 @@ class TransformV2:
                 center_lon, center_lat = pix2ang(pix)
                 centers = center_lon.float(), center_lat.float()
                 del center_lon, center_lat
-            obs_tensors, meta = features.featurize(
-                unsorted, order, centers, self.hpx_level
-            )
+            if tokenize is not None:
+                obs_tensors = self._featurize_and_tokenize(
+                    unsorted, order, centers, pix, lengths, packing, device, tokenize
+                )
+            else:
+                obs_tensors, meta = features.featurize(
+                    unsorted, order, centers, self.hpx_level
+                )
+                obs_tensors["float_metadata"] = meta
+                del meta
             unsorted.clear()
-            obs_tensors["float_metadata"] = meta
-            del centers, meta
+            del centers
         elif order is not None:
             # One column at a time, so only one extra column is alive
             obs_tensors = {
@@ -851,6 +872,49 @@ class TransformV2:
         else:
             obs_tensors = unsorted
         return obs_tensors, lengths, pix, packing
+
+    def _featurize_and_tokenize(
+        self,
+        unsorted: dict[str, torch.Tensor],
+        order: torch.Tensor,
+        centers: tuple[torch.Tensor, torch.Tensor] | None,
+        pix: torch.Tensor,
+        lengths: torch.Tensor,
+        packing: types.AttentionPacking,
+        device: torch.device | str,
+        tokenize: Callable[[types.UnifiedObservation], torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """``features.featurize``'s columns with ``obs_tokens`` in place of
+        ``float_metadata``, featurized and tokenized ``TOKENIZE_CHUNK_ROWS`` rows at a
+        time. Both are row-wise, so the tokens are those of the whole table."""
+        n = pix.shape[0]
+        columns = {
+            name: torch.empty(n, dtype=dtype, device=pix.device)
+            for name, dtype in features.OUTPUT_COLUMNS.items()
+        }
+        tokens = None
+        # At least one chunk, so no observations still give (0, d) tokens
+        for start in range(0, max(n, 1), TOKENIZE_CHUNK_ROWS):
+            rows = slice(start, start + TOKENIZE_CHUNK_ROWS)
+            chunk_centers = (
+                None if centers is None else (centers[0][rows], centers[1][rows])
+            )
+            chunk, meta = features.featurize(
+                unsorted, order[rows], chunk_centers, self.hpx_level
+            )
+            for name, values in chunk.items():
+                columns[name][rows] = values
+            chunk["float_metadata"] = meta
+            chunk_tokens = tokenize(
+                self._featurize(chunk, lengths, pix[rows], packing, device)
+            )
+            if tokens is None:
+                tokens = chunk_tokens.new_empty(n, chunk_tokens.shape[1])
+            tokens[rows] = chunk_tokens
+            # Freed before the next chunk's are allocated
+            del chunk, meta, chunk_tokens
+        columns["obs_tokens"] = tokens
+        return columns
 
     def _featurize(
         self,
@@ -870,7 +934,8 @@ class TransformV2:
         ``tokenize_observations`` embeds these into tokens.
         """
         meta = obs.get("float_metadata")
-        if meta is None:
+        tokens = obs.get("obs_tokens")
+        if meta is None and tokens is None:
             meta = features.compute_unified_metadata(
                 obs["target_time_sec"],
                 time=obs["absolute_obs_time"],
@@ -919,6 +984,7 @@ class TransformV2:
             hpx_level=self.hpx_level,
             lengths=lengths,
             attention_packing=packing,
+            obs_tokens=tokens,
         )
 
 

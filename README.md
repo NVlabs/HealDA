@@ -148,8 +148,8 @@ Checkpointing the last 6 blocks takes training from about 150 GB to about 125 GB
 141 GB H200. Checkpointing all 18 takes it to about 70 GB, within an 80 GB H100.
 
 Each analysis of the released checkpoint reads about 200 million observation tokens.
-Through Earth2Studio's `HealDAv2`, one analysis needs about 40 GB of GPU memory and 40 GB
-of host memory, including decoding the observations.
+Through Earth2Studio's `HealDAv2`, one analysis needs about 36 GB of GPU memory, within a
+40 GB card, and about 40 GB of host memory, including decoding the observations.
 
 ## Prepared observation input
 

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Footprint blocks expand to the same long rows on every device and through every path."""
 
+import dataclasses
 import types
 import weakref
 
@@ -12,6 +13,7 @@ import pytest
 import torch
 
 from healda.datasets.base import NormalizationStats
+import healda.datasets.da.transform as transform_module
 from healda.datasets.da.transform import TransformV2
 from healda.inference import DAModel
 from healda.observations.footprints import (
@@ -193,10 +195,13 @@ def test_packed_device_tensors_are_freed_before_the_forward():
 
     class Net:
         def tokenize_observations(self, unified_obs):
-            alive_at_forward.append(sorted(packed))
-            return unified_obs
+            if unified_obs.obs_tokens is not None:
+                return unified_obs
+            tokens = unified_obs.obs.new_zeros(unified_obs.obs.shape[0], 4)
+            return dataclasses.replace(unified_obs, obs_tokens=tokens)
 
         def __call__(self, *args, **kwargs):
+            alive_at_forward.append(sorted(packed))
             return types.SimpleNamespace(out=torch.zeros(1, 1, 1, 1, device="cuda"))
 
     model = types.SimpleNamespace(
@@ -209,11 +214,33 @@ def test_packed_device_tensors_are_freed_before_the_forward():
     assert alive_at_forward == [[]]
 
 
+def tokenize_rows(rows):
+    return torch.cat([rows.float_metadata.float(), rows.obs[:, None]], dim=1)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="featurize is a CUDA kernel")
+def test_chunked_tokens_are_the_tokens_of_the_training_features(monkeypatch):
+    tr = transform(hpx_level=6, attention_prepack=True)
+    blocks = [make_block("atms", 4, 5000, seed=8), make_block("amsua", 6, 3000, seed=9)]
+    frames = frames_of([blocks], as_tables=False)
+    batch = {"unified_obs": tr._process_obs([[TIME]], frames)}
+    training = tr.device_transform(batch, "cuda")["unified_obs"]
+
+    monkeypatch.setattr(transform_module, "TOKENIZE_CHUNK_ROWS", 1000)
+    inference, _ = tr.transform_observations([[TIME]], frames, "cuda", tokenize_rows)
+
+    assert training.obs.shape[0] > 2 * 1000
+    assert inference.float_metadata is None
+    assert torch.equal(inference.obs_tokens, tokenize_rows(training))
+    for name in ("obs", "pix", "local_channel", "global_channel", "global_platform"):
+        assert torch.equal(getattr(inference, name), getattr(training, name))
+
+
 def test_training_featurizes_observations_as_inference_does():
     tr = transform(hpx_level=6, attention_prepack=True)
     blocks = [make_block("atms", 4, 500, seed=8), make_block("amsua", 6, 300, seed=9)]
     frames = frames_of([blocks], as_tables=False)
-    inference, _ = tr.transform_observations([[TIME]], frames, "cpu")
+    inference, _ = tr.transform_observations([[TIME]], frames, "cpu", tokenize_rows)
     # The obs part of the batch `transform` builds for training.
     batch = {"unified_obs": tr._process_obs([[TIME]], frames)}
     keys = list(batch["unified_obs"][0])
@@ -231,10 +258,18 @@ def test_training_featurizes_observations_as_inference_does():
         assert torch.equal(got, want)
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="featurize is a CUDA kernel")
+def test_no_observations_give_empty_tokens():
+    tr = transform(hpx_level=6, attention_prepack=True)
+    frames = frames_of([[make_block("atms", 4, 0, seed=8)]], as_tables=False)
+    inference, _ = tr.transform_observations([[TIME]], frames, "cuda", tokenize_rows)
+    assert inference.obs_tokens.shape[0] == inference.pix.shape[0] == 0
+
+
 def test_no_observations_give_empty_features_in_training_and_inference():
     tr = transform(hpx_level=6, attention_prepack=True)
     frames = frames_of([[make_block("atms", 4, 0, seed=8)]], as_tables=False)
-    inference, _ = tr.transform_observations([[TIME]], frames, "cpu")
+    inference, _ = tr.transform_observations([[TIME]], frames, "cpu", tokenize_rows)
     batch = {"unified_obs": tr._process_obs([[TIME]], frames)}
     training = tr.device_transform(batch, "cpu")["unified_obs"]
     for obs in (inference, training):

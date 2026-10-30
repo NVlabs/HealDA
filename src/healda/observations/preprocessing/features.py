@@ -342,7 +342,7 @@ def featurize(
 ) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
     """``OUTPUT_COLUMNS`` of the ``INPUT_COLUMNS`` columns (all on one CUDA device) and their
     bf16 metadata, in one pass: output row i is input row ``order[i]``, or row i without
-    ``order``.
+    ``order``. With ``order``, there are ``len(order)`` output rows.
 
     With ``centers``, the (lon, lat) HEALPix pixel centres of the output rows at
     ``hpx_level``, the metadata is (N, N_FEATURES + N_POSITION_FEATURES):
@@ -352,7 +352,7 @@ def featurize(
     for name, dtype in INPUT_COLUMNS.items():
         if columns[name].dtype != dtype:
             raise TypeError(f"{name} is {columns[name].dtype}, expected {dtype}")
-    n = columns["latitude"].shape[0]
+    n = columns["latitude"].shape[0] if order is None else order.shape[0]
     device = columns["latitude"].device
     out = {
         name: torch.empty(n, dtype=dtype, device=device)
