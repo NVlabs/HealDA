@@ -16,7 +16,7 @@
         <link rel="prev" href="..">
       
       
-        <link rel="next" href="../examples/">
+        <link rel="next" href="../etl/">
       
       
         
@@ -481,6 +481,152 @@
   
   
   
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building the training data
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Building the training data
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../etl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../etl_era5/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ERA5 targets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../etl_nnja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NNJA observations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     <li class="md-nav__item">
       <a href="../examples/" class="md-nav__link">
         
@@ -809,11 +955,13 @@ on.</p>
 <p>New channels or platforms need a model whose embedding tables cover their ids.</p>
 <h2 id="nnja-archive">NNJA archive<a class="headerlink" href="#nnja-archive" title="Permanent link">&para;</a></h2>
 <p>Set <code>NNJA_ROOT</code>. Files live under <code>NNJA_ROOT/parquet</code> in the following
-layouts, one per observation family:</p>
+layouts, one per observation family; <a href="../etl_nnja/">Building the NNJA archive</a> gives the
+scripts that write them:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>parquet/&lt;sensor&gt;/YYYYMMDD.parquet
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>parquet/cycles/YYYY/gdas.YYYYMMDD.tHHz.prepbufr.nr.parquet
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>parquet/gpsro_v3/YYYY/gdas.YYYYMMDD.tHHz.gpsro.tm00.bufr_d.parquet
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>parquet/satwnd_v2/YYYYMMDD.parquet
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>parquet/ir48/&lt;sensor&gt;/YYYYMMDD.parquet
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>parquet/cycles/YYYY/gdas.YYYYMMDD.tHHz.prepbufr.nr.parquet
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>parquet/gpsro_v3/YYYY/gdas.YYYYMMDD.tHHz.gpsro.tm00.bufr_d.parquet
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>parquet/satwnd_v2/YYYYMMDD.parquet
 </code></pre></div>
 <p>The columns, Arrow types and field metadata each family is read with are in
 <code>healda.observations.schema</code>: <code>table_schema("prepbufr")</code>, <code>table_schema("gpsro")</code>,
@@ -1059,13 +1207,13 @@ unique and consistent with the package vocabulary.</p>
         
         
           
-          <a href="../examples/" class="md-footer__link md-footer__link--next" aria-label="Next: Examples">
+          <a href="../etl/" class="md-footer__link md-footer__link--next" aria-label="Next: Overview">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Examples
+                Overview
               </div>
             </div>
             <div class="md-footer__button md-icon">

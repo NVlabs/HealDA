@@ -490,6 +490,152 @@
   
   
   
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building the training data
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Building the training data
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="etl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="etl_era5/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ERA5 targets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="etl_nnja/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NNJA observations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     <li class="md-nav__item">
       <a href="examples/" class="md-nav__link">
         
@@ -726,7 +872,10 @@
 atmospheric data assimilation. It contains the model architecture, distributed
 training, inference, and data loaders for prepared observations (Parquet) and
 target analysis states, with the observation filtering, thinning and
-normalization applied on load. It does not include raw-data ETL.</p>
+normalization applied on load. Raw-data ETL is not part of the package;
+<code>scripts/etl/era5/</code> builds the ERA5 HDF5 year files the target loaders read, and
+<code>scripts/etl/nnja/</code> the NNJA observation archive the observation loaders read
+(<a href="etl/"><code>docs/etl.md</code></a>).</p>
 <p>📖 <a href="https://arxiv.org/abs/2601.17636">arXiv (v1)</a> 📦 <a href="https://huggingface.co/nvidia/healda-v2">Checkpoints</a> 📚 <a href="https://nvlabs.github.io/HealDA/">Documentation</a></p>
 <h2 id="inference">Inference<a class="headerlink" href="#inference" title="Permanent link">&para;</a></h2>
 <p>Earth2Studio runs the HealDA v2 checkpoint on NNJA observations as <code>HealDAv2</code>; see the
@@ -735,8 +884,8 @@ Each call downloads the NNJA BUFR files it needs and decodes them on the fly wit
 <a href="https://github.com/NVIDIA/earth2bufr">earth2bufr</a>.</p>
 <p>With observations already prepared in the NNJA archive layout
 (<a href="observations/"><code>docs/observations.md</code></a>), <code>healda-inference-local</code> runs the model
-over a date range and writes the analyses to a Zarr store. The scripts that build this
-archive, also based on earth2bufr, are not yet released. Its tables follow
+over a date range and writes the analyses to a Zarr store. <a href="etl_nnja/"><code>docs/etl_nnja.md</code></a>
+describes the earth2bufr-based scripts that build this archive. Its tables follow
 <code>healda.observations.schema.table_schema</code>, and <code>schema.validate</code> checks a table against it;
 see <a href="observations/#nnja-archive">NNJA archive</a>.</p>
 <p>The <a href="observations/#observation-pipeline">observation pipeline</a> describes each stage
