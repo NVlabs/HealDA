@@ -47,3 +47,6 @@ STANDARD_TO_QUERY = {
     "sic": "sic",
     "sp": "sp",
 }
+
+# The 75 standard channels, in order.
+CHANNELS_75 = list(STANDARD_TO_QUERY)

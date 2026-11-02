@@ -1855,6 +1855,9 @@ dependencies = [
 cutedsl = [
     { name = "nvidia-cutlass-dsl", extra = ["cu13"] },
 ]
+etl = [
+    { name = "h5netcdf" },
+]
 transformer-engine = [
     { name = "transformer-engine", extra = ["pytorch"] },
 ]
@@ -1891,6 +1894,7 @@ requires-dist = [
     { name = "earth2grid", git = "https://github.com/NVlabs/earth2grid.git?rev=11dcf1b0787a7eb6a8497a3a5a5e1fdcc31232d3" },
     { name = "einops" },
     { name = "fsspec" },
+    { name = "h5netcdf", marker = "extra == 'etl'", specifier = ">=1.7.3" },
     { name = "h5py", specifier = ">=3.15.1" },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "numba", specifier = ">=0.64" },
@@ -1913,7 +1917,7 @@ requires-dist = [
     { name = "xarray", specifier = ">=2025.12.0" },
     { name = "zarr", specifier = ">=3.1.5" },
 ]
-provides-extras = ["cutedsl", "transformer-engine"]
+provides-extras = ["cutedsl", "transformer-engine", "etl"]
 
 [package.metadata.requires-dev]
 dev = [

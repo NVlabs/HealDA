@@ -10,6 +10,8 @@ follow semantic versioning starting with its first tagged release.
 - MkDocs documentation site with an API reference, built by the `docs` workflow and
   published to GitHub Pages with mike; `make docs` and `make docs-serve`.
 - README badges and `CITATION.cff`.
+- `scripts/etl/era5/`: the ERA5 hourly HDF5 year-file ETL (build, verify, thin, split, ARCO
+  ERA5T), run as `python -m scripts.etl.era5.<step>` from the repository root.
 
 - Installable `healda` package and `healda-train` console entry point.
 - Public training, checkpointing, observation-loading, and distributed

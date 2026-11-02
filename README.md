@@ -15,7 +15,8 @@ HealDA is an experimental package for observation-conditioned, HEALPix-grid
 atmospheric data assimilation. It contains the model architecture, distributed
 training, inference, and data loaders for prepared observations (Parquet) and
 target analysis states, with the observation filtering, thinning and
-normalization applied on load. It does not include raw-data ETL.
+normalization applied on load. Raw-data ETL is not part of the package;
+`scripts/etl/era5/` builds the ERA5 HDF5 year files the target loaders read.
 
 📖 [arXiv (v1)](https://arxiv.org/abs/2601.17636) 📦 [Checkpoints](https://huggingface.co/nvidia/healda-v2) 📚 [Documentation](https://nvlabs.github.io/HealDA/)
 

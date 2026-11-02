@@ -68,6 +68,10 @@ cutedsl = [
 transformer-engine = [
     "transformer-engine[pytorch]==2.14.0",
 ]
+# Raw-data ETL in scripts/etl/.
+etl = [
+    "h5netcdf>=1.7.3",
+]
 
 [build-system]
 requires = ["hatchling>=1.27"]

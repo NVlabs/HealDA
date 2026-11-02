@@ -29,7 +29,7 @@ docs-serve:
 	uv run --only-group docs mkdocs serve
 
 test:
-	pytest tests/unit
+	uv run --group dev --extra etl pytest tests/unit tests/scripts
 
 # Reads the NNJA archive, so it skips where the archive is not mounted.
 test-integration:
