@@ -1,0 +1,217 @@
+sensor,descriptor,mnemonic,description,units,base_scale,base_reference,base_bits,meaning,tier,tier_name,recommended_location
+amsua,0-04-001,YEAR,,YEAR,0,0,12,year,A,epoch required,training and source-faithful products
+amsua,0-04-002,MNTH,,MONTH,0,0,4,month,A,epoch required,training and source-faithful products
+amsua,0-04-003,DAYS,,DAY,0,0,6,day of month,A,epoch required,training and source-faithful products
+amsua,0-04-004,HOUR,,HOUR,0,0,5,hour,A,epoch required,training and source-faithful products
+amsua,0-04-005,MINU,,MINUTE,0,0,6,minute,A,epoch required,training and source-faithful products
+amsua,0-04-006,SECO,,SECOND,0,0,6,"second, including any operator-enhanced precision",A,epoch required,training and source-faithful products
+amsua,0-05-002,CLAT,CY),DEGREE,2,-9000,15,coarse-accuracy latitude,A,epoch required,training and source-faithful products
+amsua,0-06-002,CLON,ACY),DEGREE,2,-18000,16,coarse-accuracy longitude,A,epoch required,training and source-faithful products
+amsua,0-01-007,SAID,,CODE TABLE,0,0,10,satellite identifier,A,epoch required,training and source-faithful products
+amsua,0-02-019,SIID,,CODE TABLE,0,0,11,satellite instrument identifier,A,epoch required,training and source-faithful products
+amsua,0-05-043,FOVN,,NUMERIC,0,0,8,field-of-view number,B,selection/QC/feature,training only when used online; always source-faithful
+amsua,0-08-012,LSQL,,CODE TABLE,0,0,2,land/sea qualifier,B,selection/QC/feature,training only when used online; always source-faithful
+amsua,0-07-024,SAZA,,DEGREE,2,-9000,15,satellite zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+amsua,0-07-025,SOZA,,DEGREE,2,-9000,15,solar zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+amsua,0-10-001,HOLS,,M,0,-400,15,height of land surface,B,selection/QC/feature,training only when used online; always source-faithful
+amsua,0-07-002,HMSL,,M,-1,-40,16,platform/orbit height above mean sea level in these templates,B,selection/QC/feature,training only when used online; always source-faithful
+amsua,0-05-022,SOLAZI,,DEGREE TRUE,2,0,16,solar azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+amsua,0-05-021,BEARAZ,,DEGREE TRUE,2,0,16,satellite bearing or azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+amsua,0-05-042,CHNM,,NUMERIC,0,0,6,physical channel number,A,epoch required,training and source-faithful products
+amsua,0-12-163,TMBR,(HIGH ACCURACY),KELVIN,2,0,16,high-accuracy brightness temperature,A,epoch required,training and source-faithful products
+amsua,0-12-206,CSTC,CORRECTION,KELVIN,2,0,10,cold-space temperature correction,C,scientific secondary,source-faithful product
+amsub,0-04-001,YEAR,,YEAR,0,0,12,year,A,epoch required,training and source-faithful products
+amsub,0-04-002,MNTH,,MONTH,0,0,4,month,A,epoch required,training and source-faithful products
+amsub,0-04-003,DAYS,,DAY,0,0,6,day of month,A,epoch required,training and source-faithful products
+amsub,0-04-004,HOUR,,HOUR,0,0,5,hour,A,epoch required,training and source-faithful products
+amsub,0-04-005,MINU,,MINUTE,0,0,6,minute,A,epoch required,training and source-faithful products
+amsub,0-04-006,SECO,,SECOND,0,0,6,"second, including any operator-enhanced precision",A,epoch required,training and source-faithful products
+amsub,0-05-002,CLAT,CY),DEGREE,2,-9000,15,coarse-accuracy latitude,A,epoch required,training and source-faithful products
+amsub,0-06-002,CLON,ACY),DEGREE,2,-18000,16,coarse-accuracy longitude,A,epoch required,training and source-faithful products
+amsub,0-01-007,SAID,,CODE TABLE,0,0,10,satellite identifier,A,epoch required,training and source-faithful products
+amsub,0-02-019,SIID,,CODE TABLE,0,0,11,satellite instrument identifier,A,epoch required,training and source-faithful products
+amsub,0-05-043,FOVN,,NUMERIC,0,0,8,field-of-view number,B,selection/QC/feature,training only when used online; always source-faithful
+amsub,0-08-012,LSQL,,CODE TABLE,0,0,2,land/sea qualifier,B,selection/QC/feature,training only when used online; always source-faithful
+amsub,0-07-024,SAZA,,DEGREE,2,-9000,15,satellite zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+amsub,0-07-025,SOZA,,DEGREE,2,-9000,15,solar zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+amsub,0-10-001,HOLS,,M,0,-400,15,height of land surface,B,selection/QC/feature,training only when used online; always source-faithful
+amsub,0-07-002,HMSL,,M,-1,-40,16,platform/orbit height above mean sea level in these templates,B,selection/QC/feature,training only when used online; always source-faithful
+amsub,0-05-022,SOLAZI,,DEGREE TRUE,2,0,16,solar azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+amsub,0-05-021,BEARAZ,,DEGREE TRUE,2,0,16,satellite bearing or azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+amsub,0-05-042,CHNM,,NUMERIC,0,0,6,physical channel number,A,epoch required,training and source-faithful products
+amsub,0-12-163,TMBR,(HIGH ACCURACY),KELVIN,2,0,16,high-accuracy brightness temperature,A,epoch required,training and source-faithful products
+amsub,0-12-206,CSTC,CORRECTION,KELVIN,2,0,10,cold-space temperature correction,C,scientific secondary,source-faithful product
+mhs,0-04-001,YEAR,,YEAR,0,0,12,year,A,epoch required,training and source-faithful products
+mhs,0-04-002,MNTH,,MONTH,0,0,4,month,A,epoch required,training and source-faithful products
+mhs,0-04-003,DAYS,,DAY,0,0,6,day of month,A,epoch required,training and source-faithful products
+mhs,0-04-004,HOUR,,HOUR,0,0,5,hour,A,epoch required,training and source-faithful products
+mhs,0-04-005,MINU,,MINUTE,0,0,6,minute,A,epoch required,training and source-faithful products
+mhs,0-04-006,SECO,,SECOND,0,0,6,"second, including any operator-enhanced precision",A,epoch required,training and source-faithful products
+mhs,0-05-002,CLAT,CY),DEGREE,2,-9000,15,coarse-accuracy latitude,A,epoch required,training and source-faithful products
+mhs,0-06-002,CLON,ACY),DEGREE,2,-18000,16,coarse-accuracy longitude,A,epoch required,training and source-faithful products
+mhs,0-01-007,SAID,,CODE TABLE,0,0,10,satellite identifier,A,epoch required,training and source-faithful products
+mhs,0-02-019,SIID,,CODE TABLE,0,0,11,satellite instrument identifier,A,epoch required,training and source-faithful products
+mhs,0-05-043,FOVN,,NUMERIC,0,0,8,field-of-view number,B,selection/QC/feature,training only when used online; always source-faithful
+mhs,0-08-012,LSQL,,CODE TABLE,0,0,2,land/sea qualifier,B,selection/QC/feature,training only when used online; always source-faithful
+mhs,0-07-024,SAZA,,DEGREE,2,-9000,15,satellite zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+mhs,0-07-025,SOZA,,DEGREE,2,-9000,15,solar zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+mhs,0-10-001,HOLS,,M,0,-400,15,height of land surface,B,selection/QC/feature,training only when used online; always source-faithful
+mhs,0-07-002,HMSL,,M,-1,-40,16,platform/orbit height above mean sea level in these templates,B,selection/QC/feature,training only when used online; always source-faithful
+mhs,0-05-022,SOLAZI,,DEGREE TRUE,2,0,16,solar azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+mhs,0-05-021,BEARAZ,,DEGREE TRUE,2,0,16,satellite bearing or azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+mhs,0-05-042,CHNM,,NUMERIC,0,0,6,physical channel number,A,epoch required,training and source-faithful products
+mhs,0-12-163,TMBR,(HIGH ACCURACY),KELVIN,2,0,16,high-accuracy brightness temperature,A,epoch required,training and source-faithful products
+mhs,0-12-206,CSTC,CORRECTION,KELVIN,2,0,10,cold-space temperature correction,C,scientific secondary,source-faithful product
+atms,0-01-007,SAID,,CODE TABLE,0,0,10,satellite identifier,A,epoch required,training and source-faithful products
+atms,0-01-033,OGCE,NATING/GENERATING CENTER,CODE TABLE,0,0,8,originating/generating center identifier from common code table C-1,D,archive/provenance,source-faithful product or file metadata
+atms,0-01-034,GSES,NATING/GENERATING SUB-CENTER,CODE TABLE,0,0,8,originating/generating subcenter identifier from common code table C-12,D,archive/provenance,source-faithful product or file metadata
+atms,0-02-019,SIID,,CODE TABLE,0,0,11,satellite instrument identifier,A,epoch required,training and source-faithful products
+atms,0-02-020,SCLF,N,CODE TABLE,0,0,9,satellite classification,D,archive/provenance,source-faithful product or file metadata
+atms,0-04-001,YEAR,,YEAR,0,0,12,year,A,epoch required,training and source-faithful products
+atms,0-04-002,MNTH,,MONTH,0,0,4,month,A,epoch required,training and source-faithful products
+atms,0-04-003,DAYS,,DAY,0,0,6,day of month,A,epoch required,training and source-faithful products
+atms,0-04-004,HOUR,,HOUR,0,0,5,hour,A,epoch required,training and source-faithful products
+atms,0-04-005,MINU,,MINUTE,0,0,6,minute,A,epoch required,training and source-faithful products
+atms,0-04-006,SECO,,SECOND,0,0,6,"second, including any operator-enhanced precision",A,epoch required,training and source-faithful products
+atms,0-05-040,ORBN,,NUMERIC,0,0,24,orbit number,B,selection/QC/feature,training only when used online; always source-faithful
+atms,0-05-041,SLNM,,NUMERIC,0,0,8,scan-line number,B,selection/QC/feature,training only when used online; always source-faithful
+atms,0-05-043,FOVN,,NUMERIC,0,0,8,field-of-view number,B,selection/QC/feature,training only when used online; always source-faithful
+atms,0-33-079,ATMSGQ,LAGS,FLAG TABLE,0,0,16,ATMS granule-level quality flags,B,selection/QC/feature,training only when used online; always source-faithful
+atms,0-33-080,ATMSSQ,S,FLAG TABLE,0,0,20,ATMS scan-level quality flags,B,selection/QC/feature,training only when used online; always source-faithful
+atms,0-33-078,NGQI,,CODE TABLE,0,0,4,geolocation quality indicator,B,selection/QC/feature,training only when used online; always source-faithful
+atms,0-05-001,CLATH,),DEGREE,5,-9000000,25,high-accuracy latitude,A,epoch required,training and source-faithful products
+atms,0-06-001,CLONH,Y),DEGREE,5,-18000000,26,high-accuracy longitude,A,epoch required,training and source-faithful products
+atms,0-07-002,HMSL,,M,-1,-40,16,platform/orbit height above mean sea level in these templates,B,selection/QC/feature,training only when used online; always source-faithful
+atms,0-07-024,SAZA,,DEGREE,2,-9000,15,satellite zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+atms,0-05-021,BEARAZ,,DEGREE TRUE,2,0,16,satellite bearing or azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+atms,0-07-025,SOZA,,DEGREE,2,-9000,15,solar zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+atms,0-05-022,SOLAZI,,DEGREE TRUE,2,0,16,solar azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+atms,0-25-075,SACV,CTIONS VERSION NUMBER,NUMERIC,0,0,5,satellite antenna-correction version number,C,scientific secondary,source-faithful product
+atms,0-31-002,DRF16BIT,,NUMERIC,0,0,16,16-bit delayed-replication count,S,structural/manifest,file/channel manifest unless row-varying
+atms,0-05-042,CHNM,,NUMERIC,0,0,6,physical channel number,A,epoch required,training and source-faithful products
+atms,0-02-153,SCCF,R FREQUENCY,HZ,-8,0,26,satellite channel center frequency,C,scientific secondary,source-faithful product
+atms,0-02-154,SCBW,WIDTH,HZ,-8,0,26,satellite channel bandwidth,C,scientific secondary,source-faithful product
+atms,0-02-104,ANPO,,CODE TABLE,0,0,4,antenna polarization,C,scientific secondary,source-faithful product
+atms,0-12-066,TMANT,,K,2,0,16,antenna temperature,A,epoch required,training and source-faithful products
+atms,0-12-163,TMBR,(HIGH ACCURACY),KELVIN,2,0,16,high-accuracy brightness temperature,A,epoch required,training and source-faithful products
+atms,0-12-158,NEDTCO,TEMPERATURE VIEWING COLD TARGET,K,2,0,12,noise-equivalent delta temperature viewing the cold target,C,scientific secondary,source-faithful product
+atms,0-12-159,NEDTWA,TEMPERATURE VIEWING WARM TARGET,K,2,0,12,noise-equivalent delta temperature viewing the warm target,C,scientific secondary,source-faithful product
+atms,0-33-081,ATMSCHQ,AGS,FLAG TABLE,0,0,12,ATMS channel-data quality flags,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-01-007,SAID,,CODE TABLE,0,0,10,satellite identifier,A,epoch required,training and source-faithful products
+cris,0-01-033,OGCE,NATING/GENERATING CENTER,CODE TABLE,0,0,8,originating/generating center identifier from common code table C-1,D,archive/provenance,source-faithful product or file metadata
+cris,0-02-019,SIID,,CODE TABLE,0,0,11,satellite instrument identifier,A,epoch required,training and source-faithful products
+cris,0-02-020,SCLF,N,CODE TABLE,0,0,9,satellite classification,D,archive/provenance,source-faithful product or file metadata
+cris,0-04-001,YEAR,,YEAR,0,0,12,year,A,epoch required,training and source-faithful products
+cris,0-04-002,MNTH,,MONTH,0,0,4,month,A,epoch required,training and source-faithful products
+cris,0-04-003,DAYS,,DAY,0,0,6,day of month,A,epoch required,training and source-faithful products
+cris,0-04-004,HOUR,,HOUR,0,0,5,hour,A,epoch required,training and source-faithful products
+cris,0-04-005,MINU,,MINUTE,0,0,6,minute,A,epoch required,training and source-faithful products
+cris,0-04-006,SECO,,SECOND,0,0,6,"second, including any operator-enhanced precision",A,epoch required,training and source-faithful products
+cris,0-27-031,PD00,"E, DISTANCE FROM EARTH'S CENTER",M,2,-1073741824,31,spacecraft Cartesian component toward 0-degree longitude,D,archive/provenance,source-faithful product or file metadata
+cris,0-28-031,PD90,"E, DISTANCE FROM EARTH'S CENTER",M,2,-1073741824,31,spacecraft Cartesian component toward 90-degree longitude,D,archive/provenance,source-faithful product or file metadata
+cris,0-10-031,PDNP,DISTANCE FROM THE EARTH'S CENTER,M,2,-1073741824,31,spacecraft Cartesian component toward the North Pole,D,archive/provenance,source-faithful product or file metadata
+cris,0-05-001,CLATH,),DEGREE,5,-9000000,25,high-accuracy latitude,A,epoch required,training and source-faithful products
+cris,0-06-001,CLONH,Y),DEGREE,5,-18000000,26,high-accuracy longitude,A,epoch required,training and source-faithful products
+cris,0-07-024,SAZA,,DEGREE,2,-9000,15,satellite zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-05-021,BEARAZ,,DEGREE TRUE,2,0,16,satellite bearing or azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-07-025,SOZA,,DEGREE,2,-9000,15,solar zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-05-022,SOLAZI,,DEGREE TRUE,2,0,16,solar azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-08-075,STKO,BIT QUALIFIER,CODE TABLE,0,0,2,satellite track/orbit qualifier,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-05-041,SLNM,,NUMERIC,0,0,8,scan-line number,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-05-045,FORN,,NUMERIC,0,0,8,field-of-regard number,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-05-043,FOVN,,NUMERIC,0,0,8,field-of-view number,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-05-040,ORBN,,NUMERIC,0,0,24,orbit number,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-10-001,HOLS,,M,0,-400,15,height of land surface,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-07-002,HMSL,,M,-1,-40,16,platform/orbit height above mean sea level in these templates,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-21-166,ALFR,,NUMERIC,3,0,10,land fraction,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-08-012,LSQL,,CODE TABLE,0,0,2,land/sea qualifier,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-20-010,TOCC,,%,0,0,7,total cloud cover,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-20-014,HOCT,,M,-1,-40,11,cloud-top height,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-02-165,RDTF,,FLAG TABLE,0,0,15,radiance-type flags,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-33-075,NSQF,S,FLAG TABLE,0,0,13,CrIS scan-level quality flags,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-08-076,TOBD,,CODE TABLE,0,0,6,type of band,C,scientific secondary,source-faithful product
+cris,0-06-029,WVNM,,M**-1,1,0,22,wavenumber,C,scientific secondary,source-faithful product
+cris,0-25-140,STCH,,NUMERIC,0,0,14,start channel number for a band or scale group,S,structural/manifest,file/channel manifest unless row-varying
+cris,0-25-141,ENCH,,NUMERIC,0,0,14,end channel number for a band or scale group,S,structural/manifest,file/channel manifest unless row-varying
+cris,0-33-076,NCQF,GS,FLAG TABLE,0,0,9,CrIS calibration quality flags,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-33-077,NFQF,LAGS,FLAG TABLE,0,0,19,CrIS field-of-view quality flags,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-33-078,NGQI,,CODE TABLE,0,0,4,geolocation quality indicator,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-33-003,QMRKH,,CODE TABLE,0,0,3,quality mark,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-31-002,DRF16BIT,,NUMERIC,0,0,16,16-bit delayed-replication count,S,structural/manifest,file/channel manifest unless row-varying
+cris,0-05-042,CHNM,,NUMERIC,0,0,6,physical channel number,A,epoch required,training and source-faithful products
+cris,0-14-044,SRAD,,W M**-2 SR**-1 CM,7,-100000,22,CrIS spectral channel radiance,A,epoch required,training and source-faithful products
+cris,0-02-141,MTYP,,CCITT IA5,0,0,24,message or measurement type string,D,archive/provenance,source-faithful product or file metadata
+cris,0-31-001,DRF8BIT,,NUMERIC,0,0,8,8-bit delayed-replication count,S,structural/manifest,file/channel manifest unless row-varying
+cris,0-05-060,YAPCG,ENTER OF GRAVITY,DEGREE,6,-8000000,24,imager scene Y angular position from center of gravity,C,scientific secondary,source-faithful product
+cris,0-05-061,ZAPCG,ENTER OF GRAVITY,DEGREE,6,-8000000,24,imager scene Z angular position from center of gravity,C,scientific secondary,source-faithful product
+cris,0-25-085,FCPH,S IN HIRS FOV,NUMERIC,0,0,7,fraction/percentage of clear pixels in the collocated imager FOV,B,selection/QC/feature,training only when used online; always source-faithful
+cris,0-08-023,FOST,,CODE TABLE,0,0,6,type of first-order statistic,C,scientific secondary,source-faithful product
+cris,0-14-043,SCHRAD,,W M**-2 SR**-1 UM**-1,4,0,23,collocated imager channel radiance,C,scientific secondary,source-faithful product
+iasi,0-01-007,SAID,,CODE TABLE,0,0,10,satellite identifier,A,epoch required,training and source-faithful products
+iasi,0-01-031,GCLONG,CENTER,CODE TABLE,0,0,16,originating/generating center identifier,D,archive/provenance,source-faithful product or file metadata
+iasi,0-02-019,SIID,,CODE TABLE,0,0,11,satellite instrument identifier,A,epoch required,training and source-faithful products
+iasi,0-02-020,SCLF,N,CODE TABLE,0,0,9,satellite classification,D,archive/provenance,source-faithful product or file metadata
+iasi,0-04-001,YEAR,,YEAR,0,0,12,year,A,epoch required,training and source-faithful products
+iasi,0-04-002,MNTH,,MONTH,0,0,4,month,A,epoch required,training and source-faithful products
+iasi,0-04-003,DAYS,,DAY,0,0,6,day of month,A,epoch required,training and source-faithful products
+iasi,0-04-004,HOUR,,HOUR,0,0,5,hour,A,epoch required,training and source-faithful products
+iasi,0-04-005,MINU,,MINUTE,0,0,6,minute,A,epoch required,training and source-faithful products
+iasi,0-04-006,SECO,,SECOND,0,0,6,"second, including any operator-enhanced precision",A,epoch required,training and source-faithful products
+iasi,0-05-001,CLATH,),DEGREE,5,-9000000,25,high-accuracy latitude,A,epoch required,training and source-faithful products
+iasi,0-06-001,CLONH,Y),DEGREE,5,-18000000,26,high-accuracy longitude,A,epoch required,training and source-faithful products
+iasi,0-07-024,SAZA,,DEGREE,2,-9000,15,satellite zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+iasi,0-05-021,BEARAZ,,DEGREE TRUE,2,0,16,satellite bearing or azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+iasi,0-07-025,SOZA,,DEGREE,2,-9000,15,solar zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+iasi,0-05-022,SOLAZI,,DEGREE TRUE,2,0,16,solar azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+iasi,0-05-043,FOVN,,NUMERIC,0,0,8,field-of-view number,B,selection/QC/feature,training only when used online; always source-faithful
+iasi,0-05-040,ORBN,,NUMERIC,0,0,24,orbit number,B,selection/QC/feature,training only when used online; always source-faithful
+iasi,0-05-041,SLNM,,NUMERIC,0,0,8,scan-line number,B,selection/QC/feature,training only when used online; always source-faithful
+iasi,0-25-070,MJFC,,NUMERIC,0,0,4,major frame count,B,selection/QC/feature,training only when used online; always source-faithful
+iasi,0-07-001,SELV,,M,0,-400,15,station or platform elevation in the owning sequence,B,selection/QC/feature,training only when used online; always source-faithful
+iasi,0-33-060,QGFQ,QUALITY FLAG,CODE TABLE,0,0,2,individual IASI-system summary quality flag,B,selection/QC/feature,training only when used online; always source-faithful
+iasi,0-33-061,QGQI,CATOR (SPECTRAL & RADIOMETRIC),%,0,0,7,IASI instrument-noise quality index from spectral and radiometric calibration,C,scientific secondary,source-faithful product
+iasi,0-33-062,QGQIL,INDICATOR,%,0,0,7,IASI geometric quality index,C,scientific secondary,source-faithful product
+iasi,0-33-063,QGQIR,CATOR (RADIOMETRIC CALIBRATION),%,0,0,7,IASI radiometric-calibration quality index,C,scientific secondary,source-faithful product
+iasi,0-33-064,QGQIS,INDICATOR (SPECTRAL CALIBRATION),%,0,0,7,IASI spectral-calibration quality index,C,scientific secondary,source-faithful product
+iasi,0-33-065,QGSSQ,,NUMERIC,0,0,24,IASI TEC system-quality function output,C,scientific secondary,source-faithful product
+iasi,0-25-140,STCH,,NUMERIC,0,0,14,start channel number for a band or scale group,S,structural/manifest,file/channel manifest unless row-varying
+iasi,0-25-141,ENCH,,NUMERIC,0,0,14,end channel number for a band or scale group,S,structural/manifest,file/channel manifest unless row-varying
+iasi,0-25-142,CHSF,,NUMERIC,0,0,6,channel-group scale exponent,A,epoch required,training and source-faithful products
+iasi,0-31-002,DRF16BIT,,NUMERIC,0,0,16,16-bit delayed-replication count,S,structural/manifest,file/channel manifest unless row-varying
+iasi,0-05-042,CHNM,,NUMERIC,0,0,6,physical channel number,A,epoch required,training and source-faithful products
+iasi,0-14-046,SCRA,,W M**-2 SR**-1 M,0,0,16,scaled IASI radiance source code,A,epoch required,training and source-faithful products
+iasi,0-25-051,AVHCST,ON,FLAG TABLE,0,0,7,AVHRR channel-combination flags,C,scientific secondary,source-faithful product
+iasi,0-05-060,YAPCG,ENTER OF GRAVITY,DEGREE,6,-8000000,24,imager scene Y angular position from center of gravity,C,scientific secondary,source-faithful product
+iasi,0-05-061,ZAPCG,ENTER OF GRAVITY,DEGREE,6,-8000000,24,imager scene Z angular position from center of gravity,C,scientific secondary,source-faithful product
+iasi,0-25-085,FCPH,S IN HIRS FOV,NUMERIC,0,0,7,fraction/percentage of clear pixels in the collocated imager FOV,B,selection/QC/feature,training only when used online; always source-faithful
+iasi,0-14-047,SMRA,NCE,W M**-2 SR**-1 M,0,0,31,scaled mean AVHRR radiance,C,scientific secondary,source-faithful product
+iasi,0-14-048,SSDR,ON OF AVHRR RADIANCE,W M**-2 SR**-1 M,0,0,31,scaled standard deviation of AVHRR radiance,C,scientific secondary,source-faithful product
+airs,0-01-007,SAID,,CODE TABLE,0,0,10,satellite identifier,A,epoch required,training and source-faithful products
+airs,0-05-040,ORBN,,NUMERIC,0,0,24,orbit number,B,selection/QC/feature,training only when used online; always source-faithful
+airs,0-05-041,SLNM,,NUMERIC,0,0,8,scan-line number,B,selection/QC/feature,training only when used online; always source-faithful
+airs,0-25-070,MJFC,,NUMERIC,0,0,4,major frame count,B,selection/QC/feature,training only when used online; always source-faithful
+airs,0-07-001,SELV,,M,0,-400,15,station or platform elevation in the owning sequence,B,selection/QC/feature,training only when used online; always source-faithful
+airs,0-07-025,SOZA,,DEGREE,2,-9000,15,solar zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+airs,0-05-022,SOLAZI,,DEGREE TRUE,2,0,16,solar azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+airs,0-02-151,RAID,,CODE TABLE,0,0,11,radiometer identifier,C,scientific secondary,source-faithful product
+airs,0-12-064,TMINST,,KELVIN,1,0,12,instrument temperature,C,scientific secondary,source-faithful product
+airs,0-02-019,SIID,,CODE TABLE,0,0,11,satellite instrument identifier,A,epoch required,training and source-faithful products
+airs,0-04-001,YEAR,,YEAR,0,0,12,year,A,epoch required,training and source-faithful products
+airs,0-04-002,MNTH,,MONTH,0,0,4,month,A,epoch required,training and source-faithful products
+airs,0-04-003,DAYS,,DAY,0,0,6,day of month,A,epoch required,training and source-faithful products
+airs,0-04-004,HOUR,,HOUR,0,0,5,hour,A,epoch required,training and source-faithful products
+airs,0-04-005,MINU,,MINUTE,0,0,6,minute,A,epoch required,training and source-faithful products
+airs,0-04-006,SECO,,SECOND,0,0,6,"second, including any operator-enhanced precision",A,epoch required,training and source-faithful products
+airs,0-05-001,CLATH,),DEGREE,5,-9000000,25,high-accuracy latitude,A,epoch required,training and source-faithful products
+airs,0-06-001,CLONH,Y),DEGREE,5,-18000000,26,high-accuracy longitude,A,epoch required,training and source-faithful products
+airs,0-07-024,SAZA,,DEGREE,2,-9000,15,satellite zenith angle,B,selection/QC/feature,training only when used online; always source-faithful
+airs,0-05-021,BEARAZ,,DEGREE TRUE,2,0,16,satellite bearing or azimuth,B,selection/QC/feature,training only when used online; always source-faithful
+airs,0-05-043,FOVN,,NUMERIC,0,0,8,field-of-view number,B,selection/QC/feature,training only when used online; always source-faithful
+airs,0-31-002,DRF16BIT,,NUMERIC,0,0,16,16-bit delayed-replication count,S,structural/manifest,file/channel manifest unless row-varying
+airs,0-05-042,CHNM,,NUMERIC,0,0,6,physical channel number,A,epoch required,training and source-faithful products
+airs,0-25-076,LOGRCW,RADIANCE CENTRAL WAVENUMBER),LOG (M-1),8,0,30,log10 of the temperature-radiance central wavenumber in m^-1,C,scientific secondary,source-faithful product
+airs,0-33-032,ACQF,OR ATOVS,FLAG TABLE,0,0,24,AIRS/ATOVS acquisition quality flags,B,selection/QC/feature,training only when used online; always source-faithful
+airs,0-12-163,TMBR,(HIGH ACCURACY),KELVIN,2,0,16,high-accuracy brightness temperature,A,epoch required,training and source-faithful products
+airs,0-08-023,FOST,,CODE TABLE,0,0,6,type of first-order statistic,C,scientific secondary,source-faithful product
+airs,0-14-027,ALBD,,%,0,0,7,albedo,C,scientific secondary,source-faithful product
+airs,0-20-010,TOCC,,%,0,0,7,total cloud cover,B,selection/QC/feature,training only when used online; always source-faithful

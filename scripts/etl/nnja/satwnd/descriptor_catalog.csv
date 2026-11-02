@@ -1,0 +1,114 @@
+sensor,descriptor,mnemonic,description,units,base_scale,base_reference,base_bits,meaning,tier,tier_name,recommended_location,column_name,slot1_promoted
+satwnd,0-01-007,SAID,Satellite identifier,CODE TABLE,0,0,10,satellite identifier,A,epoch required,training and source-faithful products,satellite_id,yes
+satwnd,0-01-012,DOMO,Direction of motion of moving observing platform,DEGREE TRUE,0,0,9,direction of motion of the moving observing platform,C,scientific secondary,source-faithful product,platform_motion_direction,
+satwnd,0-01-023,OSQN,Observation sequence number,NUMERIC,0,0,9,observation sequence number,C,scientific secondary,source-faithful product,observation_sequence_number,
+satwnd,0-01-031,GCLONG,Identification of originating/generating centre,CODE TABLE,0,0,16,originating/generating center identifier,D,archive/provenance,source-faithful product or file metadata,originating_centre_id_long,yes
+satwnd,0-01-032,GNAP,Generating application,CODE TABLE,0,0,8,generating application,B,selection/QC/feature,training only when used online; always source-faithful,generating_application,
+satwnd,0-01-033,OGCE,Identification of originating/generating centre,CODE TABLE,0,0,8,originating/generating center identifier from common code table C-1,D,archive/provenance,source-faithful product or file metadata,originating_centre_id,yes
+satwnd,0-01-034,GSES,Identification of originating/generating sub-centre,CODE TABLE,0,0,8,originating/generating subcenter identifier from common code table C-12,D,archive/provenance,source-faithful product or file metadata,originating_subcentre_id,
+satwnd,0-01-044,GNAPS,Standard generating application,CODE TABLE,0,0,8,standard generating application,B,selection/QC/feature,training only when used online; always source-faithful,standard_generating_application,
+satwnd,0-01-063,ICLI,ICAO LOCATION IDENTIFIER,CCITT IA5,0,0,64,ICAO location identifier,D,archive/provenance,source-faithful product or file metadata,bulletin_origin_icao,
+satwnd,0-01-124,GPTI,Grid point identifier,NUMERIC,0,0,24,grid point identifier,C,scientific secondary,source-faithful product,grid_point_identifier,
+satwnd,0-01-195,SACO,COUNTRY/AGENCY OPERATING SATELLITE (WMO CT 1761),CODE TABLE,0,0,8,country or agency operating the satellite,D,archive/provenance,source-faithful product or file metadata,satellite_operating_agency,
+satwnd,0-01-196,SANA,INDICATOR FIGURE FOR SATELLITE NAME,CCITT IA5,0,0,16,indicator figure for satellite name,D,archive/provenance,source-faithful product or file metadata,satellite_name_indicator,
+satwnd,0-01-198,RPID,REPORT IDENTIFIER,CCITT IA5,0,0,64,report identifier,D,archive/provenance,source-faithful product or file metadata,report_id,
+satwnd,0-01-204,SWPR,SATELLITE WIND PRODUCER,CODE TABLE,0,0,8,satellite wind producer,D,archive/provenance,source-faithful product or file metadata,satellite_wind_producer,
+satwnd,0-01-209,QCPRM,NAME OF QC PARAMETER,CCITT IA5,0,0,32,name of the quality-control parameter,D,archive/provenance,source-faithful product or file metadata,qc_parameter_name,
+satwnd,0-02-002,TIWM,Type of instrumentation for wind measurement,FLAG TABLE,0,0,4,type of instrumentation for wind measurement,C,scientific secondary,source-faithful product,wind_instrumentation_type,
+satwnd,0-02-019,SIID,Satellite instruments,CODE TABLE,0,0,11,satellite instrument identifier,A,epoch required,training and source-faithful products,instrument_id,yes
+satwnd,0-02-020,SCLF,Satellite classification,CODE TABLE,0,0,9,satellite classification,D,archive/provenance,source-faithful product or file metadata,satellite_classification,yes
+satwnd,0-02-023,SWCM,Satellite-derived wind computation method,CODE TABLE,0,0,4,satellite-derived wind computation method,A,epoch required,training and source-faithful products,wind_computation_method,yes
+satwnd,0-02-026,CTRE,Cross-track resolution,M,2,0,12,cross-track resolution at nadir,C,scientific secondary,source-faithful product,cross_track_resolution_at_nadir,
+satwnd,0-02-027,ATRE,Along-track resolution,M,2,0,12,along-track resolution at nadir,C,scientific secondary,source-faithful product,along_track_resolution_at_nadir,
+satwnd,0-02-028,SSNX,Segment size at nadir in x-direction,M,0,0,18,segment size at nadir in x-direction,C,scientific secondary,source-faithful product,segment_size_x,
+satwnd,0-02-029,SSNY,Segment size at nadir in y-direction,M,0,0,18,segment size at nadir in y-direction,C,scientific secondary,source-faithful product,segment_size_y,
+satwnd,0-02-057,OFGI,Origin of first-guess information for GOES-I/M soundings,CODE TABLE,0,0,4,origin of first-guess information,B,selection/QC/feature,training only when used online; always source-faithful,first_guess_origin,yes
+satwnd,0-02-152,SIDP,Satellite instrument used in data processing,FLAG TABLE,0,0,31,satellite instrument used in data processing,B,selection/QC/feature,training only when used online; always source-faithful,instruments_used_in_processing,
+satwnd,0-02-153,SCCF,Satellite channel centre frequency,HZ,-8,0,26,satellite channel center frequency,C,scientific secondary,source-faithful product,satellite_channel_centre_frequency,yes
+satwnd,0-02-154,SCBW,Satellite channel band width,HZ,-8,0,26,satellite channel bandwidth,C,scientific secondary,source-faithful product,satellite_channel_bandwidth,yes
+satwnd,0-02-161,WDPF,Wind processing method,FLAG TABLE,0,0,16,wind processing method,B,selection/QC/feature,training only when used online; always source-faithful,wind_processing_method,
+satwnd,0-02-162,EHAM,Extended height assignment method,CODE TABLE,0,0,6,extended height assignment method,B,selection/QC/feature,training only when used online; always source-faithful,extended_height_assignment_method,
+satwnd,0-02-163,HAMD,Height assignment method,CODE TABLE,0,0,4,height assignment method,B,selection/QC/feature,training only when used online; always source-faithful,height_assignment_method,yes
+satwnd,0-02-164,TCMD,Tracer correlation method,CODE TABLE,0,0,3,tracer correlation method,B,selection/QC/feature,training only when used online; always source-faithful,tracer_correlation_method,yes
+satwnd,0-02-201,SWTP,NESDIS SATELLITE WIND TYPE,CODE TABLE,0,0,8,NESDIS satellite wind type,D,archive/provenance,source-faithful product or file metadata,nesdis_wind_type,
+satwnd,0-02-223,CMCM,SATELLITE DERIVED WIND CALCULATION METHOD,CODE TABLE,0,0,8,"satellite-derived wind computation method, NCEP-local predecessor of SWCM",A,epoch required,training and source-faithful products,wind_computation_method_ncep_local,yes
+satwnd,0-04-001,YEAR,Year,YEAR,0,0,12,year,A,epoch required,training and source-faithful products,year,
+satwnd,0-04-002,MNTH,Month,MONTH,0,0,4,month,A,epoch required,training and source-faithful products,month,
+satwnd,0-04-003,DAYS,Day,DAY,0,0,6,day of month,A,epoch required,training and source-faithful products,day_of_month,
+satwnd,0-04-004,HOUR,Hour,HOUR,0,0,5,hour,A,epoch required,training and source-faithful products,hour,
+satwnd,0-04-005,MINU,Minute,MINUTE,0,0,6,minute,A,epoch required,training and source-faithful products,minute,
+satwnd,0-04-006,SECO,Second,SECONDS,0,0,6,"second, including any operator-enhanced precision",A,epoch required,training and source-faithful products,second,
+satwnd,0-04-024,TPHR,Time period or displacement,HOUR,0,-2048,12,time period or displacement in hours,C,scientific secondary,source-faithful product,time_displacement_hours,
+satwnd,0-04-086,LTDS,Long time period or displacement,SECOND,0,-8192,15,long time period or displacement in seconds,C,scientific secondary,source-faithful product,time_displacement_seconds,
+satwnd,0-04-200,RCYR,YEAR   - TIME OF RECEIPT,YEAR,0,0,12,year of receipt at NCEP,D,archive/provenance,source-faithful product or file metadata,receipt_year,
+satwnd,0-04-201,RCMO,MONTH  - TIME OF RECEIPT,MONTH,0,0,4,month of receipt at NCEP,D,archive/provenance,source-faithful product or file metadata,receipt_month,
+satwnd,0-04-202,RCDY,DAY    - TIME OF RECEIPT,DAY,0,0,6,day of receipt at NCEP,D,archive/provenance,source-faithful product or file metadata,receipt_day,
+satwnd,0-04-203,RCHR,HOUR   - TIME OF RECEIPT,HOUR,0,0,5,hour of receipt at NCEP,D,archive/provenance,source-faithful product or file metadata,receipt_hour,
+satwnd,0-04-204,RCMI,MINUTE - TIME OF RECEIPT,MINUTE,0,0,6,minute of receipt at NCEP,D,archive/provenance,source-faithful product or file metadata,receipt_minute,
+satwnd,0-05-001,CLATH,Latitude (high accuracy),DEGREES,5,-9000000,25,high-accuracy latitude,A,epoch required,training and source-faithful products,latitude,
+satwnd,0-05-002,CLAT,Latitude (coarse accuracy),DEGREES,2,-9000,15,coarse-accuracy latitude,A,epoch required,training and source-faithful products,latitude,
+satwnd,0-05-021,BEARAZ,Bearing or azimuth,DEGREE TRUE,2,0,16,satellite bearing or azimuth,B,selection/QC/feature,training only when used online; always source-faithful,satellite_azimuth_angle,
+satwnd,0-05-040,ORBN,Orbit number,NUMERIC,0,0,24,orbit number,B,selection/QC/feature,training only when used online; always source-faithful,orbit_number,
+satwnd,0-05-042,CHNM,Channel number,NUMERIC,0,0,6,physical channel number,A,epoch required,training and source-faithful products,channel_number,
+satwnd,0-06-001,CLONH,Longitude (high accuracy),DEGREES,5,-18000000,26,high-accuracy longitude,A,epoch required,training and source-faithful products,longitude,
+satwnd,0-06-002,CLON,Longitude (coarse accuracy),DEGREES,2,-18000,16,coarse-accuracy longitude,A,epoch required,training and source-faithful products,longitude,
+satwnd,0-07-004,PRLC,Pressure,PASCALS,-1,0,14,pressure,A,epoch required,training and source-faithful products,assigned_pressure,yes
+satwnd,0-07-024,SAZA,Satellite zenith angle,DEGREE,2,-9000,15,satellite zenith angle,B,selection/QC/feature,training only when used online; always source-faithful,satellite_zenith_angle,yes
+satwnd,0-08-003,VSAT,Vertical significance (satellite observations),CODE TABLE,0,0,6,vertical significance for satellite observations,C,scientific secondary,source-faithful product,vertical_significance_satellite,
+satwnd,0-08-011,METFET,Meteorological feature,CODE TABLE,0,0,6,meteorological feature,C,scientific secondary,source-faithful product,meteorological_feature,
+satwnd,0-08-012,LSQL,Land/sea qualifier,CODE TABLE,0,0,2,land/sea qualifier,B,selection/QC/feature,training only when used online; always source-faithful,land_sea_qualifier,yes
+satwnd,0-08-013,DNQL,Day/night qualifier,CODE TABLE,0,0,2,day/night qualifier,B,selection/QC/feature,training only when used online; always source-faithful,day_night_qualifier,
+satwnd,0-08-021,TSIG,Time significance,CODE TABLE,0,0,5,time significance,B,selection/QC/feature,training only when used online; always source-faithful,time_significance,
+satwnd,0-08-023,FOST,First-order statistics,CODE TABLE,0,0,6,type of first-order statistic,C,scientific secondary,source-faithful product,first_order_statistic,
+satwnd,0-08-086,VSNWP,Vertical significance for NWP,FLAG TABLE,0,0,12,vertical significance for NWP,C,scientific secondary,source-faithful product,vertical_significance_nwp,
+satwnd,0-08-092,MUCE,Measurement uncertainty expression,CODE TABLE,0,0,5,measurement uncertainty expression,B,selection/QC/feature,training only when used online; always source-faithful,measurement_uncertainty_expression,
+satwnd,0-08-092,MUNCEX,Measurement uncertainty expression,CODE TABLE,0,0,5,measurement uncertainty expression,B,selection/QC/feature,training only when used online; always source-faithful,measurement_uncertainty_expression,
+satwnd,0-08-199,SUWS,SOURCE UNITS OF WIND SPEED,CODE TABLE,0,0,3,source units of wind speed,D,archive/provenance,source-faithful product or file metadata,source_wind_speed_units,
+satwnd,0-08-202,RCTS,RECEIPT TIME SIGNIFICANCE,CODE TABLE,0,0,6,receipt time significance,D,archive/provenance,source-faithful product or file metadata,receipt_time_significance,
+satwnd,0-08-220,QFGU,QUALIFIER FOR FIRST GUESS USE IN GENERATING QCPRMS,CODE TABLE,0,0,2,qualifier for first-guess use in generating QC parameters,B,selection/QC/feature,training only when used online; always source-faithful,first_guess_use_qualifier,
+satwnd,0-10-007,HGHT,Height,M,0,-1000,17,height,B,selection/QC/feature,training only when used online; always source-faithful,height,
+satwnd,0-11-001,WDIR,Wind direction,DEGREES TRUE,0,0,9,wind direction,A,epoch required,training and source-faithful products,wind_direction,yes
+satwnd,0-11-002,WSPD,Wind speed,M/SEC,1,0,12,wind speed,A,epoch required,training and source-faithful products,wind_speed,yes
+satwnd,0-11-003,UWND,u-component,M/SEC,1,-4096,13,"u-component of the wind as supplied natively by the producer; NOT the operational wind, which every NCEP route derives from WDIR/WSPD",C,scientific secondary,source-faithful product,wind_u_source,yes
+satwnd,0-11-004,VWND,v-component,M/SEC,1,-4096,13,"v-component of the wind as supplied natively by the producer; NOT the operational wind, which every NCEP route derives from WDIR/WSPD",C,scientific secondary,source-faithful product,wind_v_source,yes
+satwnd,0-11-095,UMWV,u-component of the model wind vector,M/SEC,1,-4096,13,u-component of the model wind vector,C,scientific secondary,source-faithful product,model_wind_u,
+satwnd,0-11-096,VWMV,v-component of the model wind vector,M/SEC,1,-4096,13,v-component of the model wind vector,C,scientific secondary,source-faithful product,model_wind_v,
+satwnd,0-11-113,TCOV,Tracking correlation of vector,NUMERIC,3,-1000,12,tracking correlation of vector,B,selection/QC/feature,training only when used online; always source-faithful,tracking_correlation,
+satwnd,0-12-001,TMDBST,Temperature/air temperature,DEGREES KELVIN,1,0,12,air temperature at the assigned level,B,selection/QC/feature,training only when used online; always source-faithful,assigned_level_air_temperature,
+satwnd,0-12-071,CCST,Coldest cluster temperature,K,1,0,12,coldest cluster temperature,B,selection/QC/feature,training only when used online; always source-faithful,coldest_cluster_temperature,
+satwnd,0-12-101,TMDB,Temperature/air temperature,DEGREES KELVIN,2,0,16,air temperature,C,scientific secondary,source-faithful product,air_temperature,
+satwnd,0-12-225,TMDB,TEMPERATURE/DRY BULB TEMPERATURE,DEGREES KELVIN,2,0,16,"air temperature, NCEP-local descriptor",C,scientific secondary,source-faithful product,air_temperature_ncep_local,
+satwnd,0-13-093,COPT,Cloud optical thickness,NUMERIC,0,0,8,cloud optical thickness,C,scientific secondary,source-faithful product,cloud_optical_thickness,
+satwnd,0-13-109,ILWP,Ice/liquid water path,KG/(M**2),3,0,10,ice/liquid water path,C,scientific secondary,source-faithful product,ice_liquid_water_path,
+satwnd,0-14-050,EMMI,Emissivity,%,1,0,10,emissivity,C,scientific secondary,source-faithful product,emissivity,
+satwnd,0-20-012,CLTP,Cloud type,CODE TABLE,0,0,6,cloud type,C,scientific secondary,source-faithful product,cloud_type,
+satwnd,0-20-014,HOCT,Height of top of cloud,M,-1,-40,11,cloud-top height,B,selection/QC/feature,training only when used online; always source-faithful,cloud_top_height,
+satwnd,0-20-016,CDTP,Pressure at top of cloud,PA,-1,0,14,pressure at top of cloud,B,selection/QC/feature,training only when used online; always source-faithful,cloud_top_pressure,
+satwnd,0-20-056,CLDP,Cloud phase,CODE TABLE,0,0,3,cloud phase,C,scientific secondary,source-faithful product,cloud_phase,
+satwnd,0-20-081,CLDMNT,Cloud amount in segment,%,0,0,7,cloud amount in segment,C,scientific secondary,source-faithful product,cloud_amount_in_segment,
+satwnd,0-20-111,XEEM,x-axis error ellipse major component,M,-1,0,17,x-axis error ellipse major component,C,scientific secondary,source-faithful product,error_ellipse_major_axis,
+satwnd,0-20-112,YEEM,y-axis error ellipse minor component,M,-1,0,17,y-axis error ellipse minor component,C,scientific secondary,source-faithful product,error_ellipse_minor_axis,
+satwnd,0-20-114,AXEE,Angle of x-axis in error ellipse,DEGREE,2,-18000,16,angle of x-axis in error ellipse,C,scientific secondary,source-faithful product,error_ellipse_x_axis_angle,
+satwnd,0-25-061,SOFTV,Software identification and version number,CCITT IA5,0,0,96,software identification and version number,D,archive/provenance,source-faithful product or file metadata,software_version,
+satwnd,0-25-062,DBID,Database identification,NUMERIC,0,0,14,database identification,D,archive/provenance,source-faithful product or file metadata,database_id,
+satwnd,0-25-148,CVWD,Coefficient of variation,NUMERIC,2,-10000,15,coefficient of variation,B,selection/QC/feature,training only when used online; always source-faithful,coefficient_of_variation,
+satwnd,0-25-149,OECS,Optimal estimation cost,NUMERIC,0,0,8,optimal estimation cost,B,selection/QC/feature,training only when used online; always source-faithful,optimal_estimation_cost,
+satwnd,0-25-201,SWDL,SATELLITE WIND DEEP LAYER MOISTURE FLAG,CODE TABLE,0,0,2,satellite wind deep-layer moisture flag,B,selection/QC/feature,training only when used online; always source-faithful,deep_layer_moisture_flag,
+satwnd,0-25-202,RFFL,NESDIS RECURSIVE FILTER FLAG,CODE TABLE,0,0,8,NESDIS recursive filter flag,B,selection/QC/feature,training only when used online; always source-faithful,recursive_filter_flag,
+satwnd,0-31-001,DRF8BIT,Delayed descriptor replication factor,NUMERIC,0,0,8,8-bit delayed-replication count,S,structural/manifest,file/channel manifest unless row-varying,delayed_replication_count,
+satwnd,0-31-031,DPRI,Data present indicator,FLAG TABLE,0,0,1,data present indicator,S,structural/manifest,file/channel manifest unless row-varying,data_present_indicator,
+satwnd,0-33-007,PCCF,Per cent confidence,PERCENT,0,0,7,per cent confidence,B,selection/QC/feature,training only when used online; always source-faithful,per_cent_confidence,yes
+satwnd,0-33-035,MAQC,Manual/automatic quality control,CODE TABLE,0,0,4,manual/automatic quality control,B,selection/QC/feature,training only when used online; always source-faithful,manual_automatic_quality_control,
+satwnd,0-33-036,NCTH,Nominal confidence threshold,PERCENT,0,0,7,nominal confidence threshold,B,selection/QC/feature,training only when used online; always source-faithful,nominal_confidence_threshold,
+satwnd,0-33-066,AMVQ,AMV quality flag,FLAG TABLE,0,0,24,AMV quality flag,B,selection/QC/feature,training only when used online; always source-faithful,amv_quality_flag,
+satwnd,0-33-196,RFFL,PER CENT CONFIDENCE BASED ON NESDIS RECURSIVE FILTER FC,PERCENT,0,0,8,per cent confidence from the NESDIS recursive filter,B,selection/QC/feature,training only when used online; always source-faithful,recursive_filter_confidence,
+satwnd,0-33-215,CORN,CORRECTED REPORT INDICATOR,CODE TABLE,0,0,3,corrected report indicator,D,archive/provenance,source-faithful product or file metadata,corrected_report_indicator,yes
+satwnd,0-33-216,SWQM,SDMEDIT SATELLITE WIND QUALITY MARK,CODE TABLE,0,0,4,SDMEDIT satellite wind quality mark,B,selection/QC/feature,training only when used online; always source-faithful,sdmedit_wind_quality_mark,yes
+satwnd,0-35-021,BUHD,Bulletin being monitored (TTAAii),CCITT IA5,0,0,48,bulletin being monitored (TTAAii),D,archive/provenance,source-faithful product or file metadata,bulletin_ttaaii,
+satwnd,0-35-022,BULTIM,Bulletin being monitored (YYGGgg),CCITT IA5,0,0,48,bulletin being monitored (YYGGgg),D,archive/provenance,source-faithful product or file metadata,bulletin_yygggg,
+satwnd,0-35-023,BORG,Bulletin being monitored (CCCC),CCITT IA5,0,0,32,bulletin being monitored (CCCC),D,archive/provenance,source-faithful product or file metadata,bulletin_cccc,
+satwnd,0-35-194,BBB,BULLETIN BEING MONITORED (BBB),CCITT IA5,0,0,48,bulletin being monitored (BBB),D,archive/provenance,source-faithful product or file metadata,bulletin_bbb,
+satwnd,0-35-195,SEQNUM,CHANNEL SEQUENCE NUMBER,CCITT IA5,0,0,32,channel sequence number,D,archive/provenance,source-faithful product or file metadata,channel_sequence_number,
+satwnd,0-40-038,COTH,Cloud particle size,M,7,0,28,cloud particle size,C,scientific secondary,source-faithful product,cloud_particle_size,
+satwnd,0-63-000,BYTCNT,,BYTES,0,0,16,byte count of the enclosing structure,S,structural/manifest,file/channel manifest unless row-varying,byte_count,
+satwnd,0-63-255,BITPAD,,NONE,0,0,1,bit padding to a byte boundary,S,structural/manifest,file/channel manifest unless row-varying,bit_padding,

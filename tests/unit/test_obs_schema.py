@@ -125,6 +125,34 @@ def test_archive_format_tables_validate(kind, table, ir_channels):
     schema.validate(table, kind, ir_channels=ir_channels)
 
 
+def test_the_sounder_schemas_describe_the_archive():
+    atms = {field.name: field for field in schema.footprint_fields("atms")}
+    cris = {field.name: field for field in schema.footprint_fields("cris")}
+    assert atms["scan_quality"].type == pa.uint32()
+    assert cris["scan_quality"].type == pa.uint16()
+    assert atms["channel_auxiliary"].type == schema.ATMS_CHANNEL_AUXILIARY
+    assert atms["hpx2048_nest"].nullable
+
+    table = _atms()
+    index = table.schema.get_field_index("hpx2048_nest")
+    table = table.set_column(
+        index, "hpx2048_nest", pa.array([None, 1], type=pa.uint32())
+    )
+    schema.validate(table, "atms")
+
+
+def test_radiance_sensors_have_an_archive_variant():
+    for sensor, prefix, value_type in (
+        ("cris", "spectral_radiance_code", pa.int32()),
+        ("iasi", "spectral_radiance", pa.float32()),
+    ):
+        field = schema.channel_field(sensor, 16, kelvin=False)
+        assert field.name == f"{prefix}__ch_00016"
+        assert field.type == value_type
+    kelvin = schema.table_schema("cris", "ir48")
+    assert any(name.startswith("brightness_temperature__ch_") for name in kelvin.names)
+
+
 def test_missing_and_mistyped_columns_are_named():
     table = _prepbufr().drop_columns(["TYP"])
     table = table.set_column(0, "XOB", table["XOB"].cast(pa.string()))

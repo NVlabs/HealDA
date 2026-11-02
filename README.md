@@ -16,7 +16,9 @@ atmospheric data assimilation. It contains the model architecture, distributed
 training, inference, and data loaders for prepared observations (Parquet) and
 target analysis states, with the observation filtering, thinning and
 normalization applied on load. Raw-data ETL is not part of the package;
-`scripts/etl/era5/` builds the ERA5 HDF5 year files the target loaders read.
+`scripts/etl/era5/` builds the ERA5 HDF5 year files the target loaders read, and
+`scripts/etl/nnja/` the NNJA observation archive the observation loaders read
+([`docs/etl.md`](docs/etl.md)).
 
 📖 [arXiv (v1)](https://arxiv.org/abs/2601.17636) 📦 [Checkpoints](https://huggingface.co/nvidia/healda-v2) 📚 [Documentation](https://nvlabs.github.io/HealDA/)
 
@@ -29,8 +31,8 @@ Each call downloads the NNJA BUFR files it needs and decodes them on the fly wit
 
 With observations already prepared in the NNJA archive layout
 ([`docs/observations.md`](docs/observations.md)), `healda-inference-local` runs the model
-over a date range and writes the analyses to a Zarr store. The scripts that build this
-archive, also based on earth2bufr, are not yet released. Its tables follow
+over a date range and writes the analyses to a Zarr store. [`docs/etl_nnja.md`](docs/etl_nnja.md)
+describes the earth2bufr-based scripts that build this archive. Its tables follow
 `healda.observations.schema.table_schema`, and `schema.validate` checks a table against it;
 see [NNJA archive](docs/observations.md#nnja-archive).
 

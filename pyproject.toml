@@ -70,6 +70,7 @@ transformer-engine = [
 ]
 # Raw-data ETL in scripts/etl/.
 etl = [
+    "earth2bufr>=0.1.1",
     "h5netcdf>=1.7.3",
 ]
 

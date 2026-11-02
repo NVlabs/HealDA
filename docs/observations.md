@@ -80,10 +80,12 @@ New channels or platforms need a model whose embedding tables cover their ids.
 ## NNJA archive
 
 Set `NNJA_ROOT`. Files live under `NNJA_ROOT/parquet` in the following
-layouts, one per observation family:
+layouts, one per observation family; [Building the NNJA archive](etl_nnja.md) gives the
+scripts that write them:
 
 ```text
 parquet/<sensor>/YYYYMMDD.parquet
+parquet/ir48/<sensor>/YYYYMMDD.parquet
 parquet/cycles/YYYY/gdas.YYYYMMDD.tHHz.prepbufr.nr.parquet
 parquet/gpsro_v3/YYYY/gdas.YYYYMMDD.tHHz.gpsro.tm00.bufr_d.parquet
 parquet/satwnd_v2/YYYYMMDD.parquet

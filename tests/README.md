@@ -7,6 +7,7 @@
 Most unit tests can be run with standard pytest:
 ```bash
 pytest tests/unit/
+pytest tests/scripts/  # the ETL scripts; needs the etl extra
 ```
 
 ### Distributed Tests

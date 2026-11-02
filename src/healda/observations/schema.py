@@ -12,6 +12,9 @@ The documented API is `table_schema` and `validate`. They are the contracts of t
 - the unified table, `table_schema("unified")`, one row per observation, which
   `DAModel.run_analysis_unified` takes.
 
+`footprint_fields` and `channel_field` are the satellite tables' fields, which the NNJA ETL
+writes the archive with.
+
 Each row of the unified table is one scalar measurement: a radiosonde level with u, v, t
 and q is four rows, and a satellite footprint is one row per channel.
 """
@@ -333,19 +336,43 @@ _SCAN_POSITION_FIELDS = {
     "cris": _field("field_of_regard", pa.uint16(), "CrIS scan position"),
 }
 
-_HPX2048 = _field(
-    "hpx2048_nest", pa.uint32(), "HEALPix NESTED pixel at nside 2048", nullable=False
+# Null where the source geolocation is invalid.
+_HPX2048 = _field("hpx2048_nest", pa.uint32(), "HEALPix NESTED pixel at nside 2048")
+
+# One struct per ATMS channel, in source channel order.
+ATMS_CHANNEL_AUXILIARY = pa.list_(
+    pa.struct(
+        [
+            pa.field("channel_number", pa.uint16()),
+            pa.field("center_frequency_hz", pa.float64()),
+            pa.field("bandwidth_hz", pa.float64()),
+            pa.field("polarization", pa.uint8()),
+            pa.field("nedt_cold_k", pa.float32()),
+            pa.field("nedt_warm_k", pa.float32()),
+            pa.field("channel_quality", pa.uint16()),
+        ]
+    ),
+    22,
 )
 
+# Sensor -> flag column -> (description, type in the archive).
 _FLAG_FIELDS = {
-    "scan_quality": ("scan quality flags", pa.uint32()),
-    "granule_quality": ("ATMS granule quality flags", pa.uint16()),
-    "summary_quality": ("IASI summary quality flag", pa.uint8()),
-    "fov_quality_bad": ("CrIS field-of-view quality, nonzero when bad", pa.uint8()),
-    "channel_auxiliary": (
-        "ATMS channel quality bits, or the per-channel struct list holding them",
-        pa.uint16(),
-    ),
+    "cris": {
+        "scan_quality": ("CrIS scan quality flags", pa.uint16()),
+        "fov_quality_bad": (
+            "CrIS field-of-view quality, nonzero when bad",
+            pa.uint8(),
+        ),
+    },
+    "iasi": {"summary_quality": ("IASI summary quality flag", pa.uint8())},
+    "atms": {
+        "scan_quality": ("ATMS scan quality flags", pa.uint32()),
+        "granule_quality": ("ATMS granule quality flags", pa.uint16()),
+        "channel_auxiliary": (
+            "ATMS per-channel structs; channel_quality holds the quality bits",
+            ATMS_CHANNEL_AUXILIARY,
+        ),
+    },
 }
 
 _VALUE_DESCRIPTION = {
@@ -357,29 +384,17 @@ _VALUE_DESCRIPTION = {
 }
 
 
-def _satellite_schema(
-    sensor: str,
-    ir_channels: str | Mapping[str, Sequence[int]] | None = None,
-    *,
-    kelvin: bool = True,
-) -> pa.Schema:
-    """One footprint per row with one column per channel, as `NNJAWideLoader` reads
-    `sensor`; `ir_channels` as in `table_schema`. Without `kelvin`, IASI and CrIS columns
-    are the archive's radiance instead of brightness temperature."""
-    # sensors_nnja imports this module.
-    from healda.observations.sensors_nnja import SENSOR_CONFIGS
-
+def _check_sensor(sensor: str) -> None:
     if sensor not in SENSOR_VALUE_PREFIX:
         raise ValueError(
             f"unknown sensor {sensor!r}, expected one of {sorted(SENSOR_VALUE_PREFIX)}"
         )
-    if isinstance(ir_channels, str):
-        ir_channels = ir_spectral.ir_channel_preset(ir_channels)
-    named = None if ir_channels is None else ir_channels.get(sensor)
-    if named is not None and not len(named):
-        raise ValueError(f"ir_channels names no channel for {sensor!r}")
-    channels = sorted(SENSOR_CONFIGS[sensor].channels if named is None else named)
 
+
+def footprint_fields(sensor: str) -> tuple[pa.Field, ...]:
+    """The fields of `sensor`'s archive table other than its channel columns: footprint
+    location, time and geometry, scan position, HEALPix pixel and source quality flags."""
+    _check_sensor(sensor)
     fields = list(_FOOTPRINT_FIELDS)
     if sensor in _SCAN_POSITION_FIELDS:
         fields.append(_SCAN_POSITION_FIELDS[sensor])
@@ -387,7 +402,7 @@ def _satellite_schema(
     for flag in SOURCE_QUALITY_FLAGS.get(sensor, ()):
         column, _, leaf = flag.rpartition(".list.element.")
         column = column or flag
-        description, flag_type = _FLAG_FIELDS[column]
+        description, flag_type = _FLAG_FIELDS[sensor][column]
         fields.append(
             _optional(
                 column,
@@ -396,24 +411,59 @@ def _satellite_schema(
                 flag_bits=leaf or column,
             )
         )
+    return tuple(fields)
 
+
+def channel_field(
+    sensor: str, channel: int, *, kelvin: bool = True, required: bool = False
+) -> pa.Field:
+    """The value column of `sensor`'s source `channel`. Without `kelvin`, IASI and CrIS
+    columns are the archive's radiance instead of brightness temperature."""
+    _check_sensor(sensor)
     prefix, value_type, metadata = SENSOR_VALUE_PREFIX[sensor], pa.float32(), None
     if kelvin and prefix in RADIANCE_PREFIXES:
         prefix, metadata = KELVIN_PREFIX, {VALUE_UNIT_KEY: b"K"}
     elif prefix == "spectral_radiance_code":
         value_type = pa.int32()
         metadata = {_VALUE_ENCODING_KEY: b'{"reference": int, "scale": int}'}
-    for channel in channels:
-        fields.append(
-            _field(
-                f"{prefix}__ch_{int(channel):05d}",
-                value_type,
-                f"channel {int(channel)} {_VALUE_DESCRIPTION[prefix]}",
-                required=named is not None,
-                metadata=metadata,
-            )
-        )
-    return pa.schema(fields)
+    return _field(
+        f"{prefix}__ch_{int(channel):05d}",
+        value_type,
+        f"channel {int(channel)} {_VALUE_DESCRIPTION[prefix]}",
+        required=required,
+        metadata=metadata,
+    )
+
+
+def _satellite_schema(
+    sensor: str,
+    ir_channels: str | Mapping[str, Sequence[int]] | None = None,
+    *,
+    kelvin: bool = True,
+) -> pa.Schema:
+    """One footprint per row with one column per channel, as `NNJAWideLoader` reads
+    `sensor`; `ir_channels` as in `table_schema`, `kelvin` as in `channel_field`."""
+    # sensors_nnja imports this module.
+    from healda.observations.sensors_nnja import SENSOR_CONFIGS
+
+    _check_sensor(sensor)
+    if isinstance(ir_channels, str):
+        ir_channels = ir_spectral.ir_channel_preset(ir_channels)
+    named = None if ir_channels is None else ir_channels.get(sensor)
+    if named is not None and not len(named):
+        raise ValueError(f"ir_channels names no channel for {sensor!r}")
+    channels = sorted(SENSOR_CONFIGS[sensor].channels if named is None else named)
+    return pa.schema(
+        [
+            *footprint_fields(sensor),
+            *(
+                channel_field(
+                    sensor, channel, kelvin=kelvin, required=named is not None
+                )
+                for channel in channels
+            ),
+        ]
+    )
 
 
 # --- The unified table: one row per observation, what the transform featurizes ----------

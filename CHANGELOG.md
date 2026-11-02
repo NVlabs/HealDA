@@ -11,7 +11,17 @@ follow semantic versioning starting with its first tagged release.
   published to GitHub Pages with mike; `make docs` and `make docs-serve`.
 - README badges and `CITATION.cff`.
 - `scripts/etl/era5/`: the ERA5 hourly HDF5 year-file ETL (build, verify, thin, split, ARCO
-  ERA5T), run as `python -m scripts.etl.era5.<step>` from the repository root.
+  ERA5T), run as `python -m scripts.etl.era5.<step>` from the repository root;
+  `docs/etl_era5.md`.
+- `scripts/etl/nnja/`: the NNJA observation ETL (pull, decode PrepBUFR, GPS-RO, satellite
+  winds and sounders, thin the IR sounders, radiosonde splice), run as
+  `python -m scripts.etl.nnja.<step>` from the repository root; `docs/etl_nnja.md`. The
+  decoder, earth2bufr, is in the `etl` extra.
+- Documentation: "Building the training data" (`docs/etl.md`), an overview of both ETLs
+  linking their pages.
+- `healda.observations.schema.footprint_fields(sensor)` and `channel_field(sensor, channel)`:
+  the satellite archive's columns, which the NNJA ETL writes the archive with;
+  `channel_field(..., kelvin=False)` gives IASI and CrIS channels as stored (radiance).
 
 - Installable `healda` package and `healda-train` console entry point.
 - Public training, checkpointing, observation-loading, and distributed
@@ -51,6 +61,8 @@ follow semantic versioning starting with its first tagged release.
 ### Changed
 
 - The default wandb project is `ufs-da`, the project every HealDA run so far logged to.
+- `healda.observations.schema` describes the NNJA archive as written: `hpx2048_nest` is
+  nullable and source quality flags have per-sensor types (CrIS `scan_quality` uint16).
 - `v2-nnja-latlon-final` is renamed `v2-nnja-latlon-beta`; the old name remains an alias.
 - Training is launched through the packaged CLI.
 - Under time parallelism only the temporal-attention branch is all-to-all'd, in bf16;

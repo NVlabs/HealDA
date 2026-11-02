@@ -119,5 +119,9 @@ copyright: |
 nav:
   - Home: index.md
   - Observations: observations.md
+  - Building the training data:
+      - Overview: etl.md
+      - ERA5 targets: etl_era5.md
+      - NNJA observations: etl_nnja.md
   - Examples: examples.md
   - API reference: api.md
