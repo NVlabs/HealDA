@@ -8,6 +8,7 @@ from typing import Protocol, TypedDict
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from healda.observations.footprints import FootprintBlock, expand
 
@@ -49,3 +50,31 @@ class ObservationLoader(Protocol):
 
 def as_table(obs: Observations | pa.Table) -> pa.Table:
     return obs if isinstance(obs, pa.Table) else obs.to_table()
+
+
+OBS_TIME = "Absolute_Obs_Time"
+
+
+def observed_before(
+    obs: Observations | pa.Table, cutoff: pd.Timestamp
+) -> Observations | pa.Table:
+    """``obs`` without what was observed at or after ``cutoff``."""
+    cutoff = cutoff.as_unit("ns").to_datetime64()
+    stamp = pa.scalar(cutoff, type=pa.timestamp("ns"))
+    # A loader returns one of two forms per analysis time (ObservationBatch): a long table
+    # from a single-source loader (UFS, NNJA conventional, GPS-RO, satellite winds), or
+    # Observations from NNJAWideLoader and CombinedObsLoader.
+    if isinstance(obs, pa.Table):
+        return obs.filter(pc.less(obs[OBS_TIME], stamp))
+    # Observations: satellite footprints stay in their blocks with late ones marked
+    # invalid, as channel denials do; the long rows beside them are filtered.
+    blocks = [
+        dataclasses.replace(
+            block,
+            valid=block.valid & (block.footprint_columns[OBS_TIME] < cutoff),
+        )
+        for block in obs.blocks
+    ]
+    return Observations(
+        blocks=blocks, table=obs.table.filter(pc.less(obs.table[OBS_TIME], stamp))
+    )

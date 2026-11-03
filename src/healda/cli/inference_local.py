@@ -100,6 +100,7 @@ def inference_filters_from_args(args) -> ObsFilters:
             set(args.drop_report_types) | report_types_for(args.drop_obs_families)
         ),
         wind_report_types=sorted(report_types_for(args.drop_wind_obs_families)),
+        final_frame_obs_hours=args.final_frame_obs_hours,
     )
 
 
@@ -209,6 +210,13 @@ class InferenceArgs:
             "Deny NNJA satellite sensor:platform:channel, e.g. amsua:metop-b:3, always"
         ),
     ] = dataclasses.field(default_factory=list)
+    final_frame_obs_hours: a[
+        float | None,
+        Help(
+            "Keep only the observations of the first N hours of the final frame's window; "
+            "earlier frames keep all of theirs"
+        ),
+    ] = None
     profile: a[
         bool, Help("Print per-rank stage timings and writer emit times (synchronizes)")
     ] = False

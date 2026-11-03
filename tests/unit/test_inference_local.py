@@ -94,6 +94,7 @@ _FLAG_DEFAULTS = {
     "no_denials": False,
     "denials": None,
     "keep_source_flagged": False,
+    "final_frame_obs_hours": None,
 }
 
 

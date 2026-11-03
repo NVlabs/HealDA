@@ -31,6 +31,7 @@ from healda.datasets.da.tasks import (
     get_sensors_for_config,
 )
 from healda.observations.coverage import obs_coverage
+from healda.observations.protocols import observed_before
 from healda.observations.system import ObsFilters
 from healda.datasets.da.state_stats import make_batch_info
 from healda.datasets.da import state_transforms
@@ -300,6 +301,13 @@ class HourlyLatlonDataset(torch.utils.data.Dataset):
             if use_obs
             else None
         )
+        # Only the last model rank holds a window's final frame.
+        hours = extra_obs_filters.final_frame_obs_hours
+        self._final_cutoff = (
+            pd.Timedelta(hours=obs_config.context_start + hours)
+            if use_obs and hours is not None and model_rank == model_world_size - 1
+            else None
+        )
         self._obs_transform = None
         if use_obs:
             if transform_options is None:
@@ -373,6 +381,11 @@ class HourlyLatlonDataset(torch.utils.data.Dataset):
             "labels": torch.empty(len(indexes), 0),
         }
         if obs_results is not None:
+            if self._final_cutoff is not None:
+                for window, obs in zip(frame_times, obs_results):
+                    obs["obs_v2"][-1] = observed_before(
+                        obs["obs_v2"][-1], window[-1] + self._final_cutoff
+                    )
             frames = [
                 [{"obs_v2": obs["obs_v2"][t]} for t in range(n_t)]
                 for obs in obs_results

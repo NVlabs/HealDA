@@ -58,6 +58,9 @@ follow semantic versioning starting with its first tagged release.
 - `fused_qk_norm` (training loop and model config): the disk-attention q/k RMSNorm and
   the split into flex_attention's layout run as one CuTe DSL kernel.
 - `SensorEmbedderConfig.film_bwd_impl=2`: CuTe DSL backward for the fused FiLM tokenizer.
+- `healda-inference-local --final-frame-obs-hours N`: keeps only the observations of the first
+  N hours in the final frame of each window, emulating a cycle run before late observations
+  arrive; earlier frames keep all of theirs.
 
 ### Changed
 

@@ -184,6 +184,9 @@ class ObsFilters:
     # provider quality flags mark.
     channel_denials: tuple[ChannelDenial, ...] = ()
     drop_source_flagged: bool = False
+    # The final frame of each window keeps only the observations of the first N hours of
+    # its window. Applied by the dataset, the only place that knows which frame is last.
+    final_frame_obs_hours: float | None = None
 
     def removing_also(self, extra: "ObsFilters") -> "ObsFilters":
         """These filters plus ``extra``'s channel ids, report types, denials and flags."""
@@ -224,6 +227,7 @@ def inference_filters(
     channel_ids=(),
     report_types=(),
     wind_report_types=(),
+    final_frame_obs_hours: float | None = None,
 ) -> ObsFilters:
     """What scoring removes beyond the recipe: the packaged denials and provider flags
     unless asked otherwise. ``denials_csv`` None applies no file."""
@@ -234,6 +238,7 @@ def inference_filters(
         wind_report_types=tuple(wind_report_types),
         channel_denials=(*from_file, *extra_denials),
         drop_source_flagged=drop_source_flagged,
+        final_frame_obs_hours=final_frame_obs_hours,
     )
 
 

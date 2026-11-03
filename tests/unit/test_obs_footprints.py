@@ -8,6 +8,7 @@ import weakref
 
 import cftime
 import numpy as np
+import pandas as pd
 import pyarrow as pa
 import pytest
 import torch
@@ -24,7 +25,7 @@ from healda.observations.footprints import (
 )
 from healda.observations.loaders import combined
 from healda.observations.loaders.nnja_wide import NNJAWideLoader
-from healda.observations.protocols import Observations, as_table
+from healda.observations.protocols import Observations, as_table, observed_before
 
 DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 SENSORS = ["amsua", "atms"]
@@ -276,3 +277,20 @@ def test_no_observations_give_empty_features_in_training_and_inference():
         assert obs.obs.shape[0] == obs.pix.shape[0] == obs.float_metadata.shape[0] == 0
         assert not obs.attention_packing.counts.any()
         assert not obs.attention_packing.cu_seqlens_k.any()
+
+
+def test_observed_before_drops_later_footprints_and_rows():
+    block = make_block("atms", 3, 50, seed=0, valid="all")
+    cutoff = pd.Timestamp("2025-01-02T21:08")
+    times = [
+        np.datetime64("2025-01-02T21:00", "ns"),
+        np.datetime64("2025-01-02T22:00", "ns"),
+    ]
+    table = pa.table({"Absolute_Obs_Time": pa.array(times), "Observation": [1.0, 2.0]})
+
+    cut = observed_before(Observations(blocks=[block], table=table), cutoff)
+
+    earlier = block.footprint_columns["Absolute_Obs_Time"] < cutoff.to_datetime64()
+    assert 0 < earlier.sum() < block.footprint_count
+    np.testing.assert_array_equal(cut.blocks[0].valid, block.valid & earlier)
+    assert cut.table["Observation"].to_pylist() == [1.0]
