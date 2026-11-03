@@ -356,6 +356,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#etld-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ETL'd data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#training" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -410,17 +421,6 @@
     <span class="md-ellipsis">
       
         Hardware
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#prepared-observation-input" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prepared observation input
       
     </span>
   </a>
@@ -733,6 +733,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#etld-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ETL'd data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#training" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -787,17 +798,6 @@
     <span class="md-ellipsis">
       
         Hardware
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#prepared-observation-input" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prepared observation input
       
     </span>
   </a>
@@ -868,28 +868,27 @@
 <a href="https://github.com/NVlabs/HealDA/actions/workflows/license-check.yml"><img alt="license-check" src="https://img.shields.io/github/actions/workflow/status/NVlabs/HealDA/license-check.yml?branch=main&amp;label=license-check&amp;style=flat-square" /></a>
 <a href="https://github.com/NVlabs/HealDA/actions/workflows/docs.yml"><img alt="docs" src="https://img.shields.io/github/actions/workflow/status/NVlabs/HealDA/docs.yml?branch=main&amp;label=docs&amp;style=flat-square" /></a></p>
 <p><img alt="HealDA v2 architecture" src="assets/images/healda_v2_architecture.png" /></p>
-<p>HealDA is an experimental package for observation-conditioned, HEALPix-grid
-atmospheric data assimilation. It contains the model architecture, distributed
-training, inference, and data loaders for prepared observations (Parquet) and
-target analysis states, with the observation filtering, thinning and
-normalization applied on load. Raw-data ETL is not part of the package;
-<code>scripts/etl/era5/</code> builds the ERA5 HDF5 year files the target loaders read, and
-<code>scripts/etl/nnja/</code> the NNJA observation archive the observation loaders read
-(<a href="etl/"><code>docs/etl.md</code></a>).</p>
+<p>HealDA is a package for observation-conditioned, HEALPix-grid
+atmospheric data assimilation. It contains the full code for the model architecture,
+distributed training, inference, and data loaders for observations and target
+analysis states. The ETL code that produces the training observations (NNJA) and target
+analyses (ERA5) is in <code>scripts/etl/</code> (<a href="etl/"><code>docs/etl.md</code></a>).</p>
 <p>📖 <a href="https://arxiv.org/abs/2601.17636">arXiv (v1)</a> 📦 <a href="https://huggingface.co/nvidia/healda-v2">Checkpoints</a> 📚 <a href="https://nvlabs.github.io/HealDA/">Documentation</a></p>
 <h2 id="inference">Inference<a class="headerlink" href="#inference" title="Permanent link">&para;</a></h2>
-<p>Earth2Studio runs the HealDA v2 checkpoint on NNJA observations as <code>HealDAv2</code>; see the
+<p>The simplest way to run HealDA v2 is Earth2Studio's <code>HealDAv2</code>; see the
 <a href="https://github.com/NVIDIA/earth2studio/blob/main/examples/05_data_assimilation/04_healda_v2.py">HealDA v2 example</a>.
-Each call downloads the NNJA BUFR files it needs and decodes them on the fly with
-<a href="https://github.com/NVIDIA/earth2bufr">earth2bufr</a>.</p>
-<p>With observations already prepared in the NNJA archive layout
-(<a href="observations/"><code>docs/observations.md</code></a>), <code>healda-inference-local</code> runs the model
-over a date range and writes the analyses to a Zarr store. <a href="etl_nnja/"><code>docs/etl_nnja.md</code></a>
-describes the earth2bufr-based scripts that build this archive. Its tables follow
-<code>healda.observations.schema.table_schema</code>, and <code>schema.validate</code> checks a table against it;
-see <a href="observations/#nnja-archive">NNJA archive</a>.</p>
-<p>The <a href="observations/#observation-pipeline">observation pipeline</a> describes each stage
-from raw observations to the model, and where your own observations can enter it.</p>
+It needs no data setup: each call downloads the NNJA BUFR files it needs and decodes them
+on the fly with <a href="https://github.com/NVIDIA/earth2bufr">earth2bufr</a>. One global analysis
+takes about 20 seconds on an H100, excluding download time, of which about 15 seconds is
+CPU-side BUFR decoding and observation loading. It needs about 36 GB of GPU memory, within
+a 40 GB card, and about 40 GB of host memory.</p>
+<p>For repeated inference, build the NNJA archive and the ERA5 files once with the offline ETL
+(<a href="etl/"><code>docs/etl.md</code></a>) and run <code>healda-inference-local</code>, which reads the
+observations and targets the checkpoint's recipe names over a date range and writes the
+analyses to a Zarr store. This brings end-to-end inference under 1 second per analysis
+on four GB300 GPUs (<code>--time-parallel 4</code>); see
+<a href="https://github.com/NVlabs/HealDA/blob/main/examples/inference/local.sh"><code>examples/inference/local.sh</code></a>. Training always needs the
+<a href="#etld-data">ETL'd data</a>.</p>
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
 <p>HealDA requires Python 3.11 or newer, PyTorch with CUDA support, and a compatible
 GPU software stack.</p>
@@ -909,6 +908,17 @@ kernels), and the 0.25 degree recipe requests them:</p>
 <p>Without them, or on older GPUs, training falls back to slower Triton and einsum
 implementations.</p>
 <p>HealDA is licensed under the <a href="https://github.com/NVlabs/HealDA/blob/main/LICENSE">Apache License 2.0</a>.</p>
+<h2 id="etld-data">ETL'd data<a class="headerlink" href="#etld-data" title="Permanent link">&para;</a></h2>
+<p>Training and <code>healda-inference-local</code> read two datasets, ETL'd from their raw sources by
+<code>scripts/etl/</code> (<a href="etl/"><code>docs/etl.md</code></a>):</p>
+<ul>
+<li>ERA5, the training targets, as 0.25 degree hourly HDF5 year files.</li>
+<li>NNJA, the observation inputs, as Parquet.</li>
+</ul>
+<p><a href="observations/"><code>docs/observations.md</code></a> describes the observation archive, what data
+must satisfy to match a trained checkpoint, and the
+<a href="observations/#observation-pipeline">observation pipeline</a> from raw observations to
+the model, including where your own observations can enter it.</p>
 <h2 id="training">Training<a class="headerlink" href="#training" title="Permanent link">&para;</a></h2>
 <p><code>healda-train</code> is the packaged entry point. Training recipes are named presets
 in <code>healda.cli.train</code>; nested <code>--loop.*</code> options expose the underlying
@@ -924,7 +934,7 @@ dataclasses. Option names retain underscores. The v2 checkpoint is the
 <a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span>-m<span class="w"> </span>healda.cli.train<span class="w"> </span>--name<span class="w"> </span>debug-single-gpu<span class="w"> </span>--output_dir<span class="w"> </span>/runs
 </code></pre></div>
 <p><code>debug-single-gpu</code> is a quick check: the v2 model at reduced depth and time length 1,
-on one GPU. It needs the ERA5 and NNJA archives prepared. See
+on one GPU. It needs the <a href="#etld-data">ETL'd data</a>. See
 <a href="https://github.com/NVlabs/HealDA/blob/main/examples/training/minimal.sh"><code>examples/training/minimal.sh</code></a>.</p>
 <h3 id="resume-and-fine-tune">Resume and fine-tune<a class="headerlink" href="#resume-and-fine-tune" title="Permanent link">&para;</a></h3>
 <p>Reusing the same <code>--output_dir</code> and <code>--name</code> automatically resumes the newest
@@ -944,7 +954,7 @@ which fine-tunes the v2 checkpoint.</p>
 <h2 id="configuration-structure">Configuration structure<a class="headerlink" href="#configuration-structure" title="Permanent link">&para;</a></h2>
 <p>Configuration has three layers:</p>
 <ol>
-<li>Environment variables locate state stores, prepared observations, output
+<li>Environment variables locate state stores, ETL'd observations, output
    directories, and optional remote profiles.</li>
 <li><code>--name</code> selects a built-in <code>TrainingLoop</code> preset.</li>
 <li>Top-level CLI fields (<code>--output_dir</code>, <code>--resume_dir</code>, <code>--finetune_from</code>) and
@@ -974,16 +984,6 @@ checkpoints whole transformer blocks and saves about 4 GB per block;
 <code>gradient_checkpointing_last_n=N</code> applies it to the last <code>N</code> of the 18 blocks (0 for all).
 Checkpointing the last 6 blocks takes training from about 150 GB to about 125 GB, within a
 141 GB H200. Checkpointing all 18 takes it to about 70 GB, within an 80 GB H100.</p>
-<p>Each analysis of the v2 checkpoint reads about 200 million observation tokens.
-Through Earth2Studio's <code>HealDAv2</code>, one analysis needs about 36 GB of GPU memory, within a
-40 GB card, and about 40 GB of host memory.</p>
-<h2 id="prepared-observation-input">Prepared observation input<a class="headerlink" href="#prepared-observation-input" title="Permanent link">&para;</a></h2>
-<p>Training reads prepared Parquet observations from the NNJA archive (<code>NNJA_ROOT</code>),
-the source the checkpoints are trained on. The older UFS replay archive
-(<code>UFS_OBS_PATH</code>) is still readable for earlier runs. Each has its own layout, schema
-and channel vocabulary, and a checkpoint reads only the source it was trained on.
-See <a href="observations/"><code>docs/observations.md</code></a>, including what data
-must satisfy to match a trained checkpoint.</p>
 <h2 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h2>
 <p>This project is currently not accepting contributions.</p>
 <p>See <a href="https://github.com/NVlabs/HealDA/blob/main/CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a> for development guidance.</p>
