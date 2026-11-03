@@ -11,33 +11,31 @@
 
 ![HealDA v2 architecture](docs/assets/images/healda_v2_architecture.png)
 
-HealDA is an experimental package for observation-conditioned, HEALPix-grid
-atmospheric data assimilation. It contains the model architecture, distributed
-training, inference, and data loaders for prepared observations (Parquet) and
-target analysis states, with the observation filtering, thinning and
-normalization applied on load. Raw-data ETL is not part of the package;
-`scripts/etl/era5/` builds the ERA5 HDF5 year files the target loaders read, and
-`scripts/etl/nnja/` the NNJA observation archive the observation loaders read
-([`docs/etl.md`](docs/etl.md)).
+HealDA is a package for observation-conditioned, HEALPix-grid
+atmospheric data assimilation. It contains the full code for the model architecture,
+distributed training, inference, and data loaders for observations and target
+analysis states. The ETL code that produces the training observations (NNJA) and target
+analyses (ERA5) is in `scripts/etl/` ([`docs/etl.md`](docs/etl.md)).
 
 📖 [arXiv (v1)](https://arxiv.org/abs/2601.17636) 📦 [Checkpoints](https://huggingface.co/nvidia/healda-v2) 📚 [Documentation](https://nvlabs.github.io/HealDA/)
 
 ## Inference
 
-Earth2Studio runs the HealDA v2 checkpoint on NNJA observations as `HealDAv2`; see the
+The simplest way to run HealDA v2 is Earth2Studio's `HealDAv2`; see the
 [HealDA v2 example](https://github.com/NVIDIA/earth2studio/blob/main/examples/05_data_assimilation/04_healda_v2.py).
-Each call downloads the NNJA BUFR files it needs and decodes them on the fly with
-[earth2bufr](https://github.com/NVIDIA/earth2bufr).
+It needs no data setup: each call downloads the NNJA BUFR files it needs and decodes them
+on the fly with [earth2bufr](https://github.com/NVIDIA/earth2bufr). One global analysis
+takes about 20 seconds on an H100, excluding download time, of which about 15 seconds is
+CPU-side BUFR decoding and observation loading. It needs about 36 GB of GPU memory, within
+a 40 GB card, and about 40 GB of host memory.
 
-With observations already prepared in the NNJA archive layout
-([`docs/observations.md`](docs/observations.md)), `healda-inference-local` runs the model
-over a date range and writes the analyses to a Zarr store. [`docs/etl_nnja.md`](docs/etl_nnja.md)
-describes the earth2bufr-based scripts that build this archive. Its tables follow
-`healda.observations.schema.table_schema`, and `schema.validate` checks a table against it;
-see [NNJA archive](docs/observations.md#nnja-archive).
-
-The [observation pipeline](docs/observations.md#observation-pipeline) describes each stage
-from raw observations to the model, and where your own observations can enter it.
+For repeated inference, build the NNJA archive and the ERA5 files once with the offline ETL
+([`docs/etl.md`](docs/etl.md)) and run `healda-inference-local`, which reads the
+observations and targets the checkpoint's recipe names over a date range and writes the
+analyses to a Zarr store. This brings end-to-end inference under 1 second per analysis
+on four GB300 GPUs (`--time-parallel 4`); see
+[`examples/inference/local.sh`](examples/inference/local.sh). Training always needs the
+[ETL'd data](#etld-data).
 
 ## Install
 
@@ -70,6 +68,19 @@ implementations.
 
 HealDA is licensed under the [Apache License 2.0](LICENSE).
 
+## ETL'd data
+
+Training and `healda-inference-local` read two datasets, ETL'd from their raw sources by
+`scripts/etl/` ([`docs/etl.md`](docs/etl.md)):
+
+- ERA5, the training targets, as 0.25 degree hourly HDF5 year files.
+- NNJA, the observation inputs, as Parquet.
+
+[`docs/observations.md`](docs/observations.md) describes the observation archive, what data
+must satisfy to match a trained checkpoint, and the
+[observation pipeline](docs/observations.md#observation-pipeline) from raw observations to
+the model, including where your own observations can enter it.
+
 ## Training
 
 `healda-train` is the packaged entry point. Training recipes are named presets
@@ -90,7 +101,7 @@ torchrun --standalone --nproc-per-node=1 \
 ```
 
 `debug-single-gpu` is a quick check: the v2 model at reduced depth and time length 1,
-on one GPU. It needs the ERA5 and NNJA archives prepared. See
+on one GPU. It needs the [ETL'd data](#etld-data). See
 [`examples/training/minimal.sh`](examples/training/minimal.sh).
 
 ### Resume and fine-tune
@@ -117,7 +128,7 @@ which fine-tunes the v2 checkpoint.
 
 Configuration has three layers:
 
-1. Environment variables locate state stores, prepared observations, output
+1. Environment variables locate state stores, ETL'd observations, output
    directories, and optional remote profiles.
 2. `--name` selects a built-in `TrainingLoop` preset.
 3. Top-level CLI fields (`--output_dir`, `--resume_dir`, `--finetune_from`) and
@@ -153,19 +164,6 @@ checkpoints whole transformer blocks and saves about 4 GB per block;
 `gradient_checkpointing_last_n=N` applies it to the last `N` of the 18 blocks (0 for all).
 Checkpointing the last 6 blocks takes training from about 150 GB to about 125 GB, within a
 141 GB H200. Checkpointing all 18 takes it to about 70 GB, within an 80 GB H100.
-
-Each analysis of the v2 checkpoint reads about 200 million observation tokens.
-Through Earth2Studio's `HealDAv2`, one analysis needs about 36 GB of GPU memory, within a
-40 GB card, and about 40 GB of host memory.
-
-## Prepared observation input
-
-Training reads prepared Parquet observations from the NNJA archive (`NNJA_ROOT`),
-the source the checkpoints are trained on. The older UFS replay archive
-(`UFS_OBS_PATH`) is still readable for earlier runs. Each has its own layout, schema
-and channel vocabulary, and a checkpoint reads only the source it was trained on.
-See [`docs/observations.md`](docs/observations.md), including what data
-must satisfy to match a trained checkpoint.
 
 ## Contributing
 

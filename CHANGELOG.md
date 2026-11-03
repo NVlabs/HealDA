@@ -26,7 +26,8 @@ follow semantic versioning starting with its first tagged release.
 - Installable `healda` package and `healda-train` console entry point.
 - Public training, checkpointing, observation-loading, and distributed
   execution package boundary.
-- Minimal training and experimental fine-tuning examples.
+- Minimal training and experimental fine-tuning examples; `examples/inference/local.sh` runs
+  `healda-inference-local` over a date range of ETL'd data.
 - Public documentation for prepared observation inputs and release status.
 - GitHub issue and pull request templates; `[project.urls]` metadata.
 - `healda.inference`: `load_da_model` rebuilds a trained lat/lon network from a

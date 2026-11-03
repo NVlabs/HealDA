@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # Quick check: the HealDA v2 model at reduced depth and time length 1, on one GPU.
-# Needs the ERA5 and NNJA archives prepared.
+# Needs the ERA5 and NNJA data ETL'd (docs/etl.md).
 : "${ERA5_HOURLY_ROOT:?set the 0.25 degree ERA5 HDF5 root}"
 : "${ERA5_HOURLY_EXT_ROOT:?set the ERA5 extra-variable root}"
 : "${NNJA_ROOT:?set the NNJA observation archive root}"
