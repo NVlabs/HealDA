@@ -32,6 +32,7 @@ outputs/
 # agent config; .claude/skills is a committed symlink to private/skills
 .claude/*
 !.claude/skills
+!.claude/CLAUDE.md
 .agents/
 
 third_party/

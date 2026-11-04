@@ -1,3 +1,5 @@
+Internal guide: private/README.md
+
 Git:
 - never run git add -A. carefully avoid checking in binaryies and other data files
 - mark every AI-written commit as such: a "Co-Authored-By: Claude ..." trailer or the line
