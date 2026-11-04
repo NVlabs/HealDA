@@ -55,6 +55,8 @@ follow semantic versioning starting with its first tagged release.
 - GitHub Actions `license-check` workflow running `ci/check_licenses.py` and
   `pre-commit` workflow running the ruff hooks.
 - `.license-info/` third-party dependency license inventory.
+- `healda-inference-local --times-file PATH`: scores an explicit list of times, one per line
+  on the `--time-frequency` grid, in place of `--start-date` / `--end-date`.
 - `fused_qk_norm` (training loop and model config): the disk-attention q/k RMSNorm and
   the split into flex_attention's layout run as one CuTe DSL kernel.
 - `SensorEmbedderConfig.film_bwd_impl=2`: CuTe DSL backward for the fused FiLM tokenizer.

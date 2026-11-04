@@ -60,6 +60,11 @@ def scoring_times(z06_z18_inits: bool, time_frequency, split) -> pd.DatetimeInde
     return pd.date_range(start_date, f"{year}-12-31-12", freq=time_frequency)
 
 
+def read_times_file(path: str) -> pd.DatetimeIndex:
+    lines = [line.strip() for line in open(path) if line.strip()]
+    return pd.DatetimeIndex(sorted(set(pd.to_datetime(lines))))
+
+
 def inference_obs_config(trained: ObsConfig, args) -> ObsConfig:
     """The recipe to score with: ``trained``, plus explicit recipe overrides.
 
@@ -141,6 +146,13 @@ class InferenceArgs:
         Help("Last scoring time, YYYY-MM-DD-HH. Defaults to --start-date's year"),
     ] = None
     time_frequency: a[str, Help("Spacing to sample times from")] = "12h"
+    times_file: a[
+        str | None,
+        Help(
+            "File with one scoring time per line (YYYY-MM-DDTHH, on the --time-frequency "
+            "grid); replaces --start-date/--end-date"
+        ),
+    ] = None
     z06_18_inits: a[bool, Help("Use 06z and 18z inits instead of 00z/12z")] = False
 
     time_length: a[
@@ -514,6 +526,10 @@ def _run_in_temporary_directory(tmpdir):
     span_years = None
     start_date = pd.Timestamp(args.start_date) if args.start_date else None
     end_date = pd.Timestamp(args.end_date) if args.end_date else None
+    listed_times = None
+    if args.times_file:
+        listed_times = read_times_file(args.times_file)
+        start_date, end_date = listed_times[0], listed_times[-1]
     if start_date is not None:
         if end_date is None:
             end_date = pd.Timestamp(year=start_date.year, month=12, day=31, hour=12)
@@ -539,7 +555,9 @@ def _run_in_temporary_directory(tmpdir):
     dist.print0(f"Computed {len(final_times)} final timesteps")
 
     # Sample times to score
-    if start_date is not None:
+    if listed_times is not None:
+        scoring_times_all = listed_times
+    elif start_date is not None:
         scoring_times_all = pd.date_range(
             start_date, end_date, freq=args.time_frequency
         )
