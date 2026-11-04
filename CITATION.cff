@@ -3,7 +3,7 @@ message: If you use this software, please cite it using the metadata from this f
 type: software
 title: HealDA
 abstract: Observation-conditioned atmospheric data assimilation on the HEALPix grid.
-version: 0.1.0
+version: 0.1.0a0
 license: Apache-2.0
 repository-code: https://github.com/NVlabs/HealDA
 keywords:

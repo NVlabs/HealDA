@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# A release tag X.Y.Z creates the GitHub release, with that version's CHANGELOG.md
+# section as its notes, after checking that pyproject.toml and CITATION.cff name the
+# version. The docs workflow publishes the same tag's documentation.
+
+name: release
+
+on:
+  push:
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.repository == 'NVlabs/HealDA'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check the version and extract the notes
+        run: |
+          set -euo pipefail
+          python3 - "${GITHUB_REF_NAME}" <<'EOF'
+          import re
+          import sys
+          import tomllib
+
+          tag = sys.argv[1]
+          with open("pyproject.toml", "rb") as f:
+              version = tomllib.load(f)["project"]["version"]
+          with open("CITATION.cff") as f:
+              citation = re.search(r"^version: (\S+)$", f.read(), re.M).group(1)
+          if not version == citation == tag:
+              sys.exit(f"tag {tag}, pyproject.toml {version}, CITATION.cff {citation}")
+          with open("CHANGELOG.md") as f:
+              changelog = f.read()
+          section = re.search(
+              rf"^## \[{re.escape(tag)}\] - \d{{4}}-\d{{2}}-\d{{2}}\n(.*?)(?=^## \[|\Z)",
+              changelog,
+              re.M | re.S,
+          )
+          if section is None:
+              sys.exit(f"CHANGELOG.md has no dated ## [{tag}] section")
+          with open("notes.md", "w") as f:
+              f.write(section.group(1).strip() + "\n")
+          EOF
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" --verify-tag \
+            --title "HealDA ${GITHUB_REF_NAME}" --notes-file notes.md

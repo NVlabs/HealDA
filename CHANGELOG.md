@@ -1,14 +1,17 @@
 # Changelog
 
-All notable changes will be documented in this file. The project intends to
-follow semantic versioning starting with its first tagged release.
+All notable changes are documented in this file. The format is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [Unreleased]
 
 ### Added
 
 - MkDocs documentation site with an API reference, built by the `docs` workflow and
   published to GitHub Pages with mike; `make docs` and `make docs-serve`.
+- A release tag `X.Y.Z` creates the GitHub release from its `CHANGELOG.md` section and
+  publishes the documentation as version `X.Y.Z`, aliased `latest`.
 - README badges and `CITATION.cff`.
 - `scripts/etl/era5/`: the ERA5 hourly HDF5 year-file ETL (build, verify, thin, split, ARCO
   ERA5T), run as `python -m scripts.etl.era5.<step>` from the repository root;

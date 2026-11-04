@@ -1,16 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Builds the MkDocs site strictly on every push and pull request. On the default
-# branch of the upstream repository it also publishes the site as the "main"
-# version into the gh-pages branch with mike, which GitHub Pages serves
-# (Settings -> Pages -> Source: Deploy from a branch, gh-pages, /).
+# Builds the MkDocs site strictly on every push and pull request. In the upstream
+# repository it also publishes the site into the gh-pages branch with mike, which
+# GitHub Pages serves (Settings -> Pages -> Source: Deploy from a branch, gh-pages, /):
+# the default branch as the "main" version, and a release tag X.Y.Z as version X.Y.Z
+# with the alias "latest", which becomes the default.
 
 name: docs
 
 on:
   push:
     branches: [main]
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
   pull_request:
   workflow_dispatch:
 
@@ -47,7 +49,8 @@ jobs:
     if: >-
       github.repository == 'NVlabs/HealDA' &&
       github.event_name != 'pull_request' &&
-      github.ref_name == github.event.repository.default_branch
+      (github.ref_name == github.event.repository.default_branch ||
+       github.ref_type == 'tag')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -64,6 +67,7 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked --only-group docs
       - name: Publish the main version
+        if: github.ref_type == 'branch'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -72,7 +76,23 @@ jobs:
             --branch "${DOCS_PAGES_BRANCH}" \
             --message "Deploy docs for ${GITHUB_SHA}" \
             --push
-          uv run --no-sync mike set-default main \
+          if [ -z "$(git tag --list '[0-9]*.[0-9]*.[0-9]*')" ]; then
+            uv run --no-sync mike set-default main \
+              --branch "${DOCS_PAGES_BRANCH}" \
+              --message "Set default docs version to main" \
+              --push
+          fi
+      - name: Publish the release version
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          uv run --no-sync mike deploy "${GITHUB_REF_NAME}" latest --update-aliases \
             --branch "${DOCS_PAGES_BRANCH}" \
-            --message "Set default docs version to main" \
+            --message "Deploy docs for ${GITHUB_REF_NAME}" \
+            --push
+          uv run --no-sync mike set-default latest \
+            --branch "${DOCS_PAGES_BRANCH}" \
+            --message "Set default docs version to latest" \
             --push

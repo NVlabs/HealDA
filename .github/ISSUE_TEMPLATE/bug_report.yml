@@ -19,7 +19,7 @@ body:
     attributes:
       label: Version
       description: HealDA commit SHA or release tag.
-      placeholder: "example: v0.1.0 or 3a943746"
+      placeholder: "example: 0.1.0 or 3a943746"
     validations:
       required: true
 

@@ -105,7 +105,7 @@ markdown_extensions:
 
 extra:
   # Versions are published by mike into the gh-pages branch; "main" tracks the
-  # default branch.
+  # default branch, and each release tag X.Y.Z is a version, the newest aliased "latest".
   version:
     provider: mike
     default: main

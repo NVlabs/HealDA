@@ -14,8 +14,8 @@ For authorized development:
 5. Run `make lint`; if formatting fails, run `make format` and repeat lint.
 6. Run the relevant unit tests. Distributed changes require
    `make test-distributed` in a supported CUDA environment.
-7. Document user-visible changes under the Unreleased section of
-   `CHANGELOG.md`.
+7. Add a line for each user-visible change to `CHANGELOG.md` under
+   `## [Unreleased]`, in `Added`, `Changed`, `Deprecated`, `Removed` or `Fixed`.
 
 Do not include credentials, private URLs, account names, machine-specific
 paths, datasets, checkpoints, or other non-public artifacts. New training
