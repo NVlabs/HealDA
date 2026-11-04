@@ -12,6 +12,9 @@ from typing import Any
 # name -> object exposing get_dataset / get_batch_info / ObsDataset
 DATASET_PROVIDERS: dict[str, Any] = {}
 
+# name -> object exposing init_network / build_optimizer / lr_scale
+RECIPE_PROVIDERS: dict[str, Any] = {}
+
 
 def _get(registry: dict[str, Any], name: str, kind: str) -> Any:
     try:
@@ -24,3 +27,7 @@ def _get(registry: dict[str, Any], name: str, kind: str) -> Any:
 
 def dataset_provider(name: str) -> Any:
     return _get(DATASET_PROVIDERS, name, "dataset provider")
+
+
+def recipe_provider(name: str) -> Any:
+    return _get(RECIPE_PROVIDERS, name, "training recipe")

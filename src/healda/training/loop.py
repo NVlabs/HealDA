@@ -172,6 +172,9 @@ class TrainingLoopBase(abc.ABC):
         500  # How often to dump training state, None = disable.
     )
     save_final_state: bool = True
+    # Image count at which the run ends: it saves training state there and exits, and a later
+    # launch that resumes at or past it exits at once.
+    stop_nimg: int | None = None
 
     test_with_single_batch: bool = False
     """Only load a single batch of data for testing and profiling purposes"""
@@ -485,44 +488,31 @@ class TrainingLoopBase(abc.ABC):
             if self.log_parameter_grad_norm and param.grad is not None:
                 self.log_metric(f"grad_norm/{name}", param.grad.norm(2))
 
+    def lr_scale(self, cur_nimg):
+        """Multiplier on every param group's base lr: warmup, flat, cosine to lr_min."""
+        warmup_imgs = self.lr_rampup_img
+        total_imgs = warmup_imgs + self.flat_imgs + self.decay_imgs
+        min_factor = self.lr_min / self.lr
+        if cur_nimg < warmup_imgs:
+            return float(cur_nimg) / warmup_imgs
+        if cur_nimg < warmup_imgs + self.flat_imgs:
+            return 1.0
+        if cur_nimg < total_imgs:
+            progress = float(cur_nimg - warmup_imgs - self.flat_imgs) / self.decay_imgs
+            return min_factor + 0.5 * (1.0 - min_factor) * (
+                1.0 + math.cos(math.pi * progress)
+            )
+        return min_factor
+
     @healda.utils.profiling.nvtx
     def step_optimizer(self, cur_nimg):
         with healda.utils.profiling.nvtx_range("training_loop:step"):
-            warmup_imgs = self.lr_rampup_img
-            flat_imgs = self.flat_imgs
-            decay_imgs = self.decay_imgs
-            total_imgs = warmup_imgs + flat_imgs + decay_imgs
-
-            def lr_lambda(cur_nimg):
-                import math
-
-                base_lr = self.lr
-                min_lr = self.lr_min
-
-                min_factor = min_lr / base_lr
-                if cur_nimg < warmup_imgs:
-                    # linear ramp from 0 → 1
-                    return float(cur_nimg) / warmup_imgs
-                elif cur_nimg < warmup_imgs + flat_imgs:
-                    return 1.0
-                elif cur_nimg < total_imgs:
-                    # cosine decay from factor=1 → factor=min_factor
-                    progress = float(cur_nimg - warmup_imgs - flat_imgs) / decay_imgs
-                    # standard cosine schedule:
-                    return min_factor + 0.5 * (1.0 - min_factor) * (
-                        1.0 + math.cos(math.pi * progress)
-                    )
-                else:
-                    return min_factor
 
             def default_scale(cur_nimg):
                 return min(cur_nimg / max(self.lr_rampup_img, 1e-8), 1)
 
-            use_lr_lambda = True
-            scale_fn = lr_lambda if use_lr_lambda else default_scale
-
-            scale = scale_fn(self.cur_nimg)
-            self._apply_lr(scale_fn, scale, default_scale)
+            scale = self.lr_scale(self.cur_nimg)
+            self._apply_lr(self.lr_scale, scale, default_scale)
             self._log_parameter_and_gradient_norms()
 
             with healda.utils.profiling.nvtx_range("step.gradnorm_clip"):
@@ -885,6 +875,11 @@ class TrainingLoopBase(abc.ABC):
         return dist.get_world_size()
 
     def _train(self):
+        if self.stop_nimg is not None and self.cur_nimg >= self.stop_nimg:
+            dist.print0(
+                f"cur_nimg={self.cur_nimg} is at stop_nimg={self.stop_nimg}; exiting."
+            )
+            return
         dist.print0("Loss function", self.loss_fn)
         start_time = time.time()
         # Ranks sharding same sample (time parallel ranks) should have same random state.
@@ -909,12 +904,14 @@ class TrainingLoopBase(abc.ABC):
             f"{self.steps_per_tick} steps/tick, batch_size={self.batch_size}, "
             f"cur_nimg={self.cur_nimg}. Loading first batch..."
         )
+        stopped = False
         for cur_tick in range(self.total_ticks):
             for _ in range(self.steps_per_tick):
                 step_start = time.time()
                 self.backward_batch(dataset_iterator)
                 self.cur_nimg += self.batch_size
                 self.step_optimizer(self.cur_nimg)
+                stopped = self.stop_nimg is not None and self.cur_nimg >= self.stop_nimg
                 with healda.utils.profiling.nvtx_range("step.loop_tail"):
                     step_end = time.time()
                     self.log_debug(
@@ -928,6 +925,8 @@ class TrainingLoopBase(abc.ABC):
                 if steps % STOP_CHECK_STEPS == 0 and dist.should_stop():
                     self._stop_early()
                     return
+                if stopped:
+                    break
             tick_end_time = time.time()
             self._report_step_timing(cur_tick)
             self.log_tick(
@@ -963,6 +962,10 @@ class TrainingLoopBase(abc.ABC):
 
             tick_start_time = time.time()
             maintenance_time = tick_start_time - tick_end_time
+            if stopped:
+                dist.print0(f"Reached stop_nimg={self.stop_nimg}; saving and exiting.")
+                self.save_training_state(self.cur_nimg)
+                return
 
         # Done.
         if self.save_final_state:

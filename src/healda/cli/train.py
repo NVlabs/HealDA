@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import warnings
+from typing import Any
 
 import healda.config.environment as config
 import healda.config.models
@@ -28,7 +29,11 @@ from healda.config.models import (
     ir_preset_name,
     migrate_obs_config_fields,
 )
-from healda.training.providers import DATASET_PROVIDERS, dataset_provider
+from healda.training.providers import (
+    DATASET_PROVIDERS,
+    dataset_provider,
+    recipe_provider,
+)
 from healda.utils import signals
 from healda.utils.parsing import parse_args, parse_dict
 from healda.datasets.base import BatchInfo, NormalizationStats, TimeUnit, VariableConfig
@@ -269,6 +274,11 @@ class TrainingLoop(loop.TrainingLoopBase):
     # model configuration
     model_channels: int = 256
     opt: str = "adamw"
+    # Name in RECIPE_PROVIDERS. A recipe initialises the network for training, sets the lr
+    # schedule and builds the optimizer; recipe_args are its keyword arguments. None trains
+    # with `opt` on the loop's cosine schedule.
+    recipe: str | None = None
+    recipe_args: Any = None
     # AdamW kernel impl: "auto" picks per GPU arch (fused on Hopper/sm_9x,
     # foreach on Blackwell/sm_10x where fused AdamW is ~3x slower). Override
     # with "fused" or "foreach" to force.
@@ -329,6 +339,8 @@ class TrainingLoop(loop.TrainingLoopBase):
 
     finetune_from: str = ""
     finetune_optimizer: bool = False
+    # Continue the image count of the finetune_from checkpoint, so its lr schedule carries on.
+    finetune_keep_nimg: bool = False
     freeze_transformer_blocks: bool = False
     freeze_decoder: bool = False
     freeze_spatial: bool = False
@@ -1436,6 +1448,8 @@ class TrainingLoop(loop.TrainingLoopBase):
     def _setup_networks(self):
         torch.manual_seed(self.seed)
         net = self.get_network()
+        if self.recipe:
+            recipe_provider(self.recipe).init_network(net, self.recipe_args or {})
         net.train()
         net.requires_grad_(True)
         net.to(self.device)
@@ -1491,8 +1505,19 @@ class TrainingLoop(loop.TrainingLoopBase):
         else:
             self.ddp = self.net
 
+    def lr_scale(self, cur_nimg):
+        if self.recipe:
+            return recipe_provider(self.recipe).lr_scale(
+                self, cur_nimg, self.recipe_args or {}
+            )
+        return super().lr_scale(cur_nimg)
+
     def get_optimizer(self, named_parameters):
         named_params = list(named_parameters)
+        if self.recipe:
+            return recipe_provider(self.recipe).build_optimizer(
+                self, named_params, self.recipe_args or {}
+            )
         # Separate the obs embedding and transformer parameters to apply
         # lower learning rate to the obs embedding
         obs_param_prefix = "embed_v2_patch"
@@ -1897,11 +1922,13 @@ def main():
         loop.wandb_id = None
         dist.print0("Starting new training")
 
-        # TODO save cur nimg in the checkpoint
-        try:
-            loop.cur_nimg = loop._cur_nimg_start
-        except AttributeError:
-            pass
+        if loop.finetune_from and loop.finetune_keep_nimg:
+            nimg = loop._state_checkpoint_handler.nimg_from_path(loop.finetune_from)
+            if nimg is None:
+                raise ValueError(
+                    f"finetune_keep_nimg: no image count in {loop.finetune_from!r}"
+                )
+            loop.cur_nimg = nimg
 
     loop.setup_wandb(name=cli.name)
     loop.train()

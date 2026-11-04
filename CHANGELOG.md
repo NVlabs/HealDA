@@ -22,6 +22,17 @@ follow semantic versioning starting with its first tagged release.
 - `healda.observations.schema.footprint_fields(sensor)` and `channel_field(sensor, channel)`:
   the satellite archive's columns, which the NNJA ETL writes the archive with;
   `channel_field(..., kelvin=False)` gives IASI and CrIS channels as stored (radiance).
+- Training recipes: the `recipe` and `recipe_args` fields of `TrainingLoop` name a provider
+  in `healda.training.providers.RECIPE_PROVIDERS` that supplies the optimizer, the network
+  initialisation for training and the lr schedule. Without a recipe (the default) training
+  uses AdamW with the warmup and cosine schedule, unchanged.
+- `TrainingLoopBase.lr_scale(cur_nimg)`: the lr schedule as a method a subclass or recipe can
+  override.
+- `stop_nimg`: training ends at that sample count, saving training state there, so a branch
+  such as a cooldown stops on the checkpoint it is meant to produce; a launch resuming at or
+  past it exits at once.
+- `finetune_keep_nimg`: a run started from a `finetune_from` checkpoint keeps that
+  checkpoint's sample count, so its lr schedule continues from where the parent stopped.
 
 - Installable `healda` package and `healda-train` console entry point.
 - Public training, checkpointing, observation-loading, and distributed
