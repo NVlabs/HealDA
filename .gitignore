@@ -29,8 +29,9 @@ events.out.tfevents.*
 outputs/
 .venv/
 
-# agent config
-.claude/
+# agent config; .claude/skills is a committed symlink to private/skills
+.claude/*
+!.claude/skills
 .agents/
 
 third_party/
