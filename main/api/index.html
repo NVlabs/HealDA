@@ -794,6 +794,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#training-presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#healda.training.presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        presets
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="presets">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#healda.training.presets.load_preset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_preset
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#healda.training.presets.load_preset_dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_preset_dir
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#healda.training.presets.to_yaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        to_yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#command-line-entry-points" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1082,6 +1143,67 @@
     <span class="md-ellipsis">
       
         validate
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#training-presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#healda.training.presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        presets
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="presets">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#healda.training.presets.load_preset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_preset
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#healda.training.presets.load_preset_dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_preset_dir
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#healda.training.presets.to_yaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        to_yaml
       
     </span>
   </a>
@@ -1930,6 +2052,133 @@ loaders emit: one row per observation, thinned, quality controlled and normalize
         <p>Raise ValueError naming every column of <code>table</code> that <code>kind</code>'s reader cannot read.</p>
 <p><code>kind</code> is as in <code>table_schema</code>. For a satellite sensor, the value columns are checked
 as brightness temperature when <code>table</code> has any, as the loader reads them.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="training-presets">Training presets<a class="headerlink" href="#training-presets" title="Permanent link">&para;</a></h2>
+<p>One YAML file per preset in <code>src/healda/configs/loops/</code>, each extending another, read by
+<code>healda-train --config</code>; <code>--verbose</code> prints the resolved loop in the same form.</p>
+
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="healda.training.presets" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-module"></code>            <span class="doc doc-object-name doc-module-name">healda.training.presets</span>
+
+
+<a href="#healda.training.presets" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Training presets as YAML files, one per preset, each a few changes over another.</p>
+<p>A preset file has up to three top-level keys. <code>extends</code> names the preset this one starts
+from; <code>loop</code> holds the fields that differ from it, nested the way the training loop
+dataclass is (a mapping under <code>obs_config</code> changes only the keys it lists, a list or
+scalar replaces the parent's value). Without <code>extends</code>, <code>loop</code> is the whole loop and
+anything missing takes the dataclass default. <code>aliases</code> lists other names that resolve
+to the same preset. The file's stem is the preset name.</p>
+<p>The shipped presets live in <code>healda.configs.loops</code> and may only extend each other. A file
+passed to <code>healda-train --config</code> may extend any shipped preset, so a new experiment is a
+file with <code>extends</code> and the handful of fields it changes. <code>healda-train --verbose</code>
+prints the resolved loop in this form, every field written out.</p>
+<p>The loop type is passed in rather than imported, so the training CLI can import this module
+to fill its registry without a cycle.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="healda.training.presets.load_preset" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">load_preset</span>
+
+
+<a href="#healda.training.presets.load_preset" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">load_preset</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">path</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="os.PathLike">PathLike</span></span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">loop_type</span><span class="p">:</span> <span class="n"><span title="typing.Type">Type</span></span><span class="p">[</span><span class="n"><span title="healda.training.presets.T">T</span></span><span class="p">],</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">presets</span><span class="p">:</span> <span class="n"><span title="typing.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="healda.training.presets.T">T</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="healda.training.presets.T">T</span></span><span class="p">,</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the loop in <code>path</code> and its alias names.</p>
+<p><code>presets</code> is where <code>extends</code> is looked up, normally the training CLI's registry.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="healda.training.presets.load_preset_dir" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">load_preset_dir</span>
+
+
+<a href="#healda.training.presets.load_preset_dir" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">load_preset_dir</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">directory</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="n"><span title="os.PathLike">PathLike</span></span><span class="p">,</span> <span class="n">loop_type</span><span class="p">:</span> <span class="n"><span title="typing.Type">Type</span></span><span class="p">[</span><span class="n"><span title="healda.training.presets.T">T</span></span><span class="p">]</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="dict">dict</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="healda.training.presets.T">T</span></span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Every <code>*.yaml</code> in <code>directory</code> under its stem and each of its aliases.</p>
+<p><code>extends</code> resolves to another file in the directory, by stem or alias, in any order.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="healda.training.presets.to_yaml" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">to_yaml</span>
+
+
+<a href="#healda.training.presets.to_yaml" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">to_yaml</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">loop</span><span class="p">,</span> <span class="n">aliases</span><span class="p">:</span> <span class="n"><span title="typing.Iterable">Iterable</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span> <span class="n">header</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="str">str</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>loop</code> as a preset file with every field written out.</p>
 
 
     </div>
