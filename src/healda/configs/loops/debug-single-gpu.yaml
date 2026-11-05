@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# End-to-end training smoke test of HealDA v2 at reduced depth and time length 1,
+# on one GPU.
+aliases: []
+extends: v2-nnja-latlon-dense
+loop:
+  batch_size: 1
+  total_ticks: 1
+  print_steps: 1
+  steps_per_tick: 50
+  state_dump_ticks: 1
+  test_with_single_batch: true
+  valid_min_samples: 1
+  dataloader_num_workers: 0
+  time_parallel: 1
+  time_length: 1
+  architecture: dit-5B-d128-2L-lev6
+  gradient_checkpointing: 2
+  compile_dit: false

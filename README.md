@@ -83,10 +83,35 @@ the model, including where your own observations can enter it.
 
 ## Training
 
-`healda-train` is the packaged entry point. Training recipes are named presets
-in `healda.cli.train`; nested `--loop.*` options expose the underlying
-dataclasses. Option names retain underscores. The v2 checkpoint is the
-`v2-nnja-latlon-dense` configuration.
+`healda-train` is the packaged entry point. Training recipes are named presets:
+one YAML file per preset in `src/healda/configs/loops/`. Each file names the preset
+it `extends` and lists only the fields it changes, so the chain from the base recipe
+to the v2 checkpoint (`v2-nnja-latlon-dense`) reads as a few differences per step;
+`aliases` are other names a preset answers to. `--config` takes a preset name or the
+path of a YAML file; `--name` names the run directory and defaults to the preset or
+file name. A `--name` alone that is a preset still selects it; one that is not falls
+back to the nested `--loop.*` options, which expose the underlying dataclasses (option
+names retain underscores).
+
+A new experiment is a file that extends a preset:
+
+```yaml
+extends: v2-nnja-latlon-dense
+loop:
+  lr: 1.0e-4
+  obs_config:
+    nnja_wind_dropout: 0.0
+```
+
+```bash
+healda-train --config my-preset.yaml --verbose   # run directory my-preset
+```
+
+`--verbose` prints the resolved loop, every field, in the same YAML form. Write floats
+with a decimal point and a signed exponent (`2.0e-4`, `1.0e+5`): YAML reads `2e-4` and
+`1.0e5` as strings, and loading stops with an error that says so. Unknown field names
+are errors too. The file is read on every launch, so editing it between segments of one
+run changes that run.
 
 Set paths through environment variables or a `.env` file:
 

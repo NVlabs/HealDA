@@ -12,6 +12,27 @@ the ERA5 and NNJA archives prepared.
 --8<-- "examples/training/minimal.sh"
 ```
 
+## Launch from a preset file
+
+Presets are YAML files in `src/healda/configs/loops/`, each extending another and listing
+the fields it changes. `--config` takes a preset name or a file; a file may extend any
+shipped preset. `--name` names the run directory and defaults to the preset or file
+name. Floats need a decimal point and a signed exponent (`2.0e-4`, `1.0e+5`).
+
+```yaml
+# my-debug.yaml
+extends: debug-single-gpu
+loop:
+  steps_per_tick: 10
+```
+
+```bash
+torchrun --standalone --nproc-per-node=1 -m healda.cli.train \
+  --config my-debug.yaml --output_dir ./training-runs --verbose
+```
+
+`--verbose` prints the resolved loop with every field, in the same YAML form.
+
 ## Fine-tune from a checkpoint
 
 `examples/fine_tuning/from_checkpoint.sh` fine-tunes the v2 checkpoint with

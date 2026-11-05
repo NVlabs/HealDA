@@ -8,6 +8,13 @@ All notable changes are documented in this file. The format is based on
 
 ### Added
 
+- Training presets as YAML: `src/healda/configs/loops/<name>.yaml`, one file per preset
+  naming the preset it `extends`, the fields it changes and its aliases, loaded into
+  `healda.cli.train.LOOPS` by `healda.training.presets`. `healda-train --config` takes a
+  preset name or a file, which may extend a shipped preset; `--name` defaults to it, and
+  `--verbose` prints the resolved loop as preset YAML. The presets were previously Python constants in
+  `healda.cli.train`. `parse_dict` now reads an int into a float field and rejects a float
+  YAML read as a string (`1e-4`, `1.0e5`) with a hint.
 - MkDocs documentation site with an API reference, built by the `docs` workflow and
   published to GitHub Pages with mike; `make docs` and `make docs-serve`.
 - A release tag `X.Y.Z` creates the GitHub release from its `CHANGELOG.md` section and

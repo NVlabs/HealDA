@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# 0.25 degree model: 18-layer backbone with a lat-lon decode. HealDA v2 beta.
+# v2-nnja-latlon-final is its earlier name; runs launched under it keep their run
+# directory, which is named after --name.
+aliases:
+- v2-nnja-latlon-beta
+- v2-nnja-latlon-final
+extends: v2-nnja-hpx64
+loop:
+  state_dump_ticks: 4
+  dataloader_prefetch_factor: 3
+  time_parallel: 8
+  ddp_bucket_cap_mb: 100
+  ddp_gradient_as_bucket_view: true
+  obs_config:
+    ascat_only_scatterometer: false
+    nnja_gpsro_saids: full
+    nnja_surface_winds: true
+  drop_path: 0.1818
+  architecture: dit-5B-d128-18L-lev6
+  fused_temporal_attn: 2
+  pixel_attn_impl: 2
+  gradient_clip_schedule:
+    end_clip: 0.025
+  attention_backend: disk-nest:10.46
+  latlon_decode:
+    base_level: 7
+    k: 4
+    decode_channels: 128
+    fp32_output: false

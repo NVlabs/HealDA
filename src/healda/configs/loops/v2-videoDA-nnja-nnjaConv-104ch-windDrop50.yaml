@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# NNJA obs, 104-channel HPX64 ERA5 target.
+# Training-only dropout: 50% of ASCAT, aircraft and SATWND wind rows, and 20% of
+# MetOp-B AMSU-A channels 3 and 6.
+aliases:
+- v2-nnja-hpx64
+extends: v2-ufs-hpx64
+loop:
+  fix_time_parallel_rng: false
+  state_dump_ticks: 2
+  dataloader_num_workers: 4
+  time_parallel: 4
+  dataset: era5_104ch
+  obs_config:
+    conv_uv_in_situ_only: false
+    use_nnja_sat: true
+    use_nnja_conv: true
+    use_nnja_satwnd: true
+    nnja_wind_dropout: 0.5
+    ascat_only_scatterometer: true
+    nnja_platform_channel_dropout:
+    - - amsua
+      - metop-b
+      - 3
+      - 0.2
+    - - amsua
+      - metop-b
+      - 6
+      - 0.2
+  channel_weight_config: step-cloudLandW-10hpa
+  use_masked_domain_loss: true
+  architecture: dit-5B-d128
+  gradient_clip_schedule:
+    end_clip: 0.02
+  sensor_embedder_config:
+    max_global_channels: 2048

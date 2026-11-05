@@ -18,9 +18,17 @@ from typing import (
     get_origin,
 )
 import argparse
+import re
 
 
-__all__ = ["Help", "parse_args", "parse_dict", "a"]
+__all__ = [
+    "Help",
+    "parse_args",
+    "parse_dict",
+    "dataclass_field_type",
+    "yaml_float",
+    "a",
+]
 
 T = TypeVar("T")
 
@@ -70,6 +78,30 @@ def _handle_optional(t):
 
 def is_enum(T):
     return isinstance(T, Type) and issubclass(T, enum.Enum)
+
+
+def dataclass_field_type(t):
+    """The bare type of a field annotation: Annotated and Optional unwrapped."""
+    _, T, _ = _get_type_and_meta(t)
+    return T
+
+
+# A float literal YAML 1.1 reads as a string: "1e-4" (no dot) and "1.0e5" (no sign on the
+# exponent). PyYAML needs both, "1.0e-4".
+_FLOAT_LITERAL = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$")
+
+
+def yaml_float(x: float) -> str:
+    """``x`` as a float literal PyYAML reads as a float: a decimal point, a signed exponent."""
+    s = repr(float(x))
+    if "e" not in s:
+        return s
+    mantissa, exponent = s.split("e")
+    if "." not in mantissa:
+        mantissa += ".0"
+    if exponent[0] not in "+-":
+        exponent = "+" + exponent
+    return f"{mantissa}e{exponent}"
 
 
 def parse_args(
@@ -286,6 +318,18 @@ def parse_dict(opts: Type[T], obj: dict, strict: bool = True) -> T:
                         # back so both the check and the dataclass get a tuple.
                         if check_type is tuple and isinstance(value, list):
                             value = tuple(value)
+                        if check_type is float and type(value) is int:
+                            value = float(value)
+                        if (
+                            check_type is float
+                            and isinstance(value, str)
+                            and _FLOAT_LITERAL.match(value)
+                        ):
+                            raise ValueError(
+                                f"{field_name}: {value!r} was read as a string; YAML "
+                                "floats need a decimal point and a signed exponent, "
+                                f"e.g. {yaml_float(float(value))}"
+                            )
                         if not isinstance(value, check_type):
                             raise ValueError(field, "is not a", T)
                 init_kwargs[field_name] = value

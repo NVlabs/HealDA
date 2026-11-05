@@ -27,6 +27,18 @@ The entry points HealDA supports for use from other code. Everything else under
         - table_schema
         - validate
 
+## Training presets
+
+One YAML file per preset in `src/healda/configs/loops/`, each extending another, read by
+`healda-train --config`; `--verbose` prints the resolved loop in the same form.
+
+::: healda.training.presets
+    options:
+      members:
+        - load_preset
+        - load_preset_dir
+        - to_yaml
+
 ## Command-line entry points
 
 `healda-train` and `healda-inference-local` are the installed console scripts.

@@ -7,6 +7,7 @@ import functools
 import json
 import logging
 import os
+from pathlib import Path
 import warnings
 from typing import Any
 
@@ -16,6 +17,7 @@ import earth2grid.healpix as H
 import healda.models
 import healda.utils.profiling
 import healda.training.loop
+import healda.training.presets as presets
 import matplotlib.pyplot as plt
 import torch
 import torch.distributed
@@ -1612,6 +1614,13 @@ class TrainingLoop(loop.TrainingLoopBase):
 class CLI:
     name: str = ""
     output_dir: str = config.CHECKPOINT_ROOT
+    # The training configuration: a preset name, or the path of a preset YAML
+    # (healda.training.presets), which may extend a preset. --name names the run directory
+    # and the wandb run; it defaults to the preset name or the file's stem. Declared after
+    # output_dir: in the class body this name hides the environment module.
+    config: str = ""
+    # Print the resolved training loop as preset YAML, every field, before setup.
+    verbose: bool = False
     finetune_from: str = ""
     resume_dir: str = ""
     loop: TrainingLoop = dataclasses.field(
@@ -1654,185 +1663,16 @@ class _Loops(dict):
 LOOPS = _Loops()
 
 
-# UFS-replay observations, HPX64 ERA5 target.
+# Presets: one YAML per name in healda/configs/loops, each extending another, loaded here so
+# the registry is full by the time anything built on it is imported.
 UFS_HPX64 = "v2-videoDA-convMinP1hPa-plevelNorm-plevelConvChannels"
-LOOPS[UFS_HPX64] = TrainingLoop(
-    fix_time_parallel_rng=True,
-    architecture="dit-5B",
-    attention_backend="te",
-    backbone_pixel_attention=True,
-    compile_dit=True,
-    dit_qk_rms_norm=True,
-    emb_channels=128,
-    noise_channels=128,
-    time_length=8,
-    time_step=6,
-    time_parallel=8,
-    fsdp=False,
-    batch_size=4,
-    batch_gpu=1,
-    lr=2e-4,
-    lr_min=0.0,
-    flat_imgs=0,
-    decay_imgs=3_000_000,
-    loss_type="huber",
-    weight_decay=0.05,
-    weight_decay_biases=False,
-    drop_path=0.1,
-    drop_path_uniform=True,
-    drop_path_zero_first_n_blocks=4,
-    gradient_clip_max_norm=1.0,
-    gradient_clip_schedule=GradientClipSchedule(end_clip=0.015, nimg=50_000),
-    total_ticks=375,
-    steps_per_tick=2000,
-    snapshot_ticks=None,
-    state_dump_ticks=1,
-    valid_min_samples=32,
-    dataloader_num_workers=8,
-    dataloader_prefetch_factor=10,
-    obs_config=ObsConfig(
-        use_obs=True,
-        context_start=-3,
-        use_infrared_pca=True,
-        use_airs_pca=True,
-        use_conv=True,
-        conv_uv_in_situ_only=True,
-        conv_gps_level1_only=True,
-        conv_min_pressure_hpa=1.0,
-        use_conv_level_stats=True,
-        conv_level_channels=True,
-        drop_obs_channel_ids=[],
-    ),
-    sensor_embedder_config=SensorEmbedderConfig(
-        tokenizer_type="film",
-        use_fused_mlp=True,
-        use_channel_platform_embedding_table=True,
-        channel_embed_dim=16,
-        platform_embed_dim=8,
-        backbone_pixel_attn_num_heads=64,
-        pixel_attn_kv_heads=2,
-    ),
-)
-
-# NNJA obs, 104-channel HPX64 ERA5 target.
 NNJA_HPX64 = "v2-videoDA-nnja-nnjaConv-104ch-windDrop50"
-LOOPS[NNJA_HPX64] = dataclasses.replace(
-    LOOPS[UFS_HPX64],
-    dataset="era5_104ch",
-    channel_weight_config="step-cloudLandW-10hpa",
-    use_masked_domain_loss=True,
-    architecture="dit-5B-d128",
-    time_parallel=4,
-    fsdp=False,
-    fix_time_parallel_rng=False,
-    state_dump_ticks=2,
-    dataloader_num_workers=4,
-    gradient_clip_schedule=GradientClipSchedule(end_clip=0.02, nimg=50_000),
-    obs_config=dataclasses.replace(
-        LOOPS[UFS_HPX64].obs_config,
-        use_nnja_sat=True,
-        use_nnja_conv=True,
-        use_nnja_satwnd=True,
-        conv_uv_in_situ_only=False,
-        # Training-only dropout: 50% of ASCAT, aircraft and SATWND wind rows, and 20% of
-        # MetOp-B AMSU-A channels 3 and 6.
-        nnja_wind_dropout=0.5,
-        nnja_platform_channel_dropout=(
-            ("amsua", "metop-b", 3, 0.2),
-            ("amsua", "metop-b", 6, 0.2),
-        ),
-        ascat_only_scatterometer=True,
-    ),
-    sensor_embedder_config=dataclasses.replace(
-        LOOPS[UFS_HPX64].sensor_embedder_config,
-        max_global_channels=2048,
-    ),
-)
-
-# 0.25 degree model: 18-layer backbone with a lat-lon decode.
 NNJA_LATLON = "v2-videoDA-nnja-nnjaConv-104ch-windDrop50-latlon025-18L-baseL7-aga-tp8-dp018-obsAll"
-LOOPS[NNJA_LATLON] = dataclasses.replace(
-    LOOPS[NNJA_HPX64],
-    architecture="dit-5B-d128-18L-lev6",
-    latlon_decode=LatlonDecode(),
-    attention_backend="disk-nest:10.46",
-    time_parallel=8,
-    drop_path=0.1818,
-    fused_temporal_attn=2,
-    pixel_attn_impl=2,
-    ddp_bucket_cap_mb=100,
-    ddp_gradient_as_bucket_view=True,
-    dataloader_prefetch_factor=3,
-    state_dump_ticks=4,
-    gradient_clip_schedule=GradientClipSchedule(end_clip=0.025, nimg=50_000),
-    obs_config=dataclasses.replace(
-        LOOPS[NNJA_HPX64].obs_config,
-        nnja_gpsro_saids="full",
-        nnja_surface_winds=True,
-        ascat_only_scatterometer=False,
-    ),
-)
-
-# NNJA_LATLON with denser observations, observation position features and radiosonde
-# placement fixes:
-# - satellites thinned at HPX128 (was 64), SATWND at HPX64 (was 32), PrepBUFR quality
-#   marks up to 3 (was 2);
-# - each observation's offset within its HEALPix pixel and sin/cos longitude as inputs;
-# - radiosonde wind levels without a height take it from their pressure, and every
-#   level sits at its drifted balloon position and time instead of the launch site;
-# - a 14 degree attention disk (was 10.46) and an fp32 output head.
 NNJA_LATLON_DENSE_POS = (
     NNJA_LATLON + "-r14-thin128-satwnd64-qm3-sondeFill-drift-posfeat"
 )
-LOOPS[NNJA_LATLON_DENSE_POS] = dataclasses.replace(
-    LOOPS[NNJA_LATLON],
-    attention_backend="disk-nest:14",
-    latlon_decode=dataclasses.replace(
-        LOOPS[NNJA_LATLON].latlon_decode, fp32_output=True
-    ),
-    sensor_embedder_config=dataclasses.replace(
-        LOOPS[NNJA_LATLON].sensor_embedder_config, features_position=True
-    ),
-    obs_config=dataclasses.replace(
-        LOOPS[NNJA_LATLON].obs_config,
-        nnja_sat_thin_hpx_level=7,
-        nnja_satwnd_thin_hpx_level=6,
-        nnja_max_quality_mark=3,
-        nnja_pressure_height_fill="sonde",
-        nnja_balloon_drift=True,
-    ),
-)
-
-# Short names.
-LOOPS["v2-ufs-hpx64"] = LOOPS[UFS_HPX64]
-LOOPS["v2-nnja-hpx64"] = LOOPS[NNJA_HPX64]
-LOOPS["v2-nnja-latlon-dense"] = LOOPS[NNJA_LATLON_DENSE_POS]  # HealDA v2, released
-LOOPS["v2-nnja-latlon-beta"] = LOOPS[NNJA_LATLON]  # HealDA v2 beta
-# Earlier name of v2-nnja-latlon-beta. Runs launched under it keep their run directory,
-# which is named after --name.
-LOOPS["v2-nnja-latlon-final"] = LOOPS[NNJA_LATLON]
-
-# End-to-end training smoke test of HealDA v2 at reduced depth and time length 1, on one GPU.
-LOOPS["debug-single-gpu"] = dataclasses.replace(
-    LOOPS[NNJA_LATLON_DENSE_POS],
-    architecture="dit-5B-d128-2L-lev6",
-    fsdp=False,
-    time_parallel=1,
-    space_parallel=1,
-    time_length=1,
-    batch_size=1,
-    gradient_checkpointing=2,
-    gradient_checkpointing_last_n=0,
-    dataloader_num_workers=0,
-    compile_dit=False,
-    compile_optimizer=False,
-    print_steps=1,
-    total_ticks=1,
-    steps_per_tick=50,
-    state_dump_ticks=1,
-    valid_min_samples=1,
-    test_with_single_batch=True,
-)
+for _name, _loop in presets.load_preset_dir(presets.DEFAULT_DIR, TrainingLoop).items():
+    LOOPS[_name] = _loop
 
 
 SMOKE_SUFFIX = "-smoke"
@@ -1873,11 +1713,24 @@ def main():
         logging.basicConfig(level=logging.INFO)
         healda.training.loop.logger.setLevel(level=logging.DEBUG)
 
+    if cli.config in LOOPS:
+        loop = LOOPS[cli.config]
+        cli.name = cli.name or cli.config
+        dist.print0(f"Using preset {cli.config}.")
+    elif cli.config:
+        loop, _ = presets.load_preset(cli.config, TrainingLoop, LOOPS)
+        cli.name = cli.name or Path(cli.config).stem
+        dist.print0(f"Using preset file {cli.config}.")
     name = cli.name.removesuffix(SMOKE_SUFFIX)
-    try:
+    if cli.config:
+        if name in LOOPS and LOOPS[name] is not loop:
+            # The run directory and wandb run are named after it; a different config under
+            # a preset's name would be indistinguishable from that preset.
+            raise ValueError(f"--name {name!r} is a preset; use another name")
+    elif name in LOOPS:
         dist.print0(f"Using {name=} preset.")
         loop = LOOPS[name]
-    except KeyError:
+    else:
         dist.print0("Using --loop command line arguments")
         loop = cli.loop
 
@@ -1885,6 +1738,8 @@ def main():
         loop = as_smoke(loop)
         dist.print0(f"Smoke run: {loop.batch_size=} {loop.time_parallel=}")
 
+    if cli.verbose:
+        dist.print0(presets.to_yaml(loop))
     loop.run_dir = os.path.join(cli.output_dir, cli.name)
     if cli.finetune_from:
         loop.finetune_from = cli.finetune_from

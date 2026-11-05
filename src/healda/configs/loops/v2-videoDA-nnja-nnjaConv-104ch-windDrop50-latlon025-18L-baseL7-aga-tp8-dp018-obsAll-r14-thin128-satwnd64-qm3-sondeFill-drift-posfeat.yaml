@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# HealDA v2, released. The beta preset with denser observations, observation
+# position features and radiosonde placement fixes:
+# - satellites thinned at HPX128 (was 64), SATWND at HPX64 (was 32), PrepBUFR quality
+#   marks up to 3 (was 2);
+# - each observation's offset within its HEALPix pixel and sin/cos longitude as inputs;
+# - radiosonde wind levels without a height take it from their pressure, and every
+#   level sits at its drifted balloon position and time instead of the launch site;
+# - a 14 degree attention disk (was 10.46) and an fp32 output head.
+aliases:
+- v2-nnja-latlon-dense
+extends: v2-nnja-latlon-beta
+loop:
+  obs_config:
+    nnja_balloon_drift: true
+    nnja_pressure_height_fill: sonde
+    nnja_sat_thin_hpx_level: 7
+    nnja_max_quality_mark: 3
+    nnja_satwnd_thin_hpx_level: 6
+  sensor_embedder_config:
+    features_position: true
+  attention_backend: disk-nest:14
+  latlon_decode:
+    fp32_output: true
